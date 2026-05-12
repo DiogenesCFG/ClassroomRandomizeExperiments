@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block title %}Host Dashboard{% endblock %}
+
+{% block head %}
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+    .sidebar {
+        max-height: calc(100vh - 120px);
+        overflow-y: auto;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Sidebar: Survey List -->
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <strong>Surveys</strong>
+                <span class="badge bg-primary" id="participant-badge">0 students</span>
+            </div>
+            <div class="list-group list-group-flush sidebar" id="survey-list">
+                {% for s in surveys %}
+                <button class="list-group-item list-group-item-action survey-list-item"
+                        data-survey-id="{{ s.id }}" data-group-number="{{ s.group_number }}">
+                    <strong>#{{ s.group_number }}</strong> {{ s.title }}
+                    <br>
+                    <small class="text-muted">
+                        {% if s.question_type == 'multiple_choice' %}MC{% else %}Numeric{% endif %}
+                    </small>
+                </button>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="d-grid gap-2 mt-3">
+            <button class="btn btn-success btn-lg" id="btn-next">Next Survey</button>
+            <button class="btn btn-outline-danger btn-sm" id="btn-reset">Reset Session</button>
+            <a href="/download/all?token={{ token }}" class="btn btn-outline-primary btn-sm">Download All Data (CSV)</a>
+            <a href="/download/surveys-config?token={{ token }}" class="btn btn-outline-secondary btn-sm">Download Survey Configs</a>
+        </div>
+    </div>
+
+    <!-- Main: Results Display -->
+    <div class="col-md-9">
+        <div id="no-survey-msg" class="text-center text-muted mt-5">
+            <h4>No survey active</h4>
+            <p>Click a survey on the left or press "Next Survey" to begin.</p>
+        </div>
+
+        <div id="results-panel" style="display:none">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div>
+                    <h3 id="result-title"></h3>
+                    <span class="text-muted">Group #<span id="result-group"></span></span>
+                </div>
+                <div class="text-end">
+                    <span class="badge bg-success fs-6" id="response-count">0 responses</span>
+                </div>
+            </div>
+
+            <!-- Chart for MC -->
+            <div id="mc-chart-container" class="chart-container" style="display:none">
+                <canvas id="mc-chart"></canvas>
+            </div>
+
+            <!-- Stats for Numeric -->
+            <div id="numeric-results-container" style="display:none">
+                <div class="chart-container mb-4">
+                    <canvas id="numeric-chart"></canvas>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-bordered" id="stats-table">
+                        <thead>
+                            <tr>
+                                <th>Arm</th>
+                                <th>N</th>
+                                <th>Mean</th>
+                                <th>Median</th>
+                                <th>Std Dev</th>
+                                <th>Min</th>
+                                <th>Max</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Arms detail: show what each arm asked -->
+            <div class="mt-4">
+                <h5>Questions by Arm</h5>
+                <div id="arms-detail" class="row"></div>
+            </div>
+        </div>
+
+        <!-- All done message -->
+        <div id="all-done-msg" style="display:none" class="text-center mt-5">
+            <h3 class="text-success">All surveys completed!</h3>
+            <p>You can download the results using the button on the left.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const HOST_TOKEN = "{{ token }}";
+</script>
+<script src="{{ url_for('static', filename='js/host.js') }}"></script>
+{% endblock %}

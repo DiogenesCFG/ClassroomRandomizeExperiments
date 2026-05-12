@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}All Surveys{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>All Surveys</h2>
+    <a href="{{ url_for('builder.new') }}" class="btn btn-primary">+ New Survey</a>
+</div>
+
+{% if surveys %}
+<div class="table-responsive">
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Group #</th>
+                <th>Title</th>
+                <th>Type</th>
+                <th>Created</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in surveys %}
+            <tr>
+                <td>{{ s.group_number }}</td>
+                <td>{{ s.title }}</td>
+                <td>
+                    {% if s.question_type == 'multiple_choice' %}
+                    <span class="badge bg-info">Multiple Choice</span>
+                    {% else %}
+                    <span class="badge bg-secondary">Numeric</span>
+                    {% endif %}
+                </td>
+                <td>{{ s.created_at }}</td>
+                <td>
+                    <a href="{{ url_for('builder.edit', survey_id=s.id) }}" class="btn btn-sm btn-outline-primary">Edit</a>
+                    {% if is_host %}
+                    <form method="POST" action="{{ url_for('builder.delete', survey_id=s.id) }}" class="d-inline"
+                          onsubmit="return confirm('Delete this survey?')">
+                        <input type="hidden" name="host_token" value="{{ request.args.get('token', '') }}">
+                        <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                    </form>
+                    {% else %}
+                    <form method="POST" action="{{ url_for('builder.delete', survey_id=s.id) }}" class="d-inline"
+                          onsubmit="var pw = prompt('Enter your survey password to delete:'); if (!pw) return false; this.querySelector('[name=password]').value = pw; return confirm('Are you sure you want to delete this survey?');">
+                        <input type="hidden" name="password" value="">
+                        <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="text-center text-muted mt-5">
+    <p class="lead">No surveys yet. Click "New Survey" to create one.</p>
+</div>
+{% endif %}
+{% endblock %}

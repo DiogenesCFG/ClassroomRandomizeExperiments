@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}Classroom Experiments{% endblock %}
+
+{% block content %}
+<div class="text-center mt-5">
+    <h1 class="mb-4">Behavioral Economics Experiments</h1>
+    <p class="lead mb-5">Create randomized experiments and run them live in class.</p>
+
+    <div class="row justify-content-center g-4">
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body d-flex flex-column">
+                    <h3 class="card-title">Build a Survey</h3>
+                    <p class="card-text flex-grow-1">Create your group's experiment with treatment and control questions.</p>
+                    <a href="/builder" class="btn btn-primary btn-lg mt-3">Go to Builder</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body d-flex flex-column">
+                    <h3 class="card-title">Join as Student</h3>
+                    <p class="card-text flex-grow-1">Participate in live experiments during class.</p>
+                    <a href="/student" class="btn btn-success btn-lg mt-3">Join Session</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body d-flex flex-column">
+                    <h3 class="card-title">Host Dashboard</h3>
+                    <p class="card-text flex-grow-1">Control the session and view live results.</p>
+                    <a href="/host" class="btn btn-warning btn-lg mt-3">Host Panel</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

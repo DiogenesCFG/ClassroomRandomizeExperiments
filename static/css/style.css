@@ -1,0 +1,58 @@
+/* Waiting screen pulse animation */
+.pulse {
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* Student session states */
+.state-panel {
+    display: none;
+}
+
+.state-panel.active {
+    display: block;
+}
+
+/* Mobile-friendly touch targets */
+@media (max-width: 768px) {
+    .btn-answer {
+        font-size: 1.2rem;
+        padding: 1rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .question-text {
+        font-size: 1.3rem;
+    }
+}
+
+/* Host dashboard */
+.survey-list-item {
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.survey-list-item:hover {
+    background-color: #f8f9fa;
+}
+
+.survey-list-item.active-survey {
+    background-color: #d4edda;
+    border-color: #28a745;
+}
+
+.survey-list-item.completed-survey {
+    background-color: #cce5ff;
+}
+
+/* Chart container */
+.chart-container {
+    position: relative;
+    width: 100%;
+    max-width: 800px;
+    margin: 0 auto;
+}

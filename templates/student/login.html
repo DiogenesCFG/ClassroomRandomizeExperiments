@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}Join Session{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-6 col-lg-4">
+        <h2 class="text-center mb-4">Join Experiment Session</h2>
+        <form method="POST">
+            <div class="mb-3">
+                <label for="name" class="form-label">Your Name</label>
+                <input type="text" class="form-control form-control-lg" id="name" name="name"
+                       placeholder="e.g., Jane Smith" required autofocus>
+            </div>
+            <div class="mb-4">
+                <label for="student_id" class="form-label">Student ID</label>
+                <input type="text" class="form-control form-control-lg" id="student_id" name="student_id"
+                       placeholder="e.g., 12345678" required>
+            </div>
+            <button type="submit" class="btn btn-success btn-lg w-100">Join</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

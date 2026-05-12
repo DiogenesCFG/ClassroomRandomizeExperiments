@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+
+{% block title %}{% if mode == 'edit' %}Edit Survey{% else %}New Survey{% endif %}{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">{% if mode == 'edit' %}Edit Survey{% else %}Create New Survey{% endif %}</h2>
+
+<form method="POST" id="survey-form">
+    <div class="card mb-4">
+        <div class="card-header"><strong>Survey Details</strong></div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-2">
+                    <label for="group_number" class="form-label">Group #</label>
+                    <input type="number" class="form-control" id="group_number" name="group_number"
+                           value="{{ group_number }}" required min="1" max="99">
+                </div>
+                <div class="col-md-7">
+                    <label for="title" class="form-label">Survey Title</label>
+                    <input type="text" class="form-control" id="title" name="title"
+                           value="{{ title }}" required placeholder="e.g., Anchoring Effect on Price Estimates">
+                </div>
+                <div class="col-md-3">
+                    <label for="question_type" class="form-label">Question Type</label>
+                    <select class="form-select" id="question_type" name="question_type">
+                        <option value="multiple_choice" {% if question_type == 'multiple_choice' %}selected{% endif %}>Multiple Choice</option>
+                        <option value="numeric" {% if question_type == 'numeric' %}selected{% endif %}>Numeric</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <strong>Arms (Treatment/Control Groups)</strong>
+            <button type="button" class="btn btn-sm btn-outline-success" id="add-arm-btn">+ Add Arm</button>
+        </div>
+        <div class="card-body" id="arms-container">
+            {% for arm in arms %}
+            {% set arm_idx = loop.index0 %}
+            <div class="arm-block border rounded p-3 mb-3" data-arm-index="{{ arm_idx }}">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="mb-0">Arm {{ loop.index }}</h6>
+                    {% if loop.length > 2 %}
+                    <button type="button" class="btn btn-sm btn-outline-danger remove-arm-btn">Remove</button>
+                    {% endif %}
+                </div>
+                <div class="row g-2 mb-2">
+                    <div class="col-md-3">
+                        <input type="text" class="form-control" name="arms[{{ arm_idx }}][label]"
+                               value="{{ arm.label }}" placeholder="e.g., Control" required>
+                    </div>
+                    <div class="col-md-9">
+                        <input type="text" class="form-control" name="arms[{{ arm_idx }}][question_text]"
+                               value="{{ arm.question_text }}" placeholder="Question text for this arm" required>
+                    </div>
+                </div>
+                <div class="options-section" {% if question_type != 'multiple_choice' %}style="display:none"{% endif %}>
+                    <label class="form-label text-muted small">Answer Options:</label>
+                    <div class="options-container">
+                        {% for opt in arm.options %}
+                        <div class="input-group mb-1 option-row">
+                            <input type="text" class="form-control form-control-sm"
+                                   name="arms[{{ arm_idx }}][options][{{ loop.index0 }}]"
+                                   value="{{ opt }}" placeholder="Option {{ loop.index }}">
+                            <button type="button" class="btn btn-sm btn-outline-danger remove-option-btn"
+                                    {% if loop.length <= 2 %}style="display:none"{% endif %}>x</button>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-secondary add-option-btn mt-1">+ Add Option</button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <strong>Group Members</strong>
+            <button type="button" class="btn btn-sm btn-outline-success" id="add-member-btn">+ Add Member</button>
+        </div>
+        <div class="card-body" id="members-container">
+            {% for member in members %}
+            <div class="row g-2 mb-2 member-row">
+                <div class="col-md-5">
+                    <input type="text" class="form-control" name="members[{{ loop.index0 }}][name]"
+                           value="{{ member.name }}" placeholder="Student Name" required>
+                </div>
+                <div class="col-md-5">
+                    <input type="text" class="form-control" name="members[{{ loop.index0 }}][sis_code]"
+                           value="{{ member.sis_code }}" placeholder="SIS Code" required>
+                </div>
+                <div class="col-md-2">
+                    {% if loop.length > 1 %}
+                    <button type="button" class="btn btn-outline-danger remove-member-btn">Remove</button>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header"><strong>Survey Password</strong></div>
+        <div class="card-body">
+            {% if mode == 'new' %}
+            <p class="text-muted small">Choose a password for your group. You'll need this to edit or delete your survey later.</p>
+            <input type="password" class="form-control" name="password" placeholder="Choose a password" required>
+            {% elif is_host %}
+            <p class="text-muted small">You are editing as the host (no password needed).</p>
+            {% else %}
+            <p class="text-muted small">Enter your survey password to save changes.</p>
+            <input type="password" class="form-control" name="password" placeholder="Enter your survey password" required>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="d-flex gap-2 mb-5">
+        <button type="submit" class="btn btn-primary btn-lg">
+            {% if mode == 'edit' %}Update Survey{% else %}Create Survey{% endif %}
+        </button>
+        <a href="{{ url_for('builder.index') }}" class="btn btn-outline-secondary btn-lg">Cancel</a>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/builder.js') }}"></script>
+{% endblock %}
