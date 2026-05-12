@@ -16,9 +16,13 @@ def create_app():
     socketio.init_app(app, async_mode='threading', cors_allowed_origins='*')
 
     # Initialize database
-    from models.db import close_db, init_db_command
+    from models.db import close_db, init_db_command, init_db
     app.teardown_appcontext(close_db)
     app.cli.add_command(init_db_command)
+
+    # Auto-create tables on startup if they don't exist
+    with app.app_context():
+        init_db()
 
     # Register blueprints
     from routes import register_blueprints
