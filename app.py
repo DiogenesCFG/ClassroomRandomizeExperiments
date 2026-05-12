@@ -29,3 +29,7 @@ def create_app():
     register_events(socketio)
 
     return app
+
+
+# Module-level app instance for gunicorn (gunicorn app:app)
+app = create_app()
