@@ -3,10 +3,12 @@ services:
     name: classroom-experiments
     runtime: python
     buildCommand: "./build.sh"
-    startCommand: "gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:$PORT 'app:create_app()'"
+    startCommand: "gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:$PORT app:app"
     envVars:
       - key: SECRET_KEY
         generateValue: true
+      - key: ASYNC_MODE
+        value: eventlet
       - key: DATABASE_PATH
         value: /data/app.db
       - key: PYTHON_VERSION

@@ -95,7 +95,10 @@
 
             <!-- Arms detail: show what each arm asked -->
             <div class="mt-4">
-                <h5>Questions by Arm</h5>
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <h5 class="mb-0">Questions by Arm</h5>
+                    <button class="btn btn-sm btn-outline-secondary" id="toggle-arms" onclick="var d=document.getElementById('arms-detail');var b=this;if(d.style.display==='none'){d.style.display='';b.textContent='Hide'}else{d.style.display='none';b.textContent='Show'}">Hide</button>
+                </div>
                 <div id="arms-detail" class="row"></div>
             </div>
         </div>

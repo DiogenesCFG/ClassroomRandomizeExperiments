@@ -2,6 +2,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const socket = io();
     let currentSurveyId = null;
     let currentArmId = null;
+    let selectedMCAnswer = null;
+    let selectedMCIndex = null;
 
     // State management
     function showState(state) {
@@ -38,6 +40,8 @@ document.addEventListener('DOMContentLoaded', function() {
     socket.on('assignment', function(data) {
         currentSurveyId = data.survey_id;
         currentArmId = data.arm_id;
+        selectedMCAnswer = null;
+        selectedMCIndex = null;
 
         document.getElementById('q-group-number').textContent = data.group_number;
         document.getElementById('q-title').textContent = data.title;
@@ -46,6 +50,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (data.question_type === 'multiple_choice') {
             document.getElementById('mc-options').style.display = '';
             document.getElementById('numeric-input').style.display = 'none';
+            document.getElementById('submit-mc').style.display = 'none';
 
             const container = document.getElementById('mc-buttons');
             container.innerHTML = '';
@@ -54,7 +59,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 btn.className = 'btn btn-outline-primary btn-lg btn-answer';
                 btn.textContent = opt;
                 btn.addEventListener('click', function() {
-                    submitAnswer(opt, idx);
+                    // Select this option (highlight it), don't submit yet
+                    selectedMCAnswer = opt;
+                    selectedMCIndex = idx;
+                    container.querySelectorAll('.btn-answer').forEach(function(b) {
+                        b.classList.remove('btn-primary');
+                        b.classList.add('btn-outline-primary');
+                    });
+                    btn.classList.remove('btn-outline-primary');
+                    btn.classList.add('btn-primary');
+                    document.getElementById('submit-mc').style.display = '';
                 });
                 container.appendChild(btn);
             });
@@ -65,6 +79,15 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         showState('answering');
+    });
+
+    // Submit MC answer via confirm button
+    document.getElementById('submit-mc').addEventListener('click', function() {
+        if (selectedMCAnswer === null) {
+            alert('Please select an option first.');
+            return;
+        }
+        submitAnswer(selectedMCAnswer, selectedMCIndex);
     });
 
     // Submit numeric answer
@@ -110,6 +133,8 @@ document.addEventListener('DOMContentLoaded', function() {
     socket.on('survey_deactivated', function() {
         currentSurveyId = null;
         currentArmId = null;
+        selectedMCAnswer = null;
+        selectedMCIndex = null;
         showState('waiting');
     });
 });
