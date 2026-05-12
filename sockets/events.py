@@ -118,7 +118,11 @@ def _get_aggregated_results(db, survey_id):
 
         result['arms'].append(arm_data)
 
-    participant_count = db.execute('SELECT COUNT(*) as cnt FROM participant').fetchone()['cnt']
+    # Get participant count scoped to the survey's classroom
+    classroom_id = survey['classroom_id']
+    participant_count = db.execute(
+        'SELECT COUNT(*) as cnt FROM participant WHERE classroom_id=?', (classroom_id,)
+    ).fetchone()['cnt']
     result['participant_count'] = participant_count
 
     return result
@@ -129,12 +133,15 @@ def handle_join_student(data):
     """Student connects to the session."""
     participant_id = data.get('participant_id')
     student_id = data.get('student_id')
-    join_room('students')
+    classroom_id = data.get('classroom_id')
+    join_room(f'students_{classroom_id}')
 
     db = get_socket_db()
     try:
-        # Check if there's an active survey
-        active = db.execute('SELECT * FROM survey WHERE is_active=1').fetchone()
+        # Check if there's an active survey in this classroom
+        active = db.execute(
+            'SELECT * FROM survey WHERE is_active=1 AND classroom_id=?', (classroom_id,)
+        ).fetchone()
         if active:
             survey_data = _get_survey_with_arms(db, active['id'])
             if survey_data:
@@ -153,9 +160,11 @@ def handle_join_student(data):
         else:
             emit('waiting', {})
 
-        # Broadcast updated participant count to host
-        count = db.execute('SELECT COUNT(*) as cnt FROM participant').fetchone()['cnt']
-        emit('participant_count', {'count': count}, room='host')
+        # Broadcast updated participant count to host room for this classroom
+        count = db.execute(
+            'SELECT COUNT(*) as cnt FROM participant WHERE classroom_id=?', (classroom_id,)
+        ).fetchone()['cnt']
+        emit('participant_count', {'count': count}, room=f'host_{classroom_id}')
     finally:
         db.close()
 
@@ -163,15 +172,20 @@ def handle_join_student(data):
 @socketio.on('join_host')
 def handle_join_host(data):
     """Host connects to the dashboard."""
-    join_room('host')
+    classroom_id = data.get('classroom_id')
+    join_room(f'host_{classroom_id}')
 
     db = get_socket_db()
     try:
-        count = db.execute('SELECT COUNT(*) as cnt FROM participant').fetchone()['cnt']
+        count = db.execute(
+            'SELECT COUNT(*) as cnt FROM participant WHERE classroom_id=?', (classroom_id,)
+        ).fetchone()['cnt']
         emit('participant_count', {'count': count})
 
         # Send current active survey results if any
-        active = db.execute('SELECT * FROM survey WHERE is_active=1').fetchone()
+        active = db.execute(
+            'SELECT * FROM survey WHERE is_active=1 AND classroom_id=?', (classroom_id,)
+        ).fetchone()
         if active:
             results = _get_aggregated_results(db, active['id'])
             if results:
@@ -184,11 +198,12 @@ def handle_join_host(data):
 def handle_activate_survey(data):
     """Host activates a survey."""
     survey_id = data.get('survey_id')
+    classroom_id = data.get('classroom_id')
 
     db = get_socket_db()
     try:
-        # Deactivate all, activate this one
-        db.execute('UPDATE survey SET is_active=0 WHERE is_active=1')
+        # Deactivate all in this classroom, activate this one
+        db.execute('UPDATE survey SET is_active=0 WHERE is_active=1 AND classroom_id=?', (classroom_id,))
         db.execute('UPDATE survey SET is_active=1 WHERE id=?', (survey_id,))
         db.commit()
 
@@ -198,16 +213,16 @@ def handle_activate_survey(data):
 
         survey, arms = survey_data
 
-        # Notify all students
+        # Notify all students in this classroom
         emit('survey_activated', {
             'survey_id': survey_id,
             'group_number': survey['group_number'],
             'title': survey['title'],
-        }, room='students')
+        }, room=f'students_{classroom_id}')
 
         # Send initial (empty) results to host
         results = _get_aggregated_results(db, survey_id)
-        emit('results_update', results, room='host')
+        emit('results_update', results, room=f'host_{classroom_id}')
     finally:
         db.close()
 
@@ -250,6 +265,7 @@ def handle_submit_answer(data):
     arm_id = data.get('arm_id')
     answer_text = data.get('answer_text')
     answer_index = data.get('answer_index')
+    classroom_id = data.get('classroom_id')
 
     db = get_socket_db()
     try:
@@ -265,10 +281,10 @@ def handle_submit_answer(data):
             emit('already_answered', {'survey_id': survey_id})
             return
 
-        # Broadcast updated results to host
+        # Broadcast updated results to host for this classroom
         results = _get_aggregated_results(db, survey_id)
         if results:
-            emit('results_update', results, room='host')
+            emit('results_update', results, room=f'host_{classroom_id}')
     finally:
         db.close()
 
@@ -276,13 +292,17 @@ def handle_submit_answer(data):
 @socketio.on('next_survey')
 def handle_next_survey(data):
     """Host advances to the next survey."""
+    classroom_id = data.get('classroom_id')
+
     db = get_socket_db()
     try:
-        current = db.execute('SELECT * FROM survey WHERE is_active=1').fetchone()
+        current = db.execute(
+            'SELECT * FROM survey WHERE is_active=1 AND classroom_id=?', (classroom_id,)
+        ).fetchone()
         if current:
             next_row = db.execute(
-                'SELECT id FROM survey WHERE group_number > ? ORDER BY group_number LIMIT 1',
-                (current['group_number'],),
+                'SELECT id FROM survey WHERE group_number > ? AND classroom_id=? ORDER BY group_number LIMIT 1',
+                (current['group_number'], classroom_id),
             ).fetchone()
 
             # Deactivate current
@@ -301,20 +321,23 @@ def handle_next_survey(data):
                         'survey_id': next_row['id'],
                         'group_number': survey['group_number'],
                         'title': survey['title'],
-                    }, room='students')
+                    }, room=f'students_{classroom_id}')
 
                     results = _get_aggregated_results(db, next_row['id'])
-                    emit('results_update', results, room='host')
-                    emit('survey_changed', {'survey_id': next_row['id']}, room='host')
+                    emit('results_update', results, room=f'host_{classroom_id}')
+                    emit('survey_changed', {'survey_id': next_row['id']}, room=f'host_{classroom_id}')
             else:
                 # No more surveys
-                emit('survey_deactivated', {}, room='students')
-                emit('all_done', {}, room='host')
+                emit('survey_deactivated', {}, room=f'students_{classroom_id}')
+                emit('all_done', {}, room=f'host_{classroom_id}')
         else:
-            # No active survey; activate the first one
-            first = db.execute('SELECT id FROM survey ORDER BY group_number LIMIT 1').fetchone()
+            # No active survey; activate the first one in this classroom
+            first = db.execute(
+                'SELECT id FROM survey WHERE classroom_id=? ORDER BY group_number LIMIT 1',
+                (classroom_id,),
+            ).fetchone()
             if first:
-                handle_activate_survey({'survey_id': first['id']})
+                handle_activate_survey({'survey_id': first['id'], 'classroom_id': classroom_id})
     finally:
         db.close()
 
@@ -322,11 +345,13 @@ def handle_next_survey(data):
 @socketio.on('deactivate_all')
 def handle_deactivate_all(data):
     """Host resets the session."""
+    classroom_id = data.get('classroom_id')
+
     db = get_socket_db()
     try:
-        db.execute('UPDATE survey SET is_active=0 WHERE is_active=1')
+        db.execute('UPDATE survey SET is_active=0 WHERE is_active=1 AND classroom_id=?', (classroom_id,))
         db.commit()
-        emit('survey_deactivated', {}, room='students')
-        emit('session_reset', {}, room='host')
+        emit('survey_deactivated', {}, room=f'students_{classroom_id}')
+        emit('session_reset', {}, room=f'host_{classroom_id}')
     finally:
         db.close()

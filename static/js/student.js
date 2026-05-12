@@ -13,7 +13,8 @@ document.addEventListener('DOMContentLoaded', function() {
     socket.on('connect', function() {
         socket.emit('join_student', {
             participant_id: PARTICIPANT_ID,
-            student_id: STUDENT_ID
+            student_id: STUDENT_ID,
+            classroom_id: CLASSROOM_ID
         });
     });
 
@@ -28,7 +29,8 @@ document.addEventListener('DOMContentLoaded', function() {
         socket.emit('request_assignment', {
             participant_id: PARTICIPANT_ID,
             student_id: STUDENT_ID,
-            survey_id: data.survey_id
+            survey_id: data.survey_id,
+            classroom_id: CLASSROOM_ID
         });
     });
 
@@ -88,7 +90,8 @@ document.addEventListener('DOMContentLoaded', function() {
             survey_id: currentSurveyId,
             arm_id: currentArmId,
             answer_text: String(answerText),
-            answer_index: answerIndex
+            answer_index: answerIndex,
+            classroom_id: CLASSROOM_ID
         });
         showState('submitted');
     }

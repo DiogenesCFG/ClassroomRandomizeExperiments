@@ -4,8 +4,8 @@ import io
 from models.db import get_db
 
 
-def export_all_responses_csv():
-    """Export all responses as a flat CSV. Returns a string."""
+def export_all_responses_csv(classroom_id):
+    """Export all responses for a classroom as a flat CSV. Returns a string."""
     db = get_db()
     rows = db.execute('''
         SELECT
@@ -23,8 +23,9 @@ def export_all_responses_csv():
         JOIN survey s ON r.survey_id = s.id
         JOIN survey_arm sa ON r.arm_id = sa.id
         JOIN participant p ON r.participant_id = p.id
+        WHERE s.classroom_id = ?
         ORDER BY s.group_number, sa.arm_index, r.answered_at
-    ''').fetchall()
+    ''', (classroom_id,)).fetchall()
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -45,8 +46,8 @@ def export_all_responses_csv():
     return output.getvalue()
 
 
-def export_surveys_config_csv():
-    """Export survey configurations (groups, members, arms, options) as CSV."""
+def export_surveys_config_csv(classroom_id):
+    """Export survey configurations for a classroom as CSV."""
     db = get_db()
 
     output = io.StringIO()
@@ -58,7 +59,9 @@ def export_surveys_config_csv():
         'option_index', 'option_text'
     ])
 
-    surveys = db.execute('SELECT * FROM survey ORDER BY group_number').fetchall()
+    surveys = db.execute(
+        'SELECT * FROM survey WHERE classroom_id=? ORDER BY group_number', (classroom_id,)
+    ).fetchall()
     for survey in surveys:
         members = db.execute(
             'SELECT * FROM group_member WHERE survey_id=?', (survey['id'],)
@@ -67,8 +70,6 @@ def export_surveys_config_csv():
             'SELECT * FROM survey_arm WHERE survey_id=? ORDER BY arm_index', (survey['id'],)
         ).fetchall()
 
-        # Write one row per (member x arm x option) combination
-        # If no options (numeric), just write arm info
         for arm in arms:
             options = db.execute(
                 'SELECT * FROM arm_option WHERE arm_id=? ORDER BY option_index', (arm['id'],)
@@ -95,10 +96,12 @@ def export_surveys_config_csv():
     return output.getvalue()
 
 
-def export_participants_csv():
-    """Export all participants as CSV."""
+def export_participants_csv(classroom_id):
+    """Export all participants for a classroom as CSV."""
     db = get_db()
-    rows = db.execute('SELECT * FROM participant ORDER BY name').fetchall()
+    rows = db.execute(
+        'SELECT * FROM participant WHERE classroom_id=? ORDER BY name', (classroom_id,)
+    ).fetchall()
 
     output = io.StringIO()
     writer = csv.writer(output)

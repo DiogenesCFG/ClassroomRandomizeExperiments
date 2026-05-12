@@ -54,6 +54,18 @@ def init_db():
     except sqlite3.OperationalError:
         pass  # Column already exists
 
+    try:
+        db.execute('ALTER TABLE survey ADD COLUMN classroom_id INTEGER NOT NULL DEFAULT 0')
+        db.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        db.execute('ALTER TABLE participant ADD COLUMN classroom_id INTEGER NOT NULL DEFAULT 0')
+        db.commit()
+    except sqlite3.OperationalError:
+        pass
+
 
 @click.command('init-db')
 def init_db_command():

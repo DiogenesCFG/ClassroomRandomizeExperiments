@@ -121,7 +121,7 @@
         <button type="submit" class="btn btn-primary btn-lg">
             {% if mode == 'edit' %}Update Survey{% else %}Create Survey{% endif %}
         </button>
-        <a href="{{ url_for('builder.index') }}" class="btn btn-outline-secondary btn-lg">Cancel</a>
+        <a href="{{ url_for('builder.index', code=classroom.code) }}" class="btn btn-outline-secondary btn-lg">Cancel</a>
     </div>
 </form>
 {% endblock %}

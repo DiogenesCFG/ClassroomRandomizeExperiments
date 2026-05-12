@@ -19,7 +19,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Connect as host
     socket.on('connect', function() {
-        socket.emit('join_host', { token: HOST_TOKEN });
+        socket.emit('join_host', { classroom_id: CLASSROOM_ID });
     });
 
     // Participant count
@@ -31,20 +31,20 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.survey-list-item').forEach(function(item) {
         item.addEventListener('click', function() {
             const surveyId = parseInt(this.dataset.surveyId);
-            socket.emit('activate_survey', { survey_id: surveyId });
+            socket.emit('activate_survey', { survey_id: surveyId, classroom_id: CLASSROOM_ID });
             setActiveSurvey(surveyId);
         });
     });
 
     // Next survey button
     document.getElementById('btn-next').addEventListener('click', function() {
-        socket.emit('next_survey', {});
+        socket.emit('next_survey', { classroom_id: CLASSROOM_ID });
     });
 
     // Reset button
     document.getElementById('btn-reset').addEventListener('click', function() {
         if (confirm('Reset the session? This will deactivate all surveys (data is preserved).')) {
-            socket.emit('deactivate_all', {});
+            socket.emit('deactivate_all', { classroom_id: CLASSROOM_ID });
         }
     });
 

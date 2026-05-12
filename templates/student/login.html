@@ -1,11 +1,12 @@
 {% extends "base.html" %}
 
-{% block title %}Join Session{% endblock %}
+{% block title %}Join Session - {{ classroom.name }}{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center mt-5">
     <div class="col-md-6 col-lg-4">
         <h2 class="text-center mb-4">Join Experiment Session</h2>
+        <p class="text-center text-muted mb-4">{{ classroom.name }}</p>
         <form method="POST">
             <div class="mb-3">
                 <label for="name" class="form-label">Your Name</label>

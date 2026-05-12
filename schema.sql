@@ -1,12 +1,22 @@
+CREATE TABLE IF NOT EXISTS classroom (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    code               TEXT NOT NULL UNIQUE,
+    name               TEXT NOT NULL,
+    host_password_hash TEXT NOT NULL,
+    created_at         TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS survey (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    group_number    INTEGER NOT NULL UNIQUE,
+    classroom_id    INTEGER NOT NULL REFERENCES classroom(id) ON DELETE CASCADE,
+    group_number    INTEGER NOT NULL,
     title           TEXT NOT NULL,
     question_type   TEXT NOT NULL CHECK (question_type IN ('numeric', 'multiple_choice')),
     password_hash   TEXT NOT NULL DEFAULT '',
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     is_active       INTEGER NOT NULL DEFAULT 0
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_survey_group_classroom ON survey(classroom_id, group_number);
 
 CREATE TABLE IF NOT EXISTS survey_arm (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,10 +44,12 @@ CREATE TABLE IF NOT EXISTS group_member (
 
 CREATE TABLE IF NOT EXISTS participant (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    classroom_id    INTEGER NOT NULL REFERENCES classroom(id) ON DELETE CASCADE,
     name            TEXT NOT NULL,
-    student_id      TEXT NOT NULL UNIQUE,
+    student_id      TEXT NOT NULL,
     logged_in_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_participant_unique ON participant(student_id, classroom_id);
 
 CREATE TABLE IF NOT EXISTS response (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,

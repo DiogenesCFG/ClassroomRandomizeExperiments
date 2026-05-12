@@ -7,8 +7,6 @@ services:
     envVars:
       - key: SECRET_KEY
         generateValue: true
-      - key: HOST_TOKEN
-        value: classroom2026
       - key: DATABASE_PATH
         value: /data/app.db
       - key: PYTHON_VERSION

@@ -17,7 +17,7 @@ def check_password(survey_id, password):
     return row['password_hash'] == _hash_password(password)
 
 
-def create_survey(title, group_number, question_type, password, arms, members):
+def create_survey(classroom_id, title, group_number, question_type, password, arms, members):
     """
     Create a survey with arms, options, and group members.
 
@@ -26,8 +26,8 @@ def create_survey(title, group_number, question_type, password, arms, members):
     """
     db = get_db()
     cursor = db.execute(
-        'INSERT INTO survey (title, group_number, question_type, password_hash) VALUES (?, ?, ?, ?)',
-        (title, group_number, question_type, _hash_password(password)),
+        'INSERT INTO survey (classroom_id, title, group_number, question_type, password_hash) VALUES (?, ?, ?, ?, ?)',
+        (classroom_id, title, group_number, question_type, _hash_password(password)),
     )
     survey_id = cursor.lastrowid
 
@@ -122,44 +122,48 @@ def get_survey(survey_id):
     return survey
 
 
-def list_surveys():
-    """List all surveys ordered by group_number."""
+def list_surveys(classroom_id):
+    """List all surveys for a classroom, ordered by group_number."""
     db = get_db()
-    surveys = db.execute('SELECT * FROM survey ORDER BY group_number').fetchall()
+    surveys = db.execute(
+        'SELECT * FROM survey WHERE classroom_id=? ORDER BY group_number', (classroom_id,)
+    ).fetchall()
     return [dict(s) for s in surveys]
 
 
-def get_active_survey_id():
-    """Get the ID of the currently active survey, or None."""
+def get_active_survey_id(classroom_id):
+    """Get the ID of the currently active survey in a classroom, or None."""
     db = get_db()
-    row = db.execute('SELECT id FROM survey WHERE is_active=1').fetchone()
+    row = db.execute(
+        'SELECT id FROM survey WHERE is_active=1 AND classroom_id=?', (classroom_id,)
+    ).fetchone()
     return row['id'] if row else None
 
 
-def activate_survey(survey_id):
-    """Deactivate all surveys, then activate the given one."""
+def activate_survey(survey_id, classroom_id):
+    """Deactivate all surveys in the classroom, then activate the given one."""
     db = get_db()
-    db.execute('UPDATE survey SET is_active=0 WHERE is_active=1')
+    db.execute('UPDATE survey SET is_active=0 WHERE is_active=1 AND classroom_id=?', (classroom_id,))
     db.execute('UPDATE survey SET is_active=1 WHERE id=?', (survey_id,))
     db.commit()
 
 
-def deactivate_all():
-    """Deactivate all surveys."""
+def deactivate_all(classroom_id):
+    """Deactivate all surveys in a classroom."""
     db = get_db()
-    db.execute('UPDATE survey SET is_active=0 WHERE is_active=1')
+    db.execute('UPDATE survey SET is_active=0 WHERE is_active=1 AND classroom_id=?', (classroom_id,))
     db.commit()
 
 
-def get_next_survey_id(current_survey_id):
-    """Get the next survey by group_number after the current one."""
+def get_next_survey_id(current_survey_id, classroom_id):
+    """Get the next survey by group_number after the current one, within the classroom."""
     db = get_db()
     current = db.execute('SELECT group_number FROM survey WHERE id=?', (current_survey_id,)).fetchone()
     if current is None:
         return None
     nxt = db.execute(
-        'SELECT id FROM survey WHERE group_number > ? ORDER BY group_number LIMIT 1',
-        (current['group_number'],),
+        'SELECT id FROM survey WHERE group_number > ? AND classroom_id=? ORDER BY group_number LIMIT 1',
+        (current['group_number'], classroom_id),
     ).fetchone()
     return nxt['id'] if nxt else None
 

@@ -1,16 +1,23 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, abort
 
+from models.classroom import get_classroom_by_code
 from models.survey import (
     create_survey, get_survey, list_surveys, update_survey, delete_survey, check_password,
 )
 
-bp = Blueprint('builder', __name__, url_prefix='/builder')
+bp = Blueprint('builder', __name__, url_prefix='/c/<code>/builder')
 
 
-def _is_host(req):
-    """Check if the request includes the host token (bypasses survey passwords)."""
-    token = req.args.get('token', '') or req.form.get('host_token', '')
-    return token == current_app.config['HOST_TOKEN']
+def _get_classroom_or_404(code):
+    classroom = get_classroom_by_code(code)
+    if not classroom:
+        abort(404)
+    return classroom
+
+
+def _is_classroom_host(classroom_id):
+    """Check if the current session user is authenticated as host for this classroom."""
+    return session.get(f'host_authenticated_{classroom_id}') is True
 
 
 def _parse_form(form):
@@ -54,14 +61,18 @@ def _parse_form(form):
 
 
 @bp.route('/')
-def index():
-    surveys = list_surveys()
-    is_host = _is_host(request)
-    return render_template('builder/list.html', surveys=surveys, is_host=is_host)
+def index(code):
+    classroom = _get_classroom_or_404(code)
+    surveys = list_surveys(classroom['id'])
+    is_host = _is_classroom_host(classroom['id'])
+    return render_template('builder/list.html', surveys=surveys, is_host=is_host,
+                           classroom=classroom)
 
 
 @bp.route('/new', methods=['GET', 'POST'])
-def new():
+def new(code):
+    classroom = _get_classroom_or_404(code)
+
     if request.method == 'POST':
         title, group_number, question_type, arms, members = _parse_form(request.form)
         password = request.form.get('password', '').strip()
@@ -91,17 +102,19 @@ def new():
                 flash(e, 'danger')
             return render_template('builder/form.html', mode='new',
                                    title=title, group_number=group_number,
-                                   question_type=question_type, arms=arms, members=members)
+                                   question_type=question_type, arms=arms, members=members,
+                                   classroom=classroom)
 
         try:
-            survey_id = create_survey(title, int(group_number), question_type, password, arms, members)
+            survey_id = create_survey(classroom['id'], title, int(group_number), question_type, password, arms, members)
             flash('Survey created successfully!', 'success')
-            return redirect(url_for('builder.index'))
+            return redirect(url_for('builder.index', code=code))
         except Exception as e:
             flash(f'Error creating survey: {e}', 'danger')
             return render_template('builder/form.html', mode='new',
                                    title=title, group_number=group_number,
-                                   question_type=question_type, arms=arms, members=members)
+                                   question_type=question_type, arms=arms, members=members,
+                                   classroom=classroom)
 
     # GET - show empty form
     default_arms = [
@@ -111,17 +124,19 @@ def new():
     default_members = [{'name': '', 'sis_code': ''}]
     return render_template('builder/form.html', mode='new',
                            title='', group_number='', question_type='multiple_choice',
-                           arms=default_arms, members=default_members)
+                           arms=default_arms, members=default_members,
+                           classroom=classroom)
 
 
 @bp.route('/<int:survey_id>/edit', methods=['GET', 'POST'])
-def edit(survey_id):
+def edit(code, survey_id):
+    classroom = _get_classroom_or_404(code)
     survey = get_survey(survey_id)
     if not survey:
         flash('Survey not found.', 'danger')
-        return redirect(url_for('builder.index'))
+        return redirect(url_for('builder.index', code=code))
 
-    is_host = _is_host(request)
+    is_host = _is_classroom_host(classroom['id'])
 
     if request.method == 'POST':
         # Check password (unless host)
@@ -132,7 +147,7 @@ def edit(survey_id):
             return render_template('builder/form.html', mode='edit', survey_id=survey_id,
                                    title=title, group_number=group_number,
                                    question_type=question_type, arms=arms, members=members,
-                                   is_host=is_host)
+                                   is_host=is_host, classroom=classroom)
 
         title, group_number, question_type, arms, members = _parse_form(request.form)
 
@@ -159,18 +174,18 @@ def edit(survey_id):
             return render_template('builder/form.html', mode='edit', survey_id=survey_id,
                                    title=title, group_number=group_number,
                                    question_type=question_type, arms=arms, members=members,
-                                   is_host=is_host)
+                                   is_host=is_host, classroom=classroom)
 
         try:
             update_survey(survey_id, title, int(group_number), question_type, arms, members)
             flash('Survey updated successfully!', 'success')
-            return redirect(url_for('builder.index'))
+            return redirect(url_for('builder.index', code=code))
         except Exception as e:
             flash(f'Error updating survey: {e}', 'danger')
             return render_template('builder/form.html', mode='edit', survey_id=survey_id,
                                    title=title, group_number=group_number,
                                    question_type=question_type, arms=arms, members=members,
-                                   is_host=is_host)
+                                   is_host=is_host, classroom=classroom)
 
     # GET - populate form from existing survey
     arms = []
@@ -188,21 +203,23 @@ def edit(survey_id):
     return render_template('builder/form.html', mode='edit', survey_id=survey_id,
                            title=survey['title'], group_number=survey['group_number'],
                            question_type=survey['question_type'],
-                           arms=arms, members=members, is_host=is_host)
+                           arms=arms, members=members, is_host=is_host,
+                           classroom=classroom)
 
 
 @bp.route('/<int:survey_id>/delete', methods=['POST'])
-def delete(survey_id):
-    is_host = _is_host(request)
+def delete(code, survey_id):
+    classroom = _get_classroom_or_404(code)
+    is_host = _is_classroom_host(classroom['id'])
     password = request.form.get('password', '').strip()
 
     if not is_host and not check_password(survey_id, password):
         flash('Incorrect password. Cannot delete survey.', 'danger')
-        return redirect(url_for('builder.index'))
+        return redirect(url_for('builder.index', code=code))
 
     try:
         delete_survey(survey_id)
         flash('Survey deleted.', 'success')
     except Exception as e:
         flash(f'Error deleting survey: {e}', 'danger')
-    return redirect(url_for('builder.index'))
+    return redirect(url_for('builder.index', code=code))
