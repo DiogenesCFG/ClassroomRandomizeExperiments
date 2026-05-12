@@ -6,26 +6,49 @@ from models.db import get_socket_db
 from sockets.assignment import assign_arm
 
 
-def _get_survey_with_arms(db, survey_id):
-    """Helper to get survey + arms + options."""
+def _get_survey_with_arms_and_questions(db, survey_id):
+    """Helper to get survey + arms + questions with per-arm texts/options."""
     survey = db.execute('SELECT * FROM survey WHERE id=?', (survey_id,)).fetchone()
     if not survey:
         return None
+
     arms = db.execute(
         'SELECT * FROM survey_arm WHERE survey_id=? ORDER BY arm_index', (survey_id,)
     ).fetchall()
-    arms_list = []
-    for arm in arms:
-        arm_dict = dict(arm)
-        options = db.execute(
-            'SELECT * FROM arm_option WHERE arm_id=? ORDER BY option_index', (arm['id'],)
-        ).fetchall()
-        arm_dict['options'] = [dict(o) for o in options]
-        arms_list.append(arm_dict)
-    return dict(survey), arms_list
+
+    questions = db.execute(
+        'SELECT * FROM survey_question WHERE survey_id=? ORDER BY question_index', (survey_id,)
+    ).fetchall()
+
+    questions_list = []
+    for q in questions:
+        q_dict = dict(q)
+        q_dict['arm_texts'] = {}
+        for arm in arms:
+            aq = db.execute(
+                'SELECT * FROM arm_question WHERE arm_id=? AND question_id=?',
+                (arm['id'], q['id'])
+            ).fetchone()
+            if aq:
+                options = db.execute(
+                    'SELECT * FROM arm_question_option WHERE arm_question_id=? ORDER BY option_index',
+                    (aq['id'],)
+                ).fetchall()
+                q_dict['arm_texts'][arm['id']] = {
+                    'question_text': aq['question_text'],
+                    'options': [o['option_text'] for o in options],
+                }
+            else:
+                q_dict['arm_texts'][arm['id']] = {
+                    'question_text': '',
+                    'options': [],
+                }
+        questions_list.append(q_dict)
+
+    return dict(survey), [dict(a) for a in arms], questions_list
 
 
-def _build_assignment_payload(survey, arms, student_id):
+def _build_assignment_payload(survey, arms, questions, student_id):
     """Build the assignment payload for a specific student."""
     num_arms = len(arms)
     arm_index = assign_arm(student_id, survey['id'], num_arms)
@@ -35,97 +58,121 @@ def _build_assignment_payload(survey, arms, student_id):
         'survey_id': survey['id'],
         'group_number': survey['group_number'],
         'title': survey['title'],
-        'question_type': survey['question_type'],
         'arm_id': arm['id'],
         'arm_index': arm['arm_index'],
         'arm_label': arm['label'],
-        'question_text': arm['question_text'],
-        'options': [o['option_text'] for o in arm['options']],
+        'questions': [],
     }
+
+    for q in questions:
+        arm_data = q['arm_texts'].get(arm['id'], {})
+        payload['questions'].append({
+            'question_id': q['id'],
+            'question_index': q['question_index'],
+            'question_type': q['question_type'],
+            'label': q.get('label', ''),
+            'question_text': arm_data.get('question_text', ''),
+            'options': arm_data.get('options', []),
+        })
+
     return payload
 
 
 def _get_aggregated_results(db, survey_id):
-    """Get results for broadcasting to host."""
-    survey = db.execute('SELECT * FROM survey WHERE id=?', (survey_id,)).fetchone()
-    if not survey:
+    """Get results for broadcasting to host, organized per question."""
+    result = _get_survey_with_arms_and_questions(db, survey_id)
+    if not result:
         return None
 
-    arms = db.execute(
-        'SELECT * FROM survey_arm WHERE survey_id=? ORDER BY arm_index', (survey_id,)
-    ).fetchall()
+    survey, arms, questions = result
 
-    result = {
+    output = {
         'survey_id': survey_id,
-        'question_type': survey['question_type'],
         'title': survey['title'],
         'group_number': survey['group_number'],
-        'arms': [],
-        'total_responses': 0,
+        'questions': [],
     }
 
-    for arm in arms:
-        arm_data = {
-            'arm_id': arm['id'],
-            'arm_index': arm['arm_index'],
-            'label': arm['label'],
-            'question_text': arm['question_text'],
+    for q in questions:
+        q_data = {
+            'question_id': q['id'],
+            'question_index': q['question_index'],
+            'question_type': q['question_type'],
+            'label': q.get('label', ''),
+            'arms': [],
+            'total_responses': 0,
         }
 
-        responses = db.execute(
-            'SELECT answer_text, answer_index FROM response WHERE survey_id=? AND arm_id=?',
-            (survey_id, arm['id']),
-        ).fetchall()
+        for arm in arms:
+            arm_q_info = q['arm_texts'].get(arm['id'], {})
+            arm_data = {
+                'arm_id': arm['id'],
+                'arm_index': arm['arm_index'],
+                'label': arm['label'],
+                'question_text': arm_q_info.get('question_text', ''),
+            }
 
-        result['total_responses'] += len(responses)
-
-        if survey['question_type'] == 'multiple_choice':
-            options = db.execute(
-                'SELECT * FROM arm_option WHERE arm_id=? ORDER BY option_index', (arm['id'],)
+            responses = db.execute(
+                'SELECT answer_text, answer_index FROM response WHERE survey_id=? AND arm_id=? AND question_id=?',
+                (survey_id, arm['id'], q['id']),
             ).fetchall()
-            option_texts = [o['option_text'] for o in options]
 
-            counts = {opt: 0 for opt in option_texts}
-            for r in responses:
-                if r['answer_text'] in counts:
-                    counts[r['answer_text']] += 1
+            q_data['total_responses'] += len(responses)
 
-            arm_data['options'] = option_texts
-            arm_data['counts'] = counts
-            arm_data['n'] = len(responses)
-        else:
-            values = []
-            for r in responses:
-                try:
-                    values.append(float(r['answer_text']))
-                except (ValueError, TypeError):
-                    pass
-
-            arm_data['values'] = values
-            arm_data['n'] = len(values)
-            if values:
-                sorted_vals = sorted(values)
-                mean = sum(values) / len(values)
-                arm_data['stats'] = {
-                    'mean': round(mean, 2),
-                    'median': round(sorted_vals[len(sorted_vals) // 2], 2),
-                    'min': round(min(values), 2),
-                    'max': round(max(values), 2),
-                    'std': round((sum((x - mean)**2 for x in values) / len(values)) ** 0.5, 2),
-                }
+            if q['question_type'] == 'multiple_choice':
+                option_texts = arm_q_info.get('options', [])
+                counts = {opt: 0 for opt in option_texts}
+                for r in responses:
+                    if r['answer_text'] in counts:
+                        counts[r['answer_text']] += 1
+                arm_data['options'] = option_texts
+                arm_data['counts'] = counts
+                arm_data['n'] = len(responses)
             else:
-                arm_data['stats'] = None
+                values = []
+                for r in responses:
+                    try:
+                        values.append(float(r['answer_text']))
+                    except (ValueError, TypeError):
+                        pass
+                arm_data['values'] = values
+                arm_data['n'] = len(values)
+                if values:
+                    sorted_vals = sorted(values)
+                    mean = sum(values) / len(values)
+                    arm_data['stats'] = {
+                        'mean': round(mean, 2),
+                        'median': round(sorted_vals[len(sorted_vals) // 2], 2),
+                        'min': round(min(values), 2),
+                        'max': round(max(values), 2),
+                        'std': round((sum((x - mean)**2 for x in values) / len(values)) ** 0.5, 2),
+                    }
+                else:
+                    arm_data['stats'] = None
 
-        result['arms'].append(arm_data)
+            q_data['arms'].append(arm_data)
+        output['questions'].append(q_data)
 
-    # Get participant count scoped to the survey's classroom
+    # Participant count scoped to classroom
     classroom_id = survey['classroom_id']
     participant_count = db.execute(
         'SELECT COUNT(*) as cnt FROM participant WHERE classroom_id=?', (classroom_id,)
     ).fetchone()['cnt']
-    result['participant_count'] = participant_count
+    output['participant_count'] = participant_count
 
-    return result
+    return output
+
+
+def _is_fully_answered(db, participant_id, survey_id):
+    """Check if a student has answered all questions for a survey."""
+    question_count = db.execute(
+        'SELECT COUNT(*) as cnt FROM survey_question WHERE survey_id=?', (survey_id,)
+    ).fetchone()['cnt']
+    answered_count = db.execute(
+        'SELECT COUNT(*) as cnt FROM response WHERE participant_id=? AND survey_id=?',
+        (participant_id, survey_id)
+    ).fetchone()['cnt']
+    return answered_count >= question_count and question_count > 0
 
 
 @socketio.on('join_student')
@@ -138,29 +185,21 @@ def handle_join_student(data):
 
     db = get_socket_db()
     try:
-        # Check if there's an active survey in this classroom
         active = db.execute(
             'SELECT * FROM survey WHERE is_active=1 AND classroom_id=?', (classroom_id,)
         ).fetchone()
         if active:
-            survey_data = _get_survey_with_arms(db, active['id'])
-            if survey_data:
-                survey, arms = survey_data
-                # Check if already answered
-                already = db.execute(
-                    'SELECT id FROM response WHERE participant_id=? AND survey_id=?',
-                    (participant_id, active['id']),
-                ).fetchone()
-
-                if already:
-                    emit('already_answered', {'survey_id': active['id']})
-                else:
-                    payload = _build_assignment_payload(survey, arms, student_id)
+            if _is_fully_answered(db, participant_id, active['id']):
+                emit('already_answered', {'survey_id': active['id']})
+            else:
+                result = _get_survey_with_arms_and_questions(db, active['id'])
+                if result:
+                    survey, arms, questions = result
+                    payload = _build_assignment_payload(survey, arms, questions, student_id)
                     emit('assignment', payload)
         else:
             emit('waiting', {})
 
-        # Broadcast updated participant count to host room for this classroom
         count = db.execute(
             'SELECT COUNT(*) as cnt FROM participant WHERE classroom_id=?', (classroom_id,)
         ).fetchone()['cnt']
@@ -182,7 +221,6 @@ def handle_join_host(data):
         ).fetchone()['cnt']
         emit('participant_count', {'count': count})
 
-        # Send current active survey results if any
         active = db.execute(
             'SELECT * FROM survey WHERE is_active=1 AND classroom_id=?', (classroom_id,)
         ).fetchone()
@@ -202,25 +240,21 @@ def handle_activate_survey(data):
 
     db = get_socket_db()
     try:
-        # Deactivate all in this classroom, activate this one
         db.execute('UPDATE survey SET is_active=0 WHERE is_active=1 AND classroom_id=?', (classroom_id,))
         db.execute('UPDATE survey SET is_active=1 WHERE id=?', (survey_id,))
         db.commit()
 
-        survey_data = _get_survey_with_arms(db, survey_id)
-        if not survey_data:
+        result = _get_survey_with_arms_and_questions(db, survey_id)
+        if not result:
             return
+        survey, arms, questions = result
 
-        survey, arms = survey_data
-
-        # Notify all students in this classroom
         emit('survey_activated', {
             'survey_id': survey_id,
             'group_number': survey['group_number'],
             'title': survey['title'],
         }, room=f'students_{classroom_id}')
 
-        # Send initial (empty) results to host
         results = _get_aggregated_results(db, survey_id)
         emit('results_update', results, room=f'host_{classroom_id}')
     finally:
@@ -236,22 +270,15 @@ def handle_request_assignment(data):
 
     db = get_socket_db()
     try:
-        # Check if already answered
-        already = db.execute(
-            'SELECT id FROM response WHERE participant_id=? AND survey_id=?',
-            (participant_id, survey_id),
-        ).fetchone()
-
-        if already:
+        if _is_fully_answered(db, participant_id, survey_id):
             emit('already_answered', {'survey_id': survey_id})
             return
 
-        survey_data = _get_survey_with_arms(db, survey_id)
-        if not survey_data:
+        result = _get_survey_with_arms_and_questions(db, survey_id)
+        if not result:
             return
-
-        survey, arms = survey_data
-        payload = _build_assignment_payload(survey, arms, student_id)
+        survey, arms, questions = result
+        payload = _build_assignment_payload(survey, arms, questions, student_id)
         emit('assignment', payload)
     finally:
         db.close()
@@ -259,29 +286,30 @@ def handle_request_assignment(data):
 
 @socketio.on('submit_answer')
 def handle_submit_answer(data):
-    """Student submits their answer."""
+    """Student submits their answers (one per question)."""
     participant_id = data.get('participant_id')
     survey_id = data.get('survey_id')
     arm_id = data.get('arm_id')
-    answer_text = data.get('answer_text')
-    answer_index = data.get('answer_index')
     classroom_id = data.get('classroom_id')
+    answers = data.get('answers', [])
 
     db = get_socket_db()
     try:
         try:
-            db.execute(
-                'INSERT INTO response (participant_id, survey_id, arm_id, answer_text, answer_index) '
-                'VALUES (?, ?, ?, ?, ?)',
-                (participant_id, survey_id, arm_id, answer_text, answer_index),
-            )
+            for answer in answers:
+                db.execute(
+                    'INSERT INTO response (participant_id, survey_id, arm_id, question_id, answer_text, answer_index) '
+                    'VALUES (?, ?, ?, ?, ?, ?)',
+                    (participant_id, survey_id, arm_id,
+                     answer.get('question_id'), str(answer.get('answer_text', '')),
+                     answer.get('answer_index')),
+                )
             db.commit()
             emit('answer_saved', {'survey_id': survey_id})
         except Exception:
             emit('already_answered', {'survey_id': survey_id})
             return
 
-        # Broadcast updated results to host for this classroom
         results = _get_aggregated_results(db, survey_id)
         if results:
             emit('results_update', results, room=f'host_{classroom_id}')
@@ -305,18 +333,16 @@ def handle_next_survey(data):
                 (current['group_number'], classroom_id),
             ).fetchone()
 
-            # Deactivate current
             db.execute('UPDATE survey SET is_active=0 WHERE id=?', (current['id'],))
             db.commit()
 
             if next_row:
-                # Activate next
                 db.execute('UPDATE survey SET is_active=1 WHERE id=?', (next_row['id'],))
                 db.commit()
 
-                survey_data = _get_survey_with_arms(db, next_row['id'])
-                if survey_data:
-                    survey, arms = survey_data
+                result = _get_survey_with_arms_and_questions(db, next_row['id'])
+                if result:
+                    survey, arms, questions = result
                     emit('survey_activated', {
                         'survey_id': next_row['id'],
                         'group_number': survey['group_number'],
@@ -327,11 +353,9 @@ def handle_next_survey(data):
                     emit('results_update', results, room=f'host_{classroom_id}')
                     emit('survey_changed', {'survey_id': next_row['id']}, room=f'host_{classroom_id}')
             else:
-                # No more surveys
                 emit('survey_deactivated', {}, room=f'students_{classroom_id}')
                 emit('all_done', {}, room=f'host_{classroom_id}')
         else:
-            # No active survey; activate the first one in this classroom
             first = db.execute(
                 'SELECT id FROM survey WHERE classroom_id=? ORDER BY group_number LIMIT 1',
                 (classroom_id,),

@@ -10,22 +10,15 @@
         <div class="card-header"><strong>Survey Details</strong></div>
         <div class="card-body">
             <div class="row g-3">
-                <div class="col-md-2">
+                <div class="col-md-3">
                     <label for="group_number" class="form-label">Group #</label>
                     <input type="number" class="form-control" id="group_number" name="group_number"
                            value="{{ group_number }}" required min="1" max="99">
                 </div>
-                <div class="col-md-7">
+                <div class="col-md-9">
                     <label for="title" class="form-label">Survey Title</label>
                     <input type="text" class="form-control" id="title" name="title"
                            value="{{ title }}" required placeholder="e.g., Anchoring Effect on Price Estimates">
-                </div>
-                <div class="col-md-3">
-                    <label for="question_type" class="form-label">Question Type</label>
-                    <select class="form-select" id="question_type" name="question_type">
-                        <option value="multiple_choice" {% if question_type == 'multiple_choice' %}selected{% endif %}>Multiple Choice</option>
-                        <option value="numeric" {% if question_type == 'numeric' %}selected{% endif %}>Numeric</option>
-                    </select>
                 </div>
             </div>
         </div>
@@ -39,37 +32,72 @@
         <div class="card-body" id="arms-container">
             {% for arm in arms %}
             {% set arm_idx = loop.index0 %}
-            <div class="arm-block border rounded p-3 mb-3" data-arm-index="{{ arm_idx }}">
+            <div class="arm-label-block d-flex align-items-center gap-2 mb-2" data-arm-index="{{ arm_idx }}">
+                <span class="fw-bold arm-number-label">Arm {{ loop.index }}:</span>
+                <input type="text" class="form-control" name="arms[{{ arm_idx }}][label]"
+                       value="{{ arm.label }}" placeholder="e.g., Control" required>
+                <button type="button" class="btn btn-sm btn-outline-danger remove-arm-btn"
+                        {% if arms|length <= 2 %}style="display:none"{% endif %}>Remove</button>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <strong>Questions</strong>
+            <button type="button" class="btn btn-sm btn-outline-success" id="add-question-btn">+ Add Question</button>
+        </div>
+        <div class="card-body" id="questions-container">
+            {% for q in questions %}
+            {% set q_idx = loop.index0 %}
+            <div class="question-block border rounded p-3 mb-3" data-question-index="{{ q_idx }}">
                 <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h6 class="mb-0">Arm {{ loop.index }}</h6>
-                    {% if loop.length > 2 %}
-                    <button type="button" class="btn btn-sm btn-outline-danger remove-arm-btn">Remove</button>
-                    {% endif %}
+                    <h6 class="mb-0 question-header">Question {{ loop.index }}</h6>
+                    <button type="button" class="btn btn-sm btn-outline-danger remove-question-btn"
+                            {% if questions|length <= 1 %}style="display:none"{% endif %}>Remove</button>
                 </div>
-                <div class="row g-2 mb-2">
-                    <div class="col-md-3">
-                        <input type="text" class="form-control" name="arms[{{ arm_idx }}][label]"
-                               value="{{ arm.label }}" placeholder="e.g., Control" required>
+                <div class="row g-2 mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Type</label>
+                        <select class="form-select question-type-select" name="questions[{{ q_idx }}][question_type]">
+                            <option value="multiple_choice" {% if q.question_type == 'multiple_choice' %}selected{% endif %}>Multiple Choice</option>
+                            <option value="numeric" {% if q.question_type == 'numeric' %}selected{% endif %}>Numeric</option>
+                        </select>
                     </div>
-                    <div class="col-md-9">
-                        <input type="text" class="form-control" name="arms[{{ arm_idx }}][question_text]"
-                               value="{{ arm.question_text }}" placeholder="Question text for this arm" required>
+                    <div class="col-md-8">
+                        <label class="form-label">Label (optional)</label>
+                        <input type="text" class="form-control" name="questions[{{ q_idx }}][label]"
+                               value="{{ q.label }}" placeholder="e.g., Willingness to Pay">
                     </div>
                 </div>
-                <div class="options-section" {% if question_type != 'multiple_choice' %}style="display:none"{% endif %}>
-                    <label class="form-label text-muted small">Answer Options:</label>
-                    <div class="options-container">
-                        {% for opt in arm.options %}
-                        <div class="input-group mb-1 option-row">
-                            <input type="text" class="form-control form-control-sm"
-                                   name="arms[{{ arm_idx }}][options][{{ loop.index0 }}]"
-                                   value="{{ opt }}" placeholder="Option {{ loop.index }}">
-                            <button type="button" class="btn btn-sm btn-outline-danger remove-option-btn"
-                                    {% if loop.length <= 2 %}style="display:none"{% endif %}>x</button>
+                <div class="question-arms">
+                    {% for arm in arms %}
+                    {% set ai = loop.index0 %}
+                    {% set arm_data = q.arms[ai] if ai in q.arms else {'question_text': '', 'options': ['', '']} %}
+                    <div class="question-arm-block border-start border-3 ps-3 mb-3" data-arm-index="{{ ai }}">
+                        <label class="form-label fw-bold arm-label-ref">{{ arm.label or 'Arm ' ~ (ai + 1) }}</label>
+                        <input type="text" class="form-control mb-1 arm-question-text"
+                               name="questions[{{ q_idx }}][arms][{{ ai }}][question_text]"
+                               value="{{ arm_data.question_text }}"
+                               placeholder="Question text for {{ arm.label or 'this arm' }}" required>
+                        <div class="question-options-section" {% if q.question_type != 'multiple_choice' %}style="display:none"{% endif %}>
+                            <label class="form-label text-muted small">Answer Options:</label>
+                            <div class="question-options-container">
+                                {% for opt in arm_data.options %}
+                                <div class="input-group mb-1 q-option-row">
+                                    <input type="text" class="form-control form-control-sm"
+                                           name="questions[{{ q_idx }}][arms][{{ ai }}][options][{{ loop.index0 }}]"
+                                           value="{{ opt }}" placeholder="Option {{ loop.index }}">
+                                    <button type="button" class="btn btn-sm btn-outline-danger remove-q-option-btn"
+                                            {% if arm_data.options|length <= 2 %}style="display:none"{% endif %}>x</button>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary add-q-option-btn mt-1">+ Add Option</button>
                         </div>
-                        {% endfor %}
                     </div>
-                    <button type="button" class="btn btn-sm btn-outline-secondary add-option-btn mt-1">+ Add Option</button>
+                    {% endfor %}
                 </div>
             </div>
             {% endfor %}
@@ -93,7 +121,7 @@
                            value="{{ member.sis_code }}" placeholder="SIS Code" required>
                 </div>
                 <div class="col-md-2">
-                    {% if loop.length > 1 %}
+                    {% if members|length > 1 %}
                     <button type="button" class="btn btn-outline-danger remove-member-btn">Remove</button>
                     {% endif %}
                 </div>

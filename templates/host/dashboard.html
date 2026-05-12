@@ -32,7 +32,7 @@
                     <strong>#{{ s.group_number }}</strong> {{ s.title }}
                     <br>
                     <small class="text-muted">
-                        {% if s.question_type == 'multiple_choice' %}MC{% else %}Numeric{% endif %}
+                        {{ s.question_count or 1 }} Q ({{ s.question_types or s.question_type }})
                     </small>
                 </button>
                 {% endfor %}
@@ -65,33 +65,11 @@
                 </div>
             </div>
 
-            <!-- Chart for MC -->
-            <div id="mc-chart-container" class="chart-container" style="display:none">
-                <canvas id="mc-chart"></canvas>
-            </div>
+            <!-- Question tabs -->
+            <ul class="nav nav-tabs mb-3" id="question-tabs" role="tablist"></ul>
 
-            <!-- Stats for Numeric -->
-            <div id="numeric-results-container" style="display:none">
-                <div class="chart-container mb-4">
-                    <canvas id="numeric-chart"></canvas>
-                </div>
-                <div class="table-responsive">
-                    <table class="table table-bordered" id="stats-table">
-                        <thead>
-                            <tr>
-                                <th>Arm</th>
-                                <th>N</th>
-                                <th>Mean</th>
-                                <th>Median</th>
-                                <th>Std Dev</th>
-                                <th>Min</th>
-                                <th>Max</th>
-                            </tr>
-                        </thead>
-                        <tbody></tbody>
-                    </table>
-                </div>
-            </div>
+            <!-- Tab content: one pane per question -->
+            <div class="tab-content" id="question-tab-content"></div>
 
             <!-- Arms detail: show what each arm asked -->
             <div class="mt-4">

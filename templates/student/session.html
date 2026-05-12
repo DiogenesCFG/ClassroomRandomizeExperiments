@@ -22,28 +22,16 @@
 
 <!-- State 2: Answering -->
 <div id="state-answering" class="state-panel">
-    <div class="card mt-4 mx-auto" style="max-width: 600px;">
+    <div class="card mt-4 mx-auto" style="max-width: 700px;">
         <div class="card-header">
             <small class="text-muted">Group <span id="q-group-number"></span></small>
             <h4 id="q-title" class="mb-0"></h4>
         </div>
         <div class="card-body">
-            <p class="question-text fs-5 mb-4" id="q-text"></p>
-
-            <!-- Multiple choice options -->
-            <div id="mc-options" style="display:none">
-                <div id="mc-buttons" class="d-grid gap-2"></div>
-                <button class="btn btn-success btn-lg w-100 mt-3" id="submit-mc" style="display:none">Submit Answer</button>
+            <div id="questions-container">
+                <!-- Dynamically populated by JS: one section per question -->
             </div>
-
-            <!-- Numeric input -->
-            <div id="numeric-input" style="display:none">
-                <div class="input-group input-group-lg">
-                    <input type="number" class="form-control" id="numeric-answer"
-                           placeholder="Enter a number" step="any">
-                    <button class="btn btn-primary" id="submit-numeric">Submit</button>
-                </div>
-            </div>
+            <button class="btn btn-success btn-lg w-100 mt-3" id="submit-all">Submit All Answers</button>
         </div>
     </div>
 </div>

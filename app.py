@@ -15,7 +15,13 @@ def create_app():
     # Initialize SocketIO
     # Use eventlet on Render (production), threading locally (development)
     async_mode = os.environ.get('ASYNC_MODE', 'threading')
-    socketio.init_app(app, async_mode=async_mode, cors_allowed_origins='*')
+    socketio.init_app(
+        app,
+        async_mode=async_mode,
+        cors_allowed_origins='*',
+        ping_timeout=60,
+        ping_interval=25,
+    )
 
     # Initialize database
     from models.db import close_db, init_db_command, init_db

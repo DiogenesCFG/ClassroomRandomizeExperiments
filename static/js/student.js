@@ -1,13 +1,24 @@
 document.addEventListener('DOMContentLoaded', function() {
-    const socket = io();
-    let currentSurveyId = null;
-    let currentArmId = null;
-    let selectedMCAnswer = null;
-    let selectedMCIndex = null;
+    var socket = io({
+        transports: ['websocket', 'polling'],
+        upgrade: true,
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionAttempts: 10,
+    });
+    var currentSurveyId = null;
+    var currentArmId = null;
+    var answers = {}; // keyed by question_id: {answer_text, answer_index}
+
+    function escapeHtml(text) {
+        var div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
 
     // State management
     function showState(state) {
-        document.querySelectorAll('.state-panel').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.state-panel').forEach(function(p) { p.classList.remove('active'); });
         document.getElementById('state-' + state).classList.add('active');
     }
 
@@ -36,96 +47,142 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Assignment received - show question
+    // Assignment received - show all questions
     socket.on('assignment', function(data) {
         currentSurveyId = data.survey_id;
         currentArmId = data.arm_id;
-        selectedMCAnswer = null;
-        selectedMCIndex = null;
+        answers = {};
 
         document.getElementById('q-group-number').textContent = data.group_number;
         document.getElementById('q-title').textContent = data.title;
-        document.getElementById('q-text').textContent = data.question_text;
 
-        if (data.question_type === 'multiple_choice') {
-            document.getElementById('mc-options').style.display = '';
-            document.getElementById('numeric-input').style.display = 'none';
-            document.getElementById('submit-mc').style.display = 'none';
+        var container = document.getElementById('questions-container');
+        container.innerHTML = '';
 
-            const container = document.getElementById('mc-buttons');
-            container.innerHTML = '';
-            data.options.forEach(function(opt, idx) {
-                const btn = document.createElement('button');
-                btn.className = 'btn btn-outline-primary btn-lg btn-answer';
-                btn.textContent = opt;
-                btn.addEventListener('click', function() {
-                    // Select this option (highlight it), don't submit yet
-                    selectedMCAnswer = opt;
-                    selectedMCIndex = idx;
-                    container.querySelectorAll('.btn-answer').forEach(function(b) {
-                        b.classList.remove('btn-primary');
-                        b.classList.add('btn-outline-primary');
-                    });
-                    btn.classList.remove('btn-outline-primary');
-                    btn.classList.add('btn-primary');
-                    document.getElementById('submit-mc').style.display = '';
+        data.questions.forEach(function(q, idx) {
+            var section = document.createElement('div');
+            section.className = 'question-section mb-4' + (idx > 0 ? ' border-top pt-3' : '');
+            section.dataset.questionId = q.question_id;
+            section.dataset.questionType = q.question_type;
+
+            var headerText = 'Question ' + (idx + 1);
+            if (q.label) headerText += ': ' + q.label;
+
+            var html = '<h5>' + escapeHtml(headerText) + '</h5>';
+            html += '<p class="fs-5 mb-3">' + escapeHtml(q.question_text) + '</p>';
+
+            if (q.question_type === 'multiple_choice') {
+                html += '<div class="mc-buttons d-grid gap-2" data-qid="' + q.question_id + '">';
+                q.options.forEach(function(opt, oidx) {
+                    html += '<button type="button" class="btn btn-outline-primary btn-lg btn-mc-option" '
+                          + 'data-qid="' + q.question_id + '" '
+                          + 'data-answer="' + escapeHtml(opt) + '" '
+                          + 'data-index="' + oidx + '">'
+                          + escapeHtml(opt) + '</button>';
                 });
-                container.appendChild(btn);
-            });
-        } else {
-            document.getElementById('mc-options').style.display = 'none';
-            document.getElementById('numeric-input').style.display = '';
-            document.getElementById('numeric-answer').value = '';
-        }
+                html += '</div>';
+            } else {
+                html += '<div class="input-group input-group-lg">'
+                      + '<input type="number" class="form-control numeric-answer-input" '
+                      + 'data-qid="' + q.question_id + '" placeholder="Enter a number" step="any">'
+                      + '</div>';
+            }
+
+            section.innerHTML = html;
+            container.appendChild(section);
+        });
 
         showState('answering');
     });
 
-    // Submit MC answer via confirm button
-    document.getElementById('submit-mc').addEventListener('click', function() {
-        if (selectedMCAnswer === null) {
-            alert('Please select an option first.');
+    // MC option selection via event delegation
+    document.getElementById('questions-container').addEventListener('click', function(e) {
+        var btn = e.target.closest('.btn-mc-option');
+        if (!btn) return;
+
+        var qid = parseInt(btn.dataset.qid);
+        var answerText = btn.dataset.answer;
+        var answerIndex = parseInt(btn.dataset.index);
+
+        // Record answer
+        answers[qid] = { answer_text: answerText, answer_index: answerIndex };
+
+        // Highlight: deselect siblings, select this one
+        var group = btn.closest('.mc-buttons');
+        group.querySelectorAll('.btn-mc-option').forEach(function(b) {
+            b.classList.remove('btn-primary');
+            b.classList.add('btn-outline-primary');
+        });
+        btn.classList.remove('btn-outline-primary');
+        btn.classList.add('btn-primary');
+    });
+
+    // Submit all answers
+    document.getElementById('submit-all').addEventListener('click', function() {
+        var sections = document.querySelectorAll('.question-section');
+        var answersArray = [];
+        var allAnswered = true;
+
+        sections.forEach(function(section) {
+            var qid = parseInt(section.dataset.questionId);
+            var qtype = section.dataset.questionType;
+
+            if (qtype === 'multiple_choice') {
+                if (answers[qid]) {
+                    answersArray.push({
+                        question_id: qid,
+                        answer_text: answers[qid].answer_text,
+                        answer_index: answers[qid].answer_index,
+                    });
+                } else {
+                    allAnswered = false;
+                }
+            } else {
+                var numInput = section.querySelector('.numeric-answer-input');
+                if (numInput && numInput.value !== '') {
+                    answersArray.push({
+                        question_id: qid,
+                        answer_text: numInput.value,
+                        answer_index: null,
+                    });
+                } else {
+                    allAnswered = false;
+                }
+            }
+        });
+
+        if (!allAnswered) {
+            alert('Please answer all questions before submitting.');
             return;
         }
-        submitAnswer(selectedMCAnswer, selectedMCIndex);
-    });
 
-    // Submit numeric answer
-    document.getElementById('submit-numeric').addEventListener('click', function() {
-        const val = document.getElementById('numeric-answer').value;
-        if (val === '') {
-            alert('Please enter a number.');
-            return;
-        }
-        submitAnswer(val, null);
-    });
-
-    // Also submit on Enter key
-    document.getElementById('numeric-answer').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            document.getElementById('submit-numeric').click();
-        }
-    });
-
-    function submitAnswer(answerText, answerIndex) {
         socket.emit('submit_answer', {
             participant_id: PARTICIPANT_ID,
             survey_id: currentSurveyId,
             arm_id: currentArmId,
-            answer_text: String(answerText),
-            answer_index: answerIndex,
-            classroom_id: CLASSROOM_ID
+            classroom_id: CLASSROOM_ID,
+            answers: answersArray,
         });
         showState('submitted');
-    }
+    });
+
+    // Also submit numeric on Enter key (only if single question)
+    document.getElementById('questions-container').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter' && e.target.classList.contains('numeric-answer-input')) {
+            var sections = document.querySelectorAll('.question-section');
+            if (sections.length === 1) {
+                document.getElementById('submit-all').click();
+            }
+        }
+    });
 
     // Answer already submitted
-    socket.on('already_answered', function(data) {
+    socket.on('already_answered', function() {
         showState('submitted');
     });
 
     // Answer saved confirmation
-    socket.on('answer_saved', function(data) {
+    socket.on('answer_saved', function() {
         showState('submitted');
     });
 
@@ -133,8 +190,7 @@ document.addEventListener('DOMContentLoaded', function() {
     socket.on('survey_deactivated', function() {
         currentSurveyId = null;
         currentArmId = null;
-        selectedMCAnswer = null;
-        selectedMCIndex = null;
+        answers = {};
         showState('waiting');
     });
 });

@@ -66,6 +66,73 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    # Migration: multi-question support
+    try:
+        db.execute('ALTER TABLE response ADD COLUMN question_id INTEGER REFERENCES survey_question(id)')
+        db.commit()
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+    # Migrate existing single-question data to multi-question tables
+    question_count = db.execute(
+        "SELECT COUNT(*) as cnt FROM survey_question"
+    ).fetchone()['cnt']
+
+    if question_count == 0:
+        surveys = db.execute('SELECT id, question_type FROM survey').fetchall()
+        for survey in surveys:
+            cursor = db.execute(
+                'INSERT INTO survey_question (survey_id, question_index, question_type, label) '
+                'VALUES (?, 0, ?, ?)',
+                (survey['id'], survey['question_type'], '')
+            )
+            question_id = cursor.lastrowid
+
+            arms = db.execute(
+                'SELECT id, question_text FROM survey_arm WHERE survey_id=?',
+                (survey['id'],)
+            ).fetchall()
+            for arm in arms:
+                aq_cursor = db.execute(
+                    'INSERT INTO arm_question (arm_id, question_id, question_text) VALUES (?, ?, ?)',
+                    (arm['id'], question_id, arm['question_text'])
+                )
+                aq_id = aq_cursor.lastrowid
+
+                options = db.execute(
+                    'SELECT option_index, option_text FROM arm_option WHERE arm_id=? ORDER BY option_index',
+                    (arm['id'],)
+                ).fetchall()
+                for opt in options:
+                    db.execute(
+                        'INSERT INTO arm_question_option (arm_question_id, option_index, option_text) '
+                        'VALUES (?, ?, ?)',
+                        (aq_id, opt['option_index'], opt['option_text'])
+                    )
+
+            # Backfill response.question_id for existing responses
+            db.execute(
+                'UPDATE response SET question_id=? WHERE survey_id=? AND question_id IS NULL',
+                (question_id, survey['id'])
+            )
+
+        db.commit()
+
+    # Replace old unique index with multi-question version
+    try:
+        db.execute('DROP INDEX idx_response_unique')
+        db.commit()
+    except sqlite3.OperationalError:
+        pass
+    try:
+        db.execute(
+            'CREATE UNIQUE INDEX IF NOT EXISTS idx_response_unique_mq '
+            'ON response(participant_id, survey_id, question_id)'
+        )
+        db.commit()
+    except sqlite3.OperationalError:
+        pass
+
 
 @click.command('init-db')
 def init_db_command():

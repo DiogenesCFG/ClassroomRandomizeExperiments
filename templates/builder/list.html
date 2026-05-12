@@ -29,11 +29,8 @@
                 <td>{{ s.group_number }}</td>
                 <td>{{ s.title }}</td>
                 <td>
-                    {% if s.question_type == 'multiple_choice' %}
-                    <span class="badge bg-info">Multiple Choice</span>
-                    {% else %}
-                    <span class="badge bg-secondary">Numeric</span>
-                    {% endif %}
+                    <span class="badge bg-info">{{ s.question_count or 1 }} Q</span>
+                    <br><small class="text-muted">{{ s.question_types or s.question_type }}</small>
                 </td>
                 <td>{{ s.created_at }}</td>
                 <td>
