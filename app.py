@@ -1,4 +1,6 @@
+import logging
 import os
+
 from flask import Flask
 from flask_socketio import SocketIO
 
@@ -8,6 +10,10 @@ socketio = SocketIO()
 def create_app():
     app = Flask(__name__, instance_relative_config=True)
     app.config.from_object('config')
+
+    # Ensure logs are visible in Render
+    logging.basicConfig(level=logging.INFO)
+    app.logger.setLevel(logging.INFO)
 
     # Ensure instance folder exists
     os.makedirs(app.instance_path, exist_ok=True)

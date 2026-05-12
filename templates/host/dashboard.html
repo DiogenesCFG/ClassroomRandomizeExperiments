@@ -44,6 +44,9 @@
             <button class="btn btn-outline-danger btn-sm" id="btn-reset">Reset Session</button>
             <a href="{{ url_for('download.download_all', code=classroom.code) }}" class="btn btn-outline-primary btn-sm">Download All Data (CSV)</a>
             <a href="{{ url_for('download.download_surveys_config', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">Download Survey Configs</a>
+            <form method="POST" action="{{ url_for('download.clear_responses', code=classroom.code) }}" onsubmit="return confirm('Delete ALL responses for this classroom? This cannot be undone.')">
+                <button type="submit" class="btn btn-outline-danger btn-sm w-100">Clear All Responses</button>
+            </form>
         </div>
     </div>
 

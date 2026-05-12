@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var currentSurveyId = null;
     var currentArmId = null;
     var answers = {}; // keyed by question_id: {answer_text, answer_index}
+    var submittedSurveyIds = {}; // track surveys we've already submitted
 
     function escapeHtml(text) {
         var div = document.createElement('div');
@@ -36,8 +37,13 @@ document.addEventListener('DOMContentLoaded', function() {
         showState('waiting');
     });
 
-    // Survey activated - request assignment
+    // Survey activated - request assignment (skip if already submitted)
     socket.on('survey_activated', function(data) {
+        if (submittedSurveyIds[data.survey_id]) {
+            currentSurveyId = data.survey_id;
+            showState('submitted');
+            return;
+        }
         currentSurveyId = data.survey_id;
         socket.emit('request_assignment', {
             participant_id: PARTICIPANT_ID,
@@ -156,6 +162,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        submittedSurveyIds[currentSurveyId] = true;
         socket.emit('submit_answer', {
             participant_id: PARTICIPANT_ID,
             survey_id: currentSurveyId,
@@ -177,12 +184,16 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // Answer already submitted
-    socket.on('already_answered', function() {
+    socket.on('already_answered', function(data) {
+        var sid = (data && data.survey_id) || currentSurveyId;
+        if (sid) submittedSurveyIds[sid] = true;
         showState('submitted');
     });
 
     // Answer saved confirmation
-    socket.on('answer_saved', function() {
+    socket.on('answer_saved', function(data) {
+        var sid = (data && data.survey_id) || currentSurveyId;
+        if (sid) submittedSurveyIds[sid] = true;
         showState('submitted');
     });
 

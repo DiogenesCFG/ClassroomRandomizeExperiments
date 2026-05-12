@@ -1,6 +1,7 @@
-from flask import Blueprint, Response, session, abort
+from flask import Blueprint, Response, session, abort, redirect, url_for
 
 from models.classroom import get_classroom_by_code
+from models.db import get_db
 from models.download import export_all_responses_csv, export_surveys_config_csv, export_participants_csv
 
 bp = Blueprint('download', __name__, url_prefix='/c/<code>/download')
@@ -47,3 +48,16 @@ def download_participants(code):
         mimetype='text/csv',
         headers={'Content-Disposition': 'attachment; filename=participants.csv'}
     )
+
+
+@bp.route('/clear-responses', methods=['POST'])
+def clear_responses(code):
+    """Delete all responses for this classroom (keeps surveys and participants)."""
+    classroom = _get_classroom_or_403(code)
+    db = get_db()
+    db.execute(
+        'DELETE FROM response WHERE survey_id IN (SELECT id FROM survey WHERE classroom_id=?)',
+        (classroom['id'],)
+    )
+    db.commit()
+    return redirect(url_for('host.dashboard', code=code))

@@ -81,8 +81,8 @@ CREATE TABLE IF NOT EXISTS response (
     participant_id  INTEGER NOT NULL REFERENCES participant(id),
     survey_id       INTEGER NOT NULL REFERENCES survey(id),
     arm_id          INTEGER NOT NULL REFERENCES survey_arm(id),
+    question_id     INTEGER REFERENCES survey_question(id),
     answer_text     TEXT,
     answer_index    INTEGER,
     answered_at     TEXT DEFAULT (datetime('now'))
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_response_unique ON response(participant_id, survey_id);

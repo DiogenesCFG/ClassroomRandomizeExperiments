@@ -1,9 +1,13 @@
+import logging
+
 from flask import current_app, session
 from flask_socketio import emit, join_room, leave_room
 
 from app import socketio
 from models.db import get_socket_db
 from sockets.assignment import assign_arm
+
+logger = logging.getLogger(__name__)
 
 
 def _get_survey_with_arms_and_questions(db, survey_id):
@@ -293,8 +297,22 @@ def handle_submit_answer(data):
     classroom_id = data.get('classroom_id')
     answers = data.get('answers', [])
 
+    logger.info('submit_answer: participant=%s survey=%s arm=%s answers=%d',
+                participant_id, survey_id, arm_id, len(answers))
+
+    if not answers:
+        logger.warning('submit_answer: empty answers from participant=%s', participant_id)
+        emit('already_answered', {'survey_id': survey_id})
+        return
+
     db = get_socket_db()
     try:
+        # Check if already fully answered
+        if _is_fully_answered(db, participant_id, survey_id):
+            logger.info('submit_answer: already answered participant=%s survey=%s', participant_id, survey_id)
+            emit('already_answered', {'survey_id': survey_id})
+            return
+
         try:
             for answer in answers:
                 db.execute(
@@ -305,14 +323,20 @@ def handle_submit_answer(data):
                      answer.get('answer_index')),
                 )
             db.commit()
+            logger.info('submit_answer: saved %d answers for participant=%s survey=%s',
+                        len(answers), participant_id, survey_id)
             emit('answer_saved', {'survey_id': survey_id})
-        except Exception:
+        except Exception as e:
+            logger.error('submit_answer: INSERT failed participant=%s survey=%s: %s', participant_id, survey_id, e)
+            db.rollback()
             emit('already_answered', {'survey_id': survey_id})
             return
 
         results = _get_aggregated_results(db, survey_id)
         if results:
             emit('results_update', results, room=f'host_{classroom_id}')
+        else:
+            logger.warning('submit_answer: no aggregated results for survey=%s', survey_id)
     finally:
         db.close()
 
