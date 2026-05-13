@@ -1,17 +1,19 @@
 document.addEventListener('DOMContentLoaded', function() {
-    var socket = io({
+    var socket = window.io ? io({
         transports: ['websocket', 'polling'],
         upgrade: true,
         reconnection: true,
         reconnectionDelay: 1000,
         reconnectionAttempts: 10,
-    });
+    }) : null;
     var currentSurveyId = null;
     var currentArmId = null;
+    var currentState = 'waiting';
     var answers = {}; // keyed by question_id: {answer_text, answer_index}
     var submittedSurveyIds = {}; // track surveys we've already submitted
     var isSubmitting = false;
     var submitTimer = null;
+    var statePollTimer = null;
 
     function escapeHtml(text) {
         var div = document.createElement('div');
@@ -22,6 +24,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // State management
     function showState(state) {
         console.log('[student] state ->', state);
+        currentState = state;
         document.querySelectorAll('.state-panel').forEach(function(p) { p.classList.remove('active'); });
         document.getElementById('state-' + state).classList.add('active');
     }
@@ -56,59 +59,20 @@ document.addEventListener('DOMContentLoaded', function() {
         alert(message || 'Your answer was not saved. Please try again.');
     }
 
-    // Connect and join
-    socket.on('connect', function() {
-        console.log('[student] connected, transport:', socket.io.engine.transport.name);
-        socket.emit('join_student', {
-            participant_id: PARTICIPANT_ID,
-            student_id: STUDENT_ID,
-            classroom_id: CLASSROOM_ID
-        });
-    });
-
-    socket.on('disconnect', function(reason) {
-        console.log('[student] disconnected:', reason);
-    });
-
-    socket.on('connect_error', function(err) {
-        console.error('[student] connect_error:', err.message);
-    });
-
-    // Waiting state
-    socket.on('waiting', function() {
-        console.log('[student] received: waiting');
-        showState('waiting');
-    });
-
-    // Survey activated - request assignment (skip if already submitted)
-    socket.on('survey_activated', function(data) {
-        console.log('[student] received: survey_activated', data.survey_id);
-        if (submittedSurveyIds[data.survey_id]) {
-            console.log('[student] already submitted this survey, staying in submitted state');
-            currentSurveyId = data.survey_id;
-            showState('submitted');
-            return;
-        }
-        currentSurveyId = data.survey_id;
-        socket.emit('request_assignment', {
-            participant_id: PARTICIPANT_ID,
-            student_id: STUDENT_ID,
-            survey_id: data.survey_id,
-            classroom_id: CLASSROOM_ID
-        });
-    });
-
-    // Assignment received - show all questions
-    socket.on('assignment', function(data) {
+    function renderAssignment(data) {
         console.log('[student] received: assignment survey=' + data.survey_id +
                     ' arm=' + data.arm_id + ' questions=' + data.questions.length);
-        // If we already submitted this survey (e.g. after a socket reconnect),
-        // don't show the question again.
+
         if (submittedSurveyIds[data.survey_id]) {
             console.log('[student] already submitted survey ' + data.survey_id + ', ignoring assignment');
             showState('submitted');
             return;
         }
+
+        if (currentState === 'answering' && currentSurveyId === data.survey_id && currentArmId === data.arm_id) {
+            return;
+        }
+
         currentSurveyId = data.survey_id;
         currentArmId = data.arm_id;
         answers = {};
@@ -153,7 +117,132 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
         showState('answering');
-    });
+    }
+
+    function pollStateOnce() {
+        fetch(STUDENT_STATE_URL, { credentials: 'same-origin' })
+            .then(function(resp) {
+                if (!resp.ok) throw new Error('state request failed');
+                return resp.json();
+            })
+            .then(function(data) {
+                if (!data.ok) return;
+                if (data.state === 'waiting') {
+                    if (currentState !== 'waiting') showState('waiting');
+                } else if (data.state === 'submitted') {
+                    markSubmitted(data.survey_id);
+                } else if (data.state === 'assignment' && data.assignment) {
+                    renderAssignment(data.assignment);
+                }
+            })
+            .catch(function(err) {
+                console.warn('[student] state fallback failed:', err.message);
+            });
+    }
+
+    function startStatePolling() {
+        pollStateOnce();
+        if (!statePollTimer) {
+            statePollTimer = setInterval(pollStateOnce, 2500);
+        }
+    }
+
+    function submitViaHttp(payload) {
+        return fetch(STUDENT_SUBMIT_URL, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        }).then(function(resp) {
+            if (!resp.ok) throw new Error('submit failed');
+            return resp.json();
+        });
+    }
+
+    if (!socket) {
+        console.warn('[student] Socket.IO client failed to load; using HTTP fallback');
+        startStatePolling();
+    } else {
+        // Connect and join
+        socket.on('connect', function() {
+            console.log('[student] connected, transport:', socket.io.engine.transport.name);
+            socket.emit('join_student', {
+                participant_id: PARTICIPANT_ID,
+                student_id: STUDENT_ID,
+                classroom_id: CLASSROOM_ID
+            });
+            startStatePolling();
+        });
+
+        socket.on('disconnect', function(reason) {
+            console.log('[student] disconnected:', reason);
+            startStatePolling();
+        });
+
+        socket.on('connect_error', function(err) {
+            console.error('[student] connect_error:', err.message);
+            startStatePolling();
+        });
+
+        // Waiting state
+        socket.on('waiting', function() {
+            console.log('[student] received: waiting');
+            showState('waiting');
+        });
+
+        // Survey activated - request assignment (skip if already submitted)
+        socket.on('survey_activated', function(data) {
+            console.log('[student] received: survey_activated', data.survey_id);
+            if (submittedSurveyIds[data.survey_id]) {
+                console.log('[student] already submitted this survey, staying in submitted state');
+                currentSurveyId = data.survey_id;
+                showState('submitted');
+                return;
+            }
+            currentSurveyId = data.survey_id;
+            socket.emit('request_assignment', {
+                participant_id: PARTICIPANT_ID,
+                student_id: STUDENT_ID,
+                survey_id: data.survey_id,
+                classroom_id: CLASSROOM_ID
+            });
+        });
+
+        // Assignment received - show all questions
+        socket.on('assignment', renderAssignment);
+
+        // Answer already submitted
+        socket.on('already_answered', function(data) {
+            console.log('[student] received: already_answered', data);
+            markSubmitted(data && data.survey_id);
+        });
+
+        // Answer saved confirmation
+        socket.on('answer_saved', function(data) {
+            console.log('[student] received: answer_saved', data);
+            markSubmitted(data && data.survey_id);
+        });
+
+        socket.on('submit_error', function(data) {
+            console.log('[student] received: submit_error', data);
+            markSubmitFailed(data && data.message);
+        });
+
+        // Survey deactivated - back to waiting
+        socket.on('survey_deactivated', function() {
+            console.log('[student] received: survey_deactivated');
+            currentSurveyId = null;
+            currentArmId = null;
+            answers = {};
+            isSubmitting = false;
+            if (submitTimer) {
+                clearTimeout(submitTimer);
+                submitTimer = null;
+            }
+            setSubmitEnabled(true);
+            showState('waiting');
+        });
+    }
 
     // MC option selection via event delegation
     document.getElementById('questions-container').addEventListener('click', function(e) {
@@ -222,23 +311,49 @@ document.addEventListener('DOMContentLoaded', function() {
         isSubmitting = true;
         setSubmitEnabled(false);
 
-        submitTimer = setTimeout(function() {
-            markSubmitFailed('The server did not confirm your answer. Please try again.');
-        }, 8000);
-
-        socket.emit('submit_answer', {
+        var payload = {
             participant_id: PARTICIPANT_ID,
             survey_id: currentSurveyId,
             arm_id: currentArmId,
             classroom_id: CLASSROOM_ID,
             answers: answersArray,
-        }, function(ack) {
-            if (ack && ack.ok) {
-                markSubmitted(currentSurveyId);
-            } else {
-                markSubmitFailed();
-            }
-        });
+        };
+
+        if (socket && socket.connected) {
+            submitTimer = setTimeout(function() {
+                submitViaHttp(payload)
+                    .then(function(data) {
+                        if (data && data.ok) {
+                            markSubmitted(currentSurveyId);
+                        } else {
+                            markSubmitFailed();
+                        }
+                    })
+                    .catch(function() {
+                        markSubmitFailed('The server did not confirm your answer. Please try again.');
+                    });
+            }, 4000);
+
+            socket.emit('submit_answer', payload, function(ack) {
+                if (ack && ack.ok) {
+                    markSubmitted(currentSurveyId);
+                } else {
+                    markSubmitFailed();
+                }
+            });
+        } else {
+            submitViaHttp(payload)
+                .then(function(data) {
+                    if (data && data.ok) {
+                        markSubmitted(currentSurveyId);
+                    } else {
+                        markSubmitFailed();
+                    }
+                })
+                .catch(function() {
+                    markSubmitFailed('Your answer was not saved. Please try again.');
+                });
+        }
     });
 
     // Also submit numeric on Enter key (only if single question)
@@ -251,35 +366,5 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Answer already submitted
-    socket.on('already_answered', function(data) {
-        console.log('[student] received: already_answered', data);
-        markSubmitted(data && data.survey_id);
-    });
-
-    // Answer saved confirmation
-    socket.on('answer_saved', function(data) {
-        console.log('[student] received: answer_saved', data);
-        markSubmitted(data && data.survey_id);
-    });
-
-    socket.on('submit_error', function(data) {
-        console.log('[student] received: submit_error', data);
-        markSubmitFailed(data && data.message);
-    });
-
-    // Survey deactivated - back to waiting
-    socket.on('survey_deactivated', function() {
-        console.log('[student] received: survey_deactivated');
-        currentSurveyId = null;
-        currentArmId = null;
-        answers = {};
-        isSubmitting = false;
-        if (submitTimer) {
-            clearTimeout(submitTimer);
-            submitTimer = null;
-        }
-        setSubmitEnabled(true);
-        showState('waiting');
-    });
+    startStatePolling();
 });

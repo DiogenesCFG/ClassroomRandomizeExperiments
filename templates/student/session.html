@@ -2,10 +2,6 @@
 
 {% block title %}Live Session{% endblock %}
 
-{% block head %}
-<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-{% endblock %}
-
 {% block content %}
 <div class="text-center mt-3">
     <p class="text-muted">Logged in as <strong>{{ student_name }}</strong></p>
@@ -51,6 +47,9 @@
     const PARTICIPANT_ID = {{ participant_id }};
     const STUDENT_ID = "{{ student_id }}";
     const CLASSROOM_ID = {{ classroom.id }};
+    const STUDENT_STATE_URL = "{{ url_for('student.session_state', code=classroom.code) }}";
+    const STUDENT_SUBMIT_URL = "{{ url_for('student.submit_answer_http', code=classroom.code) }}";
 </script>
-<script src="{{ url_for('static', filename='js/student.js') }}"></script>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script src="{{ url_for('static', filename='js/student.js') }}?v=20260513-2"></script>
 {% endblock %}

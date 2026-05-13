@@ -1,13 +1,14 @@
 document.addEventListener('DOMContentLoaded', function() {
-    var socket = io({
+    var socket = window.io ? io({
         transports: ['websocket', 'polling'],
         upgrade: true,
         reconnection: true,
         reconnectionDelay: 1000,
         reconnectionAttempts: 10,
-    });
+    }) : null;
     var charts = {};
     var activeSurveyId = null;
+    var statePollTimer = null;
 
     var COLORS = [
         'rgba(54, 162, 235, 0.7)',
@@ -22,46 +23,160 @@ document.addEventListener('DOMContentLoaded', function() {
         'rgba(255, 159, 64, 1)',
     ];
 
-    // Connect as host
-    socket.on('connect', function() {
-        console.log('[host] connected, transport:', socket.io.engine.transport.name);
-        socket.emit('join_host', { classroom_id: CLASSROOM_ID });
-    });
+    function updateParticipantBadge(count) {
+        if (typeof count === 'number') {
+            document.getElementById('participant-badge').textContent = count + ' students';
+        }
+    }
 
-    socket.on('disconnect', function(reason) {
-        console.log('[host] disconnected:', reason);
-    });
+    function pollStateOnce() {
+        fetch(HOST_STATE_URL, { credentials: 'same-origin' })
+            .then(function(resp) {
+                if (!resp.ok) throw new Error('state request failed');
+                return resp.json();
+            })
+            .then(function(data) {
+                if (!data.ok) return;
+                updateParticipantBadge(data.participant_count);
+                if (data.results) {
+                    handleResultsUpdate(data.results);
+                } else if (!data.active_survey_id) {
+                    showNoActiveSurvey();
+                }
+            })
+            .catch(function(err) {
+                console.warn('[host] state fallback failed:', err.message);
+            });
+    }
 
-    socket.on('connect_error', function(err) {
-        console.error('[host] connect_error:', err.message);
-    });
+    function showNoActiveSurvey() {
+        document.getElementById('results-panel').style.display = 'none';
+        document.getElementById('all-done-msg').style.display = 'none';
+        document.getElementById('no-survey-msg').style.display = '';
+        document.querySelectorAll('.survey-list-item').forEach(function(item) {
+            item.classList.remove('active-survey');
+        });
+        activeSurveyId = null;
+    }
 
-    // Participant count
-    socket.on('participant_count', function(data) {
-        console.log('[host] received: participant_count', data.count);
-        document.getElementById('participant-badge').textContent = data.count + ' students';
-    });
+    function showAllDone() {
+        document.getElementById('results-panel').style.display = 'none';
+        document.getElementById('no-survey-msg').style.display = 'none';
+        document.getElementById('all-done-msg').style.display = '';
+        document.querySelectorAll('.survey-list-item').forEach(function(item) {
+            item.classList.remove('active-survey');
+        });
+        activeSurveyId = null;
+    }
+
+    function startStatePolling() {
+        pollStateOnce();
+        if (!statePollTimer) {
+            statePollTimer = setInterval(pollStateOnce, 2500);
+        }
+    }
+
+    function postJson(url, payload) {
+        return fetch(url, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload || {}),
+        }).then(function(resp) {
+            if (!resp.ok) throw new Error('request failed');
+            return resp.json();
+        });
+    }
+
+    if (!socket) {
+        console.warn('[host] Socket.IO client failed to load; using HTTP fallback');
+        startStatePolling();
+    } else {
+        // Connect as host
+        socket.on('connect', function() {
+            console.log('[host] connected, transport:', socket.io.engine.transport.name);
+            socket.emit('join_host', { classroom_id: CLASSROOM_ID });
+            startStatePolling();
+        });
+
+        socket.on('disconnect', function(reason) {
+            console.log('[host] disconnected:', reason);
+            startStatePolling();
+        });
+
+        socket.on('connect_error', function(err) {
+            console.error('[host] connect_error:', err.message);
+            startStatePolling();
+        });
+
+        // Participant count
+        socket.on('participant_count', function(data) {
+            console.log('[host] received: participant_count', data.count);
+            updateParticipantBadge(data.count);
+        });
+
+        socket.on('results_update', handleResultsUpdate);
+
+        // Survey changed (from next_survey)
+        socket.on('survey_changed', function(data) {
+            console.log('[host] received: survey_changed', data.survey_id);
+            setActiveSurvey(data.survey_id);
+        });
+
+        // All done
+        socket.on('all_done', function() {
+            console.log('[host] received: all_done');
+            showAllDone();
+        });
+
+        // Session reset
+        socket.on('session_reset', function() {
+            console.log('[host] received: session_reset');
+            showNoActiveSurvey();
+        });
+    }
+
 
     // Activate survey by clicking
     document.querySelectorAll('.survey-list-item').forEach(function(item) {
         item.addEventListener('click', function() {
             var surveyId = parseInt(this.dataset.surveyId);
             console.log('[host] activating survey', surveyId);
-            socket.emit('activate_survey', { survey_id: surveyId, classroom_id: CLASSROOM_ID });
+            postJson(HOST_ACTIVATE_URL, { survey_id: surveyId })
+                .then(function(data) {
+                    if (data && data.results) handleResultsUpdate(data.results);
+                })
+                .catch(function(err) {
+                    console.warn('[host] activate request failed:', err.message);
+                });
             setActiveSurvey(surveyId);
+            setTimeout(pollStateOnce, 400);
         });
     });
 
     // Next survey button
     document.getElementById('btn-next').addEventListener('click', function() {
         console.log('[host] next_survey');
-        socket.emit('next_survey', { classroom_id: CLASSROOM_ID });
+            postJson(HOST_NEXT_URL)
+                .then(function(data) {
+                    if (data && data.results) handleResultsUpdate(data.results);
+                    if (data && data.done) showAllDone();
+                })
+            .catch(function(err) {
+                console.warn('[host] next request failed:', err.message);
+            });
+        setTimeout(pollStateOnce, 400);
     });
 
     // Reset button
     document.getElementById('btn-reset').addEventListener('click', function() {
         if (confirm('Reset the session? This will deactivate all surveys (data is preserved).')) {
-            socket.emit('deactivate_all', { classroom_id: CLASSROOM_ID });
+            postJson(HOST_RESET_URL)
+                .then(showNoActiveSurvey)
+                .catch(function(err) {
+                    console.warn('[host] reset request failed:', err.message);
+                });
+            setTimeout(pollStateOnce, 400);
         }
     });
 
@@ -82,7 +197,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Results update (multi-question format)
     // When the same survey sends new data (a student submitted), update charts
     // in-place instead of destroying and recreating all DOM + Chart.js objects.
-    socket.on('results_update', function(data) {
+    function handleResultsUpdate(data) {
         console.log('[host] received: results_update survey=' + data.survey_id +
                     ' questions=' + (data.questions ? data.questions.length : 0) +
                     ' participant_count=' + data.participant_count);
@@ -186,7 +301,7 @@ document.addEventListener('DOMContentLoaded', function() {
             (data.participant_count ? ' / ' + data.participant_count + ' students' : '');
 
         renderArmsDetail(data);
-    });
+    }
 
     function updateMCChart(q, chart) {
         var allOptions = [];
@@ -358,32 +473,5 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Survey changed (from next_survey)
-    socket.on('survey_changed', function(data) {
-        console.log('[host] received: survey_changed', data.survey_id);
-        setActiveSurvey(data.survey_id);
-    });
-
-    // All done
-    socket.on('all_done', function() {
-        console.log('[host] received: all_done');
-        document.getElementById('results-panel').style.display = 'none';
-        document.getElementById('no-survey-msg').style.display = 'none';
-        document.getElementById('all-done-msg').style.display = '';
-        document.querySelectorAll('.survey-list-item').forEach(function(item) {
-            item.classList.remove('active-survey');
-        });
-    });
-
-    // Session reset
-    socket.on('session_reset', function() {
-        console.log('[host] received: session_reset');
-        document.getElementById('results-panel').style.display = 'none';
-        document.getElementById('all-done-msg').style.display = 'none';
-        document.getElementById('no-survey-msg').style.display = '';
-        document.querySelectorAll('.survey-list-item').forEach(function(item) {
-            item.classList.remove('active-survey');
-        });
-        activeSurveyId = null;
-    });
+    startStatePolling();
 });

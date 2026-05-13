@@ -13,7 +13,6 @@ def get_db():
             detect_types=sqlite3.PARSE_DECLTYPES,
         )
         g.db.row_factory = sqlite3.Row
-        g.db.execute('PRAGMA journal_mode=WAL')
         g.db.execute('PRAGMA busy_timeout=5000')
         g.db.execute('PRAGMA foreign_keys=ON')
     return g.db
@@ -32,7 +31,6 @@ def get_socket_db():
         detect_types=sqlite3.PARSE_DECLTYPES,
     )
     db.row_factory = sqlite3.Row
-    db.execute('PRAGMA journal_mode=WAL')
     db.execute('PRAGMA busy_timeout=5000')
     db.execute('PRAGMA foreign_keys=ON')
     return db
@@ -43,6 +41,7 @@ def init_db():
     db_path = current_app.config['DATABASE']
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     db = get_db()
+    db.execute('PRAGMA journal_mode=WAL')
     schema_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'schema.sql')
     with open(schema_path, 'r') as f:
         db.executescript(f.read())
