@@ -19,12 +19,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // State management
     function showState(state) {
+        console.log('[student] state ->', state);
         document.querySelectorAll('.state-panel').forEach(function(p) { p.classList.remove('active'); });
         document.getElementById('state-' + state).classList.add('active');
     }
 
     // Connect and join
     socket.on('connect', function() {
+        console.log('[student] connected, transport:', socket.io.engine.transport.name);
         socket.emit('join_student', {
             participant_id: PARTICIPANT_ID,
             student_id: STUDENT_ID,
@@ -32,14 +34,25 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
+    socket.on('disconnect', function(reason) {
+        console.log('[student] disconnected:', reason);
+    });
+
+    socket.on('connect_error', function(err) {
+        console.error('[student] connect_error:', err.message);
+    });
+
     // Waiting state
     socket.on('waiting', function() {
+        console.log('[student] received: waiting');
         showState('waiting');
     });
 
     // Survey activated - request assignment (skip if already submitted)
     socket.on('survey_activated', function(data) {
+        console.log('[student] received: survey_activated', data.survey_id);
         if (submittedSurveyIds[data.survey_id]) {
+            console.log('[student] already submitted this survey, staying in submitted state');
             currentSurveyId = data.survey_id;
             showState('submitted');
             return;
@@ -55,6 +68,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Assignment received - show all questions
     socket.on('assignment', function(data) {
+        console.log('[student] received: assignment survey=' + data.survey_id +
+                    ' arm=' + data.arm_id + ' questions=' + data.questions.length);
         currentSurveyId = data.survey_id;
         currentArmId = data.arm_id;
         answers = {};
@@ -162,6 +177,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        console.log('[student] submitting answers:', JSON.stringify(answersArray));
         submittedSurveyIds[currentSurveyId] = true;
         socket.emit('submit_answer', {
             participant_id: PARTICIPANT_ID,
@@ -185,6 +201,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Answer already submitted
     socket.on('already_answered', function(data) {
+        console.log('[student] received: already_answered', data);
         var sid = (data && data.survey_id) || currentSurveyId;
         if (sid) submittedSurveyIds[sid] = true;
         showState('submitted');
@@ -192,6 +209,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Answer saved confirmation
     socket.on('answer_saved', function(data) {
+        console.log('[student] received: answer_saved', data);
         var sid = (data && data.survey_id) || currentSurveyId;
         if (sid) submittedSurveyIds[sid] = true;
         showState('submitted');
@@ -199,6 +217,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Survey deactivated - back to waiting
     socket.on('survey_deactivated', function() {
+        console.log('[student] received: survey_deactivated');
         currentSurveyId = null;
         currentArmId = null;
         answers = {};

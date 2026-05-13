@@ -24,11 +24,21 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Connect as host
     socket.on('connect', function() {
+        console.log('[host] connected, transport:', socket.io.engine.transport.name);
         socket.emit('join_host', { classroom_id: CLASSROOM_ID });
+    });
+
+    socket.on('disconnect', function(reason) {
+        console.log('[host] disconnected:', reason);
+    });
+
+    socket.on('connect_error', function(err) {
+        console.error('[host] connect_error:', err.message);
     });
 
     // Participant count
     socket.on('participant_count', function(data) {
+        console.log('[host] received: participant_count', data.count);
         document.getElementById('participant-badge').textContent = data.count + ' students';
     });
 
@@ -36,6 +46,7 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.survey-list-item').forEach(function(item) {
         item.addEventListener('click', function() {
             var surveyId = parseInt(this.dataset.surveyId);
+            console.log('[host] activating survey', surveyId);
             socket.emit('activate_survey', { survey_id: surveyId, classroom_id: CLASSROOM_ID });
             setActiveSurvey(surveyId);
         });
@@ -43,6 +54,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Next survey button
     document.getElementById('btn-next').addEventListener('click', function() {
+        console.log('[host] next_survey');
         socket.emit('next_survey', { classroom_id: CLASSROOM_ID });
     });
 
@@ -69,6 +81,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Results update (multi-question format)
     socket.on('results_update', function(data) {
+        console.log('[host] received: results_update survey=' + data.survey_id +
+                    ' questions=' + (data.questions ? data.questions.length : 0) +
+                    ' participant_count=' + data.participant_count);
+        if (data.questions) {
+            data.questions.forEach(function(q) {
+                console.log('[host]   question=' + q.question_id + ' type=' + q.question_type +
+                            ' total_responses=' + q.total_responses);
+            });
+        }
+
         setActiveSurvey(data.survey_id);
 
         document.getElementById('result-title').textContent = data.title;
@@ -269,11 +291,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Survey changed (from next_survey)
     socket.on('survey_changed', function(data) {
+        console.log('[host] received: survey_changed', data.survey_id);
         setActiveSurvey(data.survey_id);
     });
 
     // All done
     socket.on('all_done', function() {
+        console.log('[host] received: all_done');
         document.getElementById('results-panel').style.display = 'none';
         document.getElementById('no-survey-msg').style.display = 'none';
         document.getElementById('all-done-msg').style.display = '';
@@ -284,6 +308,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Session reset
     socket.on('session_reset', function() {
+        console.log('[host] received: session_reset');
         document.getElementById('results-panel').style.display = 'none';
         document.getElementById('all-done-msg').style.display = 'none';
         document.getElementById('no-survey-msg').style.display = '';

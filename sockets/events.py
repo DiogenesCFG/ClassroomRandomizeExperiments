@@ -185,6 +185,7 @@ def handle_join_student(data):
     participant_id = data.get('participant_id')
     student_id = data.get('student_id')
     classroom_id = data.get('classroom_id')
+    logger.info('join_student: participant=%s student_id=%s classroom=%s', participant_id, student_id, classroom_id)
     join_room(f'students_{classroom_id}')
 
     db = get_socket_db()
@@ -194,14 +195,20 @@ def handle_join_student(data):
         ).fetchone()
         if active:
             if _is_fully_answered(db, participant_id, active['id']):
+                logger.info('join_student: already answered survey=%s', active['id'])
                 emit('already_answered', {'survey_id': active['id']})
             else:
                 result = _get_survey_with_arms_and_questions(db, active['id'])
                 if result:
                     survey, arms, questions = result
                     payload = _build_assignment_payload(survey, arms, questions, student_id)
+                    logger.info('join_student: assignment survey=%s arm=%s questions=%d',
+                                active['id'], payload['arm_id'], len(payload['questions']))
                     emit('assignment', payload)
+                else:
+                    logger.warning('join_student: no data for survey=%s', active['id'])
         else:
+            logger.info('join_student: no active survey, waiting')
             emit('waiting', {})
 
         count = db.execute(
@@ -216,6 +223,7 @@ def handle_join_student(data):
 def handle_join_host(data):
     """Host connects to the dashboard."""
     classroom_id = data.get('classroom_id')
+    logger.info('join_host: classroom=%s', classroom_id)
     join_room(f'host_{classroom_id}')
 
     db = get_socket_db()
@@ -231,7 +239,12 @@ def handle_join_host(data):
         if active:
             results = _get_aggregated_results(db, active['id'])
             if results:
+                logger.info('join_host: sending results for active survey=%s', active['id'])
                 emit('results_update', results)
+            else:
+                logger.warning('join_host: no results for active survey=%s', active['id'])
+        else:
+            logger.info('join_host: no active survey')
     finally:
         db.close()
 
@@ -241,6 +254,7 @@ def handle_activate_survey(data):
     """Host activates a survey."""
     survey_id = data.get('survey_id')
     classroom_id = data.get('classroom_id')
+    logger.info('activate_survey: survey=%s classroom=%s', survey_id, classroom_id)
 
     db = get_socket_db()
     try:
@@ -250,6 +264,7 @@ def handle_activate_survey(data):
 
         result = _get_survey_with_arms_and_questions(db, survey_id)
         if not result:
+            logger.warning('activate_survey: no data for survey=%s', survey_id)
             return
         survey, arms, questions = result
 
@@ -260,6 +275,7 @@ def handle_activate_survey(data):
         }, room=f'students_{classroom_id}')
 
         results = _get_aggregated_results(db, survey_id)
+        logger.info('activate_survey: broadcasting results to host_%s', classroom_id)
         emit('results_update', results, room=f'host_{classroom_id}')
     finally:
         db.close()
