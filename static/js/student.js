@@ -10,6 +10,8 @@ document.addEventListener('DOMContentLoaded', function() {
     var currentArmId = null;
     var answers = {}; // keyed by question_id: {answer_text, answer_index}
     var submittedSurveyIds = {}; // track surveys we've already submitted
+    var isSubmitting = false;
+    var submitTimer = null;
 
     function escapeHtml(text) {
         var div = document.createElement('div');
@@ -22,6 +24,36 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('[student] state ->', state);
         document.querySelectorAll('.state-panel').forEach(function(p) { p.classList.remove('active'); });
         document.getElementById('state-' + state).classList.add('active');
+    }
+
+    function setSubmitEnabled(enabled) {
+        var btn = document.getElementById('submit-all');
+        if (!btn) return;
+        btn.disabled = !enabled;
+        btn.textContent = enabled ? 'Submit All Answers' : 'Submitting...';
+    }
+
+    function markSubmitted(surveyId) {
+        var sid = surveyId || currentSurveyId;
+        if (sid) submittedSurveyIds[sid] = true;
+        isSubmitting = false;
+        if (submitTimer) {
+            clearTimeout(submitTimer);
+            submitTimer = null;
+        }
+        setSubmitEnabled(true);
+        showState('submitted');
+    }
+
+    function markSubmitFailed(message) {
+        isSubmitting = false;
+        if (submitTimer) {
+            clearTimeout(submitTimer);
+            submitTimer = null;
+        }
+        setSubmitEnabled(true);
+        showState('answering');
+        alert(message || 'Your answer was not saved. Please try again.');
     }
 
     // Connect and join
@@ -147,6 +179,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Submit all answers
     document.getElementById('submit-all').addEventListener('click', function() {
+        if (isSubmitting) return;
+
         var sections = document.querySelectorAll('.question-section');
         var answersArray = [];
         var allAnswered = true;
@@ -185,15 +219,26 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         console.log('[student] submitting answers:', JSON.stringify(answersArray));
-        submittedSurveyIds[currentSurveyId] = true;
+        isSubmitting = true;
+        setSubmitEnabled(false);
+
+        submitTimer = setTimeout(function() {
+            markSubmitFailed('The server did not confirm your answer. Please try again.');
+        }, 8000);
+
         socket.emit('submit_answer', {
             participant_id: PARTICIPANT_ID,
             survey_id: currentSurveyId,
             arm_id: currentArmId,
             classroom_id: CLASSROOM_ID,
             answers: answersArray,
+        }, function(ack) {
+            if (ack && ack.ok) {
+                markSubmitted(currentSurveyId);
+            } else {
+                markSubmitFailed();
+            }
         });
-        showState('submitted');
     });
 
     // Also submit numeric on Enter key (only if single question)
@@ -209,17 +254,18 @@ document.addEventListener('DOMContentLoaded', function() {
     // Answer already submitted
     socket.on('already_answered', function(data) {
         console.log('[student] received: already_answered', data);
-        var sid = (data && data.survey_id) || currentSurveyId;
-        if (sid) submittedSurveyIds[sid] = true;
-        showState('submitted');
+        markSubmitted(data && data.survey_id);
     });
 
     // Answer saved confirmation
     socket.on('answer_saved', function(data) {
         console.log('[student] received: answer_saved', data);
-        var sid = (data && data.survey_id) || currentSurveyId;
-        if (sid) submittedSurveyIds[sid] = true;
-        showState('submitted');
+        markSubmitted(data && data.survey_id);
+    });
+
+    socket.on('submit_error', function(data) {
+        console.log('[student] received: submit_error', data);
+        markSubmitFailed(data && data.message);
     });
 
     // Survey deactivated - back to waiting
@@ -228,6 +274,12 @@ document.addEventListener('DOMContentLoaded', function() {
         currentSurveyId = null;
         currentArmId = null;
         answers = {};
+        isSubmitting = false;
+        if (submitTimer) {
+            clearTimeout(submitTimer);
+            submitTimer = null;
+        }
+        setSubmitEnabled(true);
         showState('waiting');
     });
 });

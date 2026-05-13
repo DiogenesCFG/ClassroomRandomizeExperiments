@@ -1,4 +1,5 @@
 import logging
+import sqlite3
 
 from flask import current_app, session
 from flask_socketio import emit, join_room, leave_room
@@ -349,8 +350,11 @@ def handle_submit_answer(data):
 
     if not answers:
         logger.warning('submit_answer: empty answers from participant=%s', participant_id)
-        emit('already_answered', {'survey_id': survey_id})
-        return
+        emit('submit_error', {
+            'survey_id': survey_id,
+            'message': 'No answers were received. Please try submitting again.',
+        })
+        return {'ok': False, 'error': 'empty_answers'}
 
     db = get_socket_db()
     try:
@@ -358,7 +362,7 @@ def handle_submit_answer(data):
         if _is_fully_answered(db, participant_id, survey_id):
             logger.info('submit_answer: already answered participant=%s survey=%s', participant_id, survey_id)
             emit('already_answered', {'survey_id': survey_id})
-            return
+            return {'ok': True, 'status': 'already_answered'}
 
         try:
             for answer in answers:
@@ -373,11 +377,26 @@ def handle_submit_answer(data):
             logger.info('submit_answer: saved %d answers for participant=%s survey=%s',
                         len(answers), participant_id, survey_id)
             emit('answer_saved', {'survey_id': survey_id})
-        except Exception as e:
-            logger.error('submit_answer: INSERT failed participant=%s survey=%s: %s', participant_id, survey_id, e)
+        except sqlite3.IntegrityError as e:
+            logger.warning('submit_answer: duplicate/integrity failure participant=%s survey=%s: %s',
+                           participant_id, survey_id, e)
             db.rollback()
-            emit('already_answered', {'survey_id': survey_id})
-            return
+            if _is_fully_answered(db, participant_id, survey_id):
+                emit('already_answered', {'survey_id': survey_id})
+                return {'ok': True, 'status': 'already_answered'}
+            emit('submit_error', {
+                'survey_id': survey_id,
+                'message': 'Your answer was not saved. Please try again.',
+            })
+            return {'ok': False, 'error': 'integrity_error'}
+        except Exception as e:
+            logger.exception('submit_answer: INSERT failed participant=%s survey=%s', participant_id, survey_id)
+            db.rollback()
+            emit('submit_error', {
+                'survey_id': survey_id,
+                'message': 'Your answer was not saved. Please try again.',
+            })
+            return {'ok': False, 'error': 'insert_failed'}
 
         try:
             results = _get_aggregated_results(db, survey_id)
@@ -386,7 +405,8 @@ def handle_submit_answer(data):
             else:
                 logger.warning('submit_answer: no aggregated results for survey=%s', survey_id)
         except Exception as e:
-            logger.error('submit_answer: aggregation failed for survey=%s: %s', survey_id, e)
+            logger.exception('submit_answer: aggregation failed for survey=%s', survey_id)
+        return {'ok': True, 'status': 'saved'}
     finally:
         db.close()
 

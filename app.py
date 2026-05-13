@@ -1,5 +1,12 @@
-import logging
 import os
+
+# Eventlet must monkey-patch before Flask/SocketIO and other networking imports.
+# Render sets ASYNC_MODE=eventlet in render.yaml.
+if os.environ.get('ASYNC_MODE') == 'eventlet':
+    import eventlet
+    eventlet.monkey_patch()
+
+import logging
 
 from flask import Flask
 from flask_socketio import SocketIO
