@@ -50,6 +50,5 @@
     const STUDENT_STATE_URL = "{{ url_for('student.session_state', code=classroom.code) }}";
     const STUDENT_SUBMIT_URL = "{{ url_for('student.submit_answer_http', code=classroom.code) }}";
 </script>
-<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-<script src="{{ url_for('static', filename='js/student.js') }}?v=20260513-3"></script>
+<script src="{{ url_for('static', filename='js/student.js') }}?v=20260513-4"></script>
 {% endblock %}

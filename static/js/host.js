@@ -96,7 +96,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 .catch(function(err) {
                     console.warn('[host] activate request failed:', err.message);
                 });
-            setActiveSurvey(surveyId);
         });
     });
 

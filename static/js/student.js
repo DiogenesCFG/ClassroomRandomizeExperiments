@@ -1,11 +1,4 @@
 document.addEventListener('DOMContentLoaded', function() {
-    var socket = window.io ? io({
-        transports: ['websocket', 'polling'],
-        upgrade: true,
-        reconnection: true,
-        reconnectionDelay: 1000,
-        reconnectionAttempts: 10,
-    }) : null;
     var currentSurveyId = null;
     var currentArmId = null;
     var currentState = 'waiting';
@@ -51,7 +44,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function renderAssignment(data) {
-        console.log('[student] received: assignment survey=' + data.survey_id +
+        console.log('[student] assignment survey=' + data.survey_id +
                     ' arm=' + data.arm_id + ' questions=' + data.questions.length);
 
         if (submittedSurveyIds[data.survey_id]) {
@@ -127,14 +120,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             })
             .catch(function(err) {
-                console.warn('[student] state fallback failed:', err.message);
+                console.warn('[student] state poll failed:', err.message);
             });
     }
 
     function startStatePolling() {
         pollStateOnce();
         if (!statePollTimer) {
-            statePollTimer = setInterval(pollStateOnce, 5000);
+            statePollTimer = setInterval(pollStateOnce, 3000);
         }
     }
 
@@ -147,87 +140,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }).then(function(resp) {
             if (!resp.ok) throw new Error('submit failed');
             return resp.json();
-        });
-    }
-
-    if (!socket) {
-        console.warn('[student] Socket.IO client failed to load; using HTTP fallback');
-        startStatePolling();
-    } else {
-        // Connect and join
-        socket.on('connect', function() {
-            console.log('[student] connected, transport:', socket.io.engine.transport.name);
-            socket.emit('join_student', {
-                participant_id: PARTICIPANT_ID,
-                student_id: STUDENT_ID,
-                classroom_id: CLASSROOM_ID
-            });
-            startStatePolling();
-        });
-
-        socket.on('disconnect', function(reason) {
-            console.log('[student] disconnected:', reason);
-            startStatePolling();
-        });
-
-        socket.on('connect_error', function(err) {
-            console.error('[student] connect_error:', err.message);
-            startStatePolling();
-        });
-
-        // Waiting state
-        socket.on('waiting', function() {
-            console.log('[student] received: waiting');
-            showState('waiting');
-        });
-
-        // Survey activated - request assignment (skip if already submitted)
-        socket.on('survey_activated', function(data) {
-            console.log('[student] received: survey_activated', data.survey_id);
-            if (submittedSurveyIds[data.survey_id]) {
-                console.log('[student] already submitted this survey, staying in submitted state');
-                currentSurveyId = data.survey_id;
-                showState('submitted');
-                return;
-            }
-            currentSurveyId = data.survey_id;
-            socket.emit('request_assignment', {
-                participant_id: PARTICIPANT_ID,
-                student_id: STUDENT_ID,
-                survey_id: data.survey_id,
-                classroom_id: CLASSROOM_ID
-            });
-        });
-
-        // Assignment received - show all questions
-        socket.on('assignment', renderAssignment);
-
-        // Answer already submitted
-        socket.on('already_answered', function(data) {
-            console.log('[student] received: already_answered', data);
-            markSubmitted(data && data.survey_id);
-        });
-
-        // Answer saved confirmation
-        socket.on('answer_saved', function(data) {
-            console.log('[student] received: answer_saved', data);
-            markSubmitted(data && data.survey_id);
-        });
-
-        socket.on('submit_error', function(data) {
-            console.log('[student] received: submit_error', data);
-            markSubmitFailed(data && data.message);
-        });
-
-        // Survey deactivated - back to waiting
-        socket.on('survey_deactivated', function() {
-            console.log('[student] received: survey_deactivated');
-            currentSurveyId = null;
-            currentArmId = null;
-            answers = {};
-            isSubmitting = false;
-            setSubmitEnabled(true);
-            showState('waiting');
         });
     }
 
@@ -306,7 +218,6 @@ document.addEventListener('DOMContentLoaded', function() {
             answers: answersArray,
         };
 
-        // Always submit via HTTP for reliability
         submitViaHttp(payload)
             .then(function(data) {
                 if (data && data.ok) {
