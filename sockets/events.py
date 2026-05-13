@@ -342,7 +342,6 @@ def handle_submit_answer(data):
     participant_id = data.get('participant_id')
     survey_id = data.get('survey_id')
     arm_id = data.get('arm_id')
-    classroom_id = data.get('classroom_id')
     answers = data.get('answers', [])
 
     logger.info('submit_answer: participant=%s survey=%s arm=%s answers=%d',
@@ -398,14 +397,6 @@ def handle_submit_answer(data):
             })
             return {'ok': False, 'error': 'insert_failed'}
 
-        try:
-            results = _get_aggregated_results(db, survey_id)
-            if results:
-                emit('results_update', results, room=f'host_{classroom_id}')
-            else:
-                logger.warning('submit_answer: no aggregated results for survey=%s', survey_id)
-        except Exception as e:
-            logger.exception('submit_answer: aggregation failed for survey=%s', survey_id)
         return {'ok': True, 'status': 'saved'}
     finally:
         db.close()

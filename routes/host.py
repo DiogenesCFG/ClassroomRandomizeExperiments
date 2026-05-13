@@ -114,16 +114,15 @@ def activate_http(code):
     db.execute('UPDATE survey SET is_active=1 WHERE id=?', (survey_id,))
     db.commit()
 
+    # Notify students of the new active survey
     socketio.emit('survey_activated', {
         'survey_id': survey_id,
         'group_number': survey['group_number'],
         'title': survey['title'],
     }, room=f'students_{classroom["id"]}')
 
+    # Return results directly to the host via HTTP response
     results = _get_aggregated_results(db, survey_id)
-    if results:
-        socketio.emit('results_update', results, room=f'host_{classroom["id"]}')
-
     return jsonify({'ok': True, 'results': results})
 
 
@@ -160,23 +159,20 @@ def next_http(code):
     if not next_row:
         db.commit()
         socketio.emit('survey_deactivated', {}, room=f'students_{classroom["id"]}')
-        socketio.emit('all_done', {}, room=f'host_{classroom["id"]}')
         return jsonify({'ok': True, 'done': True, 'results': None})
 
     db.execute('UPDATE survey SET is_active=1 WHERE id=?', (next_row['id'],))
     db.commit()
 
+    # Notify students of the new active survey
     socketio.emit('survey_activated', {
         'survey_id': next_row['id'],
         'group_number': next_row['group_number'],
         'title': next_row['title'],
     }, room=f'students_{classroom["id"]}')
 
+    # Return results directly to the host via HTTP response
     results = _get_aggregated_results(db, next_row['id'])
-    if results:
-        socketio.emit('results_update', results, room=f'host_{classroom["id"]}')
-        socketio.emit('survey_changed', {'survey_id': next_row['id']}, room=f'host_{classroom["id"]}')
-
     return jsonify({'ok': True, 'done': False, 'results': results})
 
 
@@ -194,8 +190,8 @@ def reset_http(code):
     db.execute('UPDATE survey SET is_active=0 WHERE is_active=1 AND classroom_id=?', (classroom['id'],))
     db.commit()
 
+    # Notify students that session is reset
     socketio.emit('survey_deactivated', {}, room=f'students_{classroom["id"]}')
-    socketio.emit('session_reset', {}, room=f'host_{classroom["id"]}')
     return jsonify({'ok': True})
 
 

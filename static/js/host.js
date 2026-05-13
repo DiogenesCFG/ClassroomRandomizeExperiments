@@ -1,14 +1,6 @@
 document.addEventListener('DOMContentLoaded', function() {
-    var socket = window.io ? io({
-        transports: ['websocket', 'polling'],
-        upgrade: true,
-        reconnection: true,
-        reconnectionDelay: 1000,
-        reconnectionAttempts: 10,
-    }) : null;
     var charts = {};
     var activeSurveyId = null;
-    var statePollTimer = null;
 
     var COLORS = [
         'rgba(54, 162, 235, 0.7)',
@@ -29,7 +21,12 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function pollStateOnce() {
+    function fetchState() {
+        var btn = document.getElementById('btn-refresh');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Refreshing...';
+        }
         fetch(HOST_STATE_URL, { credentials: 'same-origin' })
             .then(function(resp) {
                 if (!resp.ok) throw new Error('state request failed');
@@ -45,7 +42,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             })
             .catch(function(err) {
-                console.warn('[host] state fallback failed:', err.message);
+                console.warn('[host] state fetch failed:', err.message);
+            })
+            .finally(function() {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = 'Refresh Results';
+                }
             });
     }
 
@@ -69,13 +72,6 @@ document.addEventListener('DOMContentLoaded', function() {
         activeSurveyId = null;
     }
 
-    function startStatePolling() {
-        pollStateOnce();
-        if (!statePollTimer) {
-            statePollTimer = setInterval(pollStateOnce, 2500);
-        }
-    }
-
     function postJson(url, payload) {
         return fetch(url, {
             method: 'POST',
@@ -87,55 +83,6 @@ document.addEventListener('DOMContentLoaded', function() {
             return resp.json();
         });
     }
-
-    if (!socket) {
-        console.warn('[host] Socket.IO client failed to load; using HTTP fallback');
-        startStatePolling();
-    } else {
-        // Connect as host
-        socket.on('connect', function() {
-            console.log('[host] connected, transport:', socket.io.engine.transport.name);
-            socket.emit('join_host', { classroom_id: CLASSROOM_ID });
-            startStatePolling();
-        });
-
-        socket.on('disconnect', function(reason) {
-            console.log('[host] disconnected:', reason);
-            startStatePolling();
-        });
-
-        socket.on('connect_error', function(err) {
-            console.error('[host] connect_error:', err.message);
-            startStatePolling();
-        });
-
-        // Participant count
-        socket.on('participant_count', function(data) {
-            console.log('[host] received: participant_count', data.count);
-            updateParticipantBadge(data.count);
-        });
-
-        socket.on('results_update', handleResultsUpdate);
-
-        // Survey changed (from next_survey)
-        socket.on('survey_changed', function(data) {
-            console.log('[host] received: survey_changed', data.survey_id);
-            setActiveSurvey(data.survey_id);
-        });
-
-        // All done
-        socket.on('all_done', function() {
-            console.log('[host] received: all_done');
-            showAllDone();
-        });
-
-        // Session reset
-        socket.on('session_reset', function() {
-            console.log('[host] received: session_reset');
-            showNoActiveSurvey();
-        });
-    }
-
 
     // Activate survey by clicking
     document.querySelectorAll('.survey-list-item').forEach(function(item) {
@@ -150,22 +97,20 @@ document.addEventListener('DOMContentLoaded', function() {
                     console.warn('[host] activate request failed:', err.message);
                 });
             setActiveSurvey(surveyId);
-            setTimeout(pollStateOnce, 400);
         });
     });
 
     // Next survey button
     document.getElementById('btn-next').addEventListener('click', function() {
         console.log('[host] next_survey');
-            postJson(HOST_NEXT_URL)
-                .then(function(data) {
-                    if (data && data.results) handleResultsUpdate(data.results);
-                    if (data && data.done) showAllDone();
-                })
+        postJson(HOST_NEXT_URL)
+            .then(function(data) {
+                if (data && data.results) handleResultsUpdate(data.results);
+                if (data && data.done) showAllDone();
+            })
             .catch(function(err) {
                 console.warn('[host] next request failed:', err.message);
             });
-        setTimeout(pollStateOnce, 400);
     });
 
     // Reset button
@@ -176,8 +121,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 .catch(function(err) {
                     console.warn('[host] reset request failed:', err.message);
                 });
-            setTimeout(pollStateOnce, 400);
         }
+    });
+
+    // Refresh button
+    document.getElementById('btn-refresh').addEventListener('click', function() {
+        fetchState();
     });
 
     function setActiveSurvey(surveyId) {
@@ -195,10 +144,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Results update (multi-question format)
-    // When the same survey sends new data (a student submitted), update charts
-    // in-place instead of destroying and recreating all DOM + Chart.js objects.
     function handleResultsUpdate(data) {
-        console.log('[host] received: results_update survey=' + data.survey_id +
+        console.log('[host] results_update survey=' + data.survey_id +
                     ' questions=' + (data.questions ? data.questions.length : 0) +
                     ' participant_count=' + data.participant_count);
 
@@ -473,5 +420,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    startStatePolling();
+    // Load initial state on page load
+    fetchState();
 });

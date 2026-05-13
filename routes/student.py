@@ -108,8 +108,7 @@ def submit_answer_http(code):
     if 'participant_id' not in session or session.get('classroom_id') != classroom['id']:
         return jsonify({'ok': False, 'error': 'not_logged_in'}), 401
 
-    from app import socketio
-    from sockets.events import _get_aggregated_results, _is_fully_answered
+    from sockets.events import _is_fully_answered
 
     data = request.get_json(silent=True) or {}
     survey_id = data.get('survey_id')
@@ -150,9 +149,5 @@ def submit_answer_http(code):
         if _is_fully_answered(db, session['participant_id'], survey_id):
             return jsonify({'ok': True, 'status': 'already_answered'})
         return jsonify({'ok': False, 'error': 'integrity_error'}), 409
-
-    results = _get_aggregated_results(db, survey_id)
-    if results:
-        socketio.emit('results_update', results, room=f'host_{classroom["id"]}')
 
     return jsonify({'ok': True, 'status': 'saved'})

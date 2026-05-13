@@ -12,7 +12,6 @@ document.addEventListener('DOMContentLoaded', function() {
     var answers = {}; // keyed by question_id: {answer_text, answer_index}
     var submittedSurveyIds = {}; // track surveys we've already submitted
     var isSubmitting = false;
-    var submitTimer = null;
     var statePollTimer = null;
 
     function escapeHtml(text) {
@@ -40,20 +39,12 @@ document.addEventListener('DOMContentLoaded', function() {
         var sid = surveyId || currentSurveyId;
         if (sid) submittedSurveyIds[sid] = true;
         isSubmitting = false;
-        if (submitTimer) {
-            clearTimeout(submitTimer);
-            submitTimer = null;
-        }
         setSubmitEnabled(true);
         showState('submitted');
     }
 
     function markSubmitFailed(message) {
         isSubmitting = false;
-        if (submitTimer) {
-            clearTimeout(submitTimer);
-            submitTimer = null;
-        }
         setSubmitEnabled(true);
         showState('answering');
         alert(message || 'Your answer was not saved. Please try again.');
@@ -143,7 +134,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function startStatePolling() {
         pollStateOnce();
         if (!statePollTimer) {
-            statePollTimer = setInterval(pollStateOnce, 2500);
+            statePollTimer = setInterval(pollStateOnce, 5000);
         }
     }
 
@@ -235,10 +226,6 @@ document.addEventListener('DOMContentLoaded', function() {
             currentArmId = null;
             answers = {};
             isSubmitting = false;
-            if (submitTimer) {
-                clearTimeout(submitTimer);
-                submitTimer = null;
-            }
             setSubmitEnabled(true);
             showState('waiting');
         });
@@ -319,41 +306,18 @@ document.addEventListener('DOMContentLoaded', function() {
             answers: answersArray,
         };
 
-        if (socket && socket.connected) {
-            submitTimer = setTimeout(function() {
-                submitViaHttp(payload)
-                    .then(function(data) {
-                        if (data && data.ok) {
-                            markSubmitted(currentSurveyId);
-                        } else {
-                            markSubmitFailed();
-                        }
-                    })
-                    .catch(function() {
-                        markSubmitFailed('The server did not confirm your answer. Please try again.');
-                    });
-            }, 4000);
-
-            socket.emit('submit_answer', payload, function(ack) {
-                if (ack && ack.ok) {
+        // Always submit via HTTP for reliability
+        submitViaHttp(payload)
+            .then(function(data) {
+                if (data && data.ok) {
                     markSubmitted(currentSurveyId);
                 } else {
                     markSubmitFailed();
                 }
+            })
+            .catch(function() {
+                markSubmitFailed('Your answer was not saved. Please try again.');
             });
-        } else {
-            submitViaHttp(payload)
-                .then(function(data) {
-                    if (data && data.ok) {
-                        markSubmitted(currentSurveyId);
-                    } else {
-                        markSubmitFailed();
-                    }
-                })
-                .catch(function() {
-                    markSubmitFailed('Your answer was not saved. Please try again.');
-                });
-        }
     });
 
     // Also submit numeric on Enter key (only if single question)

@@ -63,6 +63,7 @@
                     <span class="text-muted">Group #<span id="result-group"></span></span>
                 </div>
                 <div class="text-end">
+                    <button class="btn btn-primary me-2" id="btn-refresh">Refresh Results</button>
                     <span class="badge bg-success fs-6" id="response-count">0 responses</span>
                 </div>
             </div>
@@ -100,6 +101,5 @@
     const HOST_NEXT_URL = "{{ url_for('host.next_http', code=classroom.code) }}";
     const HOST_RESET_URL = "{{ url_for('host.reset_http', code=classroom.code) }}";
 </script>
-<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-<script src="{{ url_for('static', filename='js/host.js') }}?v=20260513-2"></script>
+<script src="{{ url_for('static', filename='js/host.js') }}?v=20260513-3"></script>
 {% endblock %}
