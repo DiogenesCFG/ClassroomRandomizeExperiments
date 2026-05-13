@@ -86,3 +86,4 @@ CREATE TABLE IF NOT EXISTS response (
     answer_index    INTEGER,
     answered_at     TEXT DEFAULT (datetime('now'))
 );
+CREATE INDEX IF NOT EXISTS idx_response_survey ON response(survey_id);

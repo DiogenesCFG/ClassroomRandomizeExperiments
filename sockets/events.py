@@ -24,23 +24,44 @@ def _get_survey_with_arms_and_questions(db, survey_id):
         'SELECT * FROM survey_question WHERE survey_id=? ORDER BY question_index', (survey_id,)
     ).fetchall()
 
+    # Batch-fetch all arm_questions for this survey's arms and questions
+    arm_ids = [a['id'] for a in arms]
+    question_ids = [q['id'] for q in questions]
+
+    aq_by_key = {}
+    options_by_aq = {}
+
+    if arm_ids and question_ids:
+        ph_arms = ','.join('?' * len(arm_ids))
+        ph_qs = ','.join('?' * len(question_ids))
+        arm_questions = db.execute(
+            'SELECT * FROM arm_question WHERE arm_id IN ({}) AND question_id IN ({})'.format(ph_arms, ph_qs),
+            arm_ids + question_ids
+        ).fetchall()
+
+        for aq in arm_questions:
+            aq_by_key[(aq['arm_id'], aq['question_id'])] = aq
+
+        aq_ids = [aq['id'] for aq in arm_questions]
+        if aq_ids:
+            ph_aq = ','.join('?' * len(aq_ids))
+            all_options = db.execute(
+                'SELECT * FROM arm_question_option WHERE arm_question_id IN ({}) ORDER BY option_index'.format(ph_aq),
+                aq_ids
+            ).fetchall()
+            for o in all_options:
+                options_by_aq.setdefault(o['arm_question_id'], []).append(o['option_text'])
+
     questions_list = []
     for q in questions:
         q_dict = dict(q)
         q_dict['arm_texts'] = {}
         for arm in arms:
-            aq = db.execute(
-                'SELECT * FROM arm_question WHERE arm_id=? AND question_id=?',
-                (arm['id'], q['id'])
-            ).fetchone()
+            aq = aq_by_key.get((arm['id'], q['id']))
             if aq:
-                options = db.execute(
-                    'SELECT * FROM arm_question_option WHERE arm_question_id=? ORDER BY option_index',
-                    (aq['id'],)
-                ).fetchall()
                 q_dict['arm_texts'][arm['id']] = {
                     'question_text': aq['question_text'],
-                    'options': [o['option_text'] for o in options],
+                    'options': options_by_aq.get(aq['id'], []),
                 }
             else:
                 q_dict['arm_texts'][arm['id']] = {
@@ -90,6 +111,17 @@ def _get_aggregated_results(db, survey_id):
 
     survey, arms, questions = result
 
+    # Batch-fetch ALL responses for this survey in one query
+    all_responses = db.execute(
+        'SELECT arm_id, question_id, answer_text, answer_index FROM response WHERE survey_id=?',
+        (survey_id,)
+    ).fetchall()
+
+    # Index responses by (arm_id, question_id)
+    responses_by_key = {}
+    for r in all_responses:
+        responses_by_key.setdefault((r['arm_id'], r['question_id']), []).append(r)
+
     output = {
         'survey_id': survey_id,
         'title': survey['title'],
@@ -116,11 +148,7 @@ def _get_aggregated_results(db, survey_id):
                 'question_text': arm_q_info.get('question_text', ''),
             }
 
-            responses = db.execute(
-                'SELECT answer_text, answer_index FROM response WHERE survey_id=? AND arm_id=? AND question_id=?',
-                (survey_id, arm['id'], q['id']),
-            ).fetchall()
-
+            responses = responses_by_key.get((arm['id'], q['id']), [])
             q_data['total_responses'] += len(responses)
 
             if q['question_type'] == 'multiple_choice':

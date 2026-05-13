@@ -1,5 +1,13 @@
-import logging
 import os
+
+# Monkey-patch stdlib before any other imports when using eventlet.
+# Without this, eventlet cannot manage async I/O and SocketIO falls back
+# to HTTP long-polling instead of real WebSockets.
+if os.environ.get('ASYNC_MODE') == 'eventlet':
+    import eventlet
+    eventlet.monkey_patch()
+
+import logging
 
 from flask import Flask
 from flask_socketio import SocketIO

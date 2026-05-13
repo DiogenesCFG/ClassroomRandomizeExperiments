@@ -80,17 +80,40 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Results update (multi-question format)
+    // When the same survey sends new data (a student submitted), update charts
+    // in-place instead of destroying and recreating all DOM + Chart.js objects.
     socket.on('results_update', function(data) {
         console.log('[host] received: results_update survey=' + data.survey_id +
                     ' questions=' + (data.questions ? data.questions.length : 0) +
                     ' participant_count=' + data.participant_count);
-        if (data.questions) {
-            data.questions.forEach(function(q) {
-                console.log('[host]   question=' + q.question_id + ' type=' + q.question_type +
-                            ' total_responses=' + q.total_responses);
+
+        var questions = data.questions || [];
+
+        // If same survey, fast-path: update chart data in place
+        if (data.survey_id === activeSurveyId && Object.keys(charts).length > 0) {
+            var maxResponses = 0;
+            questions.forEach(function(q) {
+                if (q.total_responses > maxResponses) maxResponses = q.total_responses;
+                var canvasId = 'chart-' + q.question_id;
+                var chart = charts[canvasId];
+                if (chart) {
+                    if (q.question_type === 'multiple_choice') {
+                        updateMCChart(q, chart);
+                    } else {
+                        var pane = document.getElementById('q-pane-' + q.question_id);
+                        var tbody = pane ? pane.querySelector('.stats-tbody') : null;
+                        updateNumericChart(q, chart, tbody);
+                    }
+                }
             });
+            document.getElementById('response-count').textContent =
+                maxResponses + ' responses' +
+                (data.participant_count ? ' / ' + data.participant_count + ' students' : '');
+            renderArmsDetail(data);
+            return;
         }
 
+        // Different survey or first load: full rebuild
         setActiveSurvey(data.survey_id);
 
         document.getElementById('result-title').textContent = data.title;
@@ -108,7 +131,6 @@ document.addEventListener('DOMContentLoaded', function() {
         charts = {};
 
         var maxResponses = 0;
-        var questions = data.questions || [];
 
         // If only one question, hide the tab bar
         var showTabs = questions.length > 1;
@@ -165,6 +187,53 @@ document.addEventListener('DOMContentLoaded', function() {
 
         renderArmsDetail(data);
     });
+
+    function updateMCChart(q, chart) {
+        var allOptions = [];
+        q.arms.forEach(function(arm) {
+            if (arm.options) {
+                arm.options.forEach(function(opt) {
+                    if (allOptions.indexOf(opt) === -1) allOptions.push(opt);
+                });
+            }
+        });
+        chart.data.labels = allOptions;
+        q.arms.forEach(function(arm, i) {
+            if (chart.data.datasets[i]) {
+                chart.data.datasets[i].label = arm.label + ' (n=' + arm.n + ')';
+                chart.data.datasets[i].data = allOptions.map(function(opt) {
+                    return (arm.counts && arm.counts[opt]) || 0;
+                });
+            }
+        });
+        chart.update();
+    }
+
+    function updateNumericChart(q, chart, tbody) {
+        chart.data.labels = q.arms.map(function(a) { return a.label; });
+        chart.data.datasets[0].data = q.arms.map(function(a) { return a.stats ? a.stats.mean : 0; });
+        chart.update();
+        if (tbody) {
+            tbody.innerHTML = '';
+            q.arms.forEach(function(arm) {
+                var row = document.createElement('tr');
+                if (arm.stats) {
+                    row.innerHTML = '<td><strong>' + arm.label + '</strong></td>'
+                        + '<td>' + arm.n + '</td>'
+                        + '<td>' + arm.stats.mean + '</td>'
+                        + '<td>' + arm.stats.median + '</td>'
+                        + '<td>' + arm.stats.std + '</td>'
+                        + '<td>' + arm.stats.min + '</td>'
+                        + '<td>' + arm.stats.max + '</td>';
+                } else {
+                    row.innerHTML = '<td><strong>' + arm.label + '</strong></td>'
+                        + '<td>0</td>'
+                        + '<td colspan="5" class="text-muted">No responses yet</td>';
+                }
+                tbody.appendChild(row);
+            });
+        }
+    }
 
     function renderMCChart(q, canvasId) {
         var allOptions = [];
