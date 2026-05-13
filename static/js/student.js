@@ -70,6 +70,13 @@ document.addEventListener('DOMContentLoaded', function() {
     socket.on('assignment', function(data) {
         console.log('[student] received: assignment survey=' + data.survey_id +
                     ' arm=' + data.arm_id + ' questions=' + data.questions.length);
+        // If we already submitted this survey (e.g. after a socket reconnect),
+        // don't show the question again.
+        if (submittedSurveyIds[data.survey_id]) {
+            console.log('[student] already submitted survey ' + data.survey_id + ', ignoring assignment');
+            showState('submitted');
+            return;
+        }
         currentSurveyId = data.survey_id;
         currentArmId = data.arm_id;
         answers = {};

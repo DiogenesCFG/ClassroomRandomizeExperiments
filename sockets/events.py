@@ -302,9 +302,12 @@ def handle_activate_survey(data):
             'title': survey['title'],
         }, room=f'students_{classroom_id}')
 
-        results = _get_aggregated_results(db, survey_id)
-        logger.info('activate_survey: broadcasting results to host_%s', classroom_id)
-        emit('results_update', results, room=f'host_{classroom_id}')
+        try:
+            results = _get_aggregated_results(db, survey_id)
+            logger.info('activate_survey: broadcasting results to host_%s', classroom_id)
+            emit('results_update', results, room=f'host_{classroom_id}')
+        except Exception as e:
+            logger.error('activate_survey: aggregation failed for survey=%s: %s', survey_id, e)
     finally:
         db.close()
 
@@ -376,11 +379,14 @@ def handle_submit_answer(data):
             emit('already_answered', {'survey_id': survey_id})
             return
 
-        results = _get_aggregated_results(db, survey_id)
-        if results:
-            emit('results_update', results, room=f'host_{classroom_id}')
-        else:
-            logger.warning('submit_answer: no aggregated results for survey=%s', survey_id)
+        try:
+            results = _get_aggregated_results(db, survey_id)
+            if results:
+                emit('results_update', results, room=f'host_{classroom_id}')
+            else:
+                logger.warning('submit_answer: no aggregated results for survey=%s', survey_id)
+        except Exception as e:
+            logger.error('submit_answer: aggregation failed for survey=%s: %s', survey_id, e)
     finally:
         db.close()
 
