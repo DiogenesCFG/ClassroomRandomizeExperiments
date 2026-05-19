@@ -1,9 +1,10 @@
 CREATE TABLE IF NOT EXISTS classroom (
-    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-    code               TEXT NOT NULL UNIQUE,
-    name               TEXT NOT NULL,
-    host_password_hash TEXT NOT NULL,
-    created_at         TEXT NOT NULL DEFAULT (datetime('now'))
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    code                    TEXT NOT NULL UNIQUE,
+    name                    TEXT NOT NULL,
+    host_password_hash      TEXT NOT NULL,
+    classroom_password_hash TEXT NOT NULL DEFAULT '',
+    created_at              TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS survey (
@@ -11,7 +12,7 @@ CREATE TABLE IF NOT EXISTS survey (
     classroom_id    INTEGER NOT NULL REFERENCES classroom(id) ON DELETE CASCADE,
     group_number    INTEGER NOT NULL,
     title           TEXT NOT NULL,
-    question_type   TEXT NOT NULL CHECK (question_type IN ('numeric', 'multiple_choice')),
+    question_type   TEXT NOT NULL,
     password_hash   TEXT NOT NULL DEFAULT '',
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     is_active       INTEGER NOT NULL DEFAULT 0
@@ -55,8 +56,11 @@ CREATE TABLE IF NOT EXISTS survey_question (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     survey_id       INTEGER NOT NULL REFERENCES survey(id) ON DELETE CASCADE,
     question_index  INTEGER NOT NULL,
-    question_type   TEXT NOT NULL CHECK (question_type IN ('numeric', 'multiple_choice')),
-    label           TEXT NOT NULL DEFAULT ''
+    question_type   TEXT NOT NULL,
+    label           TEXT NOT NULL DEFAULT '',
+    slider_min      REAL DEFAULT NULL,
+    slider_max      REAL DEFAULT NULL,
+    slider_step     REAL DEFAULT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_survey_question_unique ON survey_question(survey_id, question_index);
 
@@ -64,7 +68,8 @@ CREATE TABLE IF NOT EXISTS arm_question (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     arm_id          INTEGER NOT NULL REFERENCES survey_arm(id) ON DELETE CASCADE,
     question_id     INTEGER NOT NULL REFERENCES survey_question(id) ON DELETE CASCADE,
-    question_text   TEXT NOT NULL
+    question_text   TEXT NOT NULL,
+    image_filename  TEXT DEFAULT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_arm_question_unique ON arm_question(arm_id, question_id);
 

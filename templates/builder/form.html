@@ -5,7 +5,7 @@
 {% block content %}
 <h2 class="mb-4">{% if mode == 'edit' %}Edit Survey{% else %}Create New Survey{% endif %}</h2>
 
-<form method="POST" id="survey-form">
+<form method="POST" id="survey-form" enctype="multipart/form-data">
     <div class="card mb-4">
         <div class="card-header"><strong>Survey Details</strong></div>
         <div class="card-body">
@@ -62,13 +62,33 @@
                         <label class="form-label">Type</label>
                         <select class="form-select question-type-select" name="questions[{{ q_idx }}][question_type]">
                             <option value="multiple_choice" {% if q.question_type == 'multiple_choice' %}selected{% endif %}>Multiple Choice</option>
+                            <option value="multiple_answer" {% if q.question_type == 'multiple_answer' %}selected{% endif %}>Multiple Answer</option>
                             <option value="numeric" {% if q.question_type == 'numeric' %}selected{% endif %}>Numeric</option>
+                            <option value="short_answer" {% if q.question_type == 'short_answer' %}selected{% endif %}>Short Answer</option>
+                            <option value="slider" {% if q.question_type == 'slider' %}selected{% endif %}>Slider</option>
                         </select>
                     </div>
                     <div class="col-md-8">
                         <label class="form-label">Label (optional)</label>
                         <input type="text" class="form-control" name="questions[{{ q_idx }}][label]"
                                value="{{ q.label }}" placeholder="e.g., Willingness to Pay">
+                    </div>
+                </div>
+                <div class="slider-config-section row g-2 mb-3" {% if q.question_type != 'slider' %}style="display:none"{% endif %}>
+                    <div class="col-md-4">
+                        <label class="form-label text-muted small">Min</label>
+                        <input type="number" class="form-control slider-min-input" name="questions[{{ q_idx }}][slider_min]"
+                               value="{{ q.slider_min if q.slider_min is defined and q.slider_min is not none else 0 }}" step="any">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label text-muted small">Max</label>
+                        <input type="number" class="form-control slider-max-input" name="questions[{{ q_idx }}][slider_max]"
+                               value="{{ q.slider_max if q.slider_max is defined and q.slider_max is not none else 100 }}" step="any">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label text-muted small">Step</label>
+                        <input type="number" class="form-control slider-step-input" name="questions[{{ q_idx }}][slider_step]"
+                               value="{{ q.slider_step if q.slider_step is defined and q.slider_step is not none else 1 }}" step="any" min="0.01">
                     </div>
                 </div>
                 <div class="question-arms">
@@ -81,7 +101,22 @@
                                name="questions[{{ q_idx }}][arms][{{ ai }}][question_text]"
                                value="{{ arm_data.question_text }}"
                                placeholder="Question text for {{ arm.label or 'this arm' }}" required>
-                        <div class="question-options-section" {% if q.question_type != 'multiple_choice' %}style="display:none"{% endif %}>
+                        <div class="arm-image-section mb-1">
+                            {% if arm_data.image_filename %}
+                            <div class="d-flex align-items-center gap-2 mb-1">
+                                <small class="text-muted">Image: {{ arm_data.image_filename.split('_', 1)[1] if '_' in arm_data.image_filename else arm_data.image_filename }}</small>
+                                <a href="/uploads/{{ arm_data.image_filename }}" target="_blank" class="btn btn-sm btn-outline-secondary py-0">View</a>
+                            </div>
+                            <input type="hidden" class="existing-image-input"
+                                   name="questions[{{ q_idx }}][arms][{{ ai }}][existing_image]"
+                                   value="{{ arm_data.image_filename }}">
+                            {% endif %}
+                            <input type="file" class="form-control form-control-sm arm-image-input"
+                                   name="questions[{{ q_idx }}][arms][{{ ai }}][image]"
+                                   accept=".png,.jpg,.jpeg,.pdf">
+                            <small class="text-muted">Optional image (PNG, JPEG, or PDF, max 2MB)</small>
+                        </div>
+                        <div class="question-options-section" {% if q.question_type not in ('multiple_choice', 'multiple_answer') %}style="display:none"{% endif %}>
                             <label class="form-label text-muted small">Answer Options:</label>
                             <div class="question-options-container">
                                 {% for opt in arm_data.options %}

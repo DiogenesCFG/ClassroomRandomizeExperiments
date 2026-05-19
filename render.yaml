@@ -11,6 +11,8 @@ services:
         value: eventlet
       - key: DATABASE_PATH
         value: /data/app.db
+      - key: UPLOAD_FOLDER
+        value: /data/uploads
       - key: PYTHON_VERSION
         value: "3.12"
     disk:

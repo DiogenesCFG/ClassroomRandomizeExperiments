@@ -8,12 +8,12 @@ def _hash_password(password):
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
 
 
-def create_classroom(code, name, host_password):
+def create_classroom(code, name, host_password, classroom_password):
     """Create a new classroom. Returns the classroom dict."""
     db = get_db()
     cursor = db.execute(
-        'INSERT INTO classroom (code, name, host_password_hash) VALUES (?, ?, ?)',
-        (code.upper().strip(), name.strip(), _hash_password(host_password)),
+        'INSERT INTO classroom (code, name, host_password_hash, classroom_password_hash) VALUES (?, ?, ?, ?)',
+        (code.upper().strip(), name.strip(), _hash_password(host_password), _hash_password(classroom_password)),
     )
     db.commit()
     row = db.execute('SELECT * FROM classroom WHERE id=?', (cursor.lastrowid,)).fetchone()
@@ -34,6 +34,15 @@ def check_host_password(classroom_id, password):
     if not row:
         return False
     return row['host_password_hash'] == _hash_password(password)
+
+
+def check_classroom_password(classroom_id, password):
+    """Check if the password matches the classroom's student-facing password hash."""
+    db = get_db()
+    row = db.execute('SELECT classroom_password_hash FROM classroom WHERE id=?', (classroom_id,)).fetchone()
+    if not row:
+        return False
+    return row['classroom_password_hash'] == _hash_password(password)
 
 
 def get_classroom(classroom_id):

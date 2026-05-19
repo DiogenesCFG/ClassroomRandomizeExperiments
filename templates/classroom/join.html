@@ -6,12 +6,18 @@
     <div class="col-md-6 col-lg-4">
         <h2 class="text-center mb-4">Join a Classroom</h2>
         <form method="POST">
-            <div class="mb-4">
+            <div class="mb-3">
                 <label for="code" class="form-label">Classroom Code</label>
                 <input type="text" class="form-control form-control-lg" id="code" name="code"
                        placeholder="e.g., ECON101" required autofocus
                        style="text-transform: uppercase;">
                 <div class="form-text">Enter the code provided by your instructor.</div>
+            </div>
+            <div class="mb-4">
+                <label for="password" class="form-label">Classroom Password</label>
+                <input type="password" class="form-control form-control-lg" id="password" name="password"
+                       placeholder="Enter classroom password" required>
+                <div class="form-text">Enter the password provided by your instructor.</div>
             </div>
             <button type="submit" class="btn btn-success btn-lg w-100">Join</button>
         </form>

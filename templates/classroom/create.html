@@ -18,11 +18,17 @@
                 <input type="text" class="form-control form-control-lg" id="name" name="name"
                        value="{{ name }}" placeholder="e.g., Intro to Behavioral Economics" required>
             </div>
-            <div class="mb-4">
+            <div class="mb-3">
                 <label for="host_password" class="form-label">Host Password</label>
                 <input type="password" class="form-control form-control-lg" id="host_password" name="host_password"
                        placeholder="Choose a host password" required>
                 <div class="form-text">You'll need this to access the host dashboard.</div>
+            </div>
+            <div class="mb-4">
+                <label for="classroom_password" class="form-label">Classroom Password</label>
+                <input type="password" class="form-control form-control-lg" id="classroom_password" name="classroom_password"
+                       placeholder="Choose a classroom password" required>
+                <div class="form-text">Share this with your students so they can join.</div>
             </div>
             <button type="submit" class="btn btn-primary btn-lg w-100">Create Classroom</button>
         </form>

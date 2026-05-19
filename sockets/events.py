@@ -1,3 +1,4 @@
+import json
 import logging
 import sqlite3
 
@@ -63,11 +64,13 @@ def _get_survey_with_arms_and_questions(db, survey_id):
                 q_dict['arm_texts'][arm['id']] = {
                     'question_text': aq['question_text'],
                     'options': options_by_aq.get(aq['id'], []),
+                    'image_filename': aq['image_filename'],
                 }
             else:
                 q_dict['arm_texts'][arm['id']] = {
                     'question_text': '',
                     'options': [],
+                    'image_filename': None,
                 }
         questions_list.append(q_dict)
 
@@ -92,14 +95,22 @@ def _build_assignment_payload(survey, arms, questions, student_id):
 
     for q in questions:
         arm_data = q['arm_texts'].get(arm['id'], {})
-        payload['questions'].append({
+        q_payload = {
             'question_id': q['id'],
             'question_index': q['question_index'],
             'question_type': q['question_type'],
             'label': q.get('label', ''),
             'question_text': arm_data.get('question_text', ''),
             'options': arm_data.get('options', []),
-        })
+        }
+        if q['question_type'] == 'slider':
+            q_payload['slider_min'] = q.get('slider_min', 0) or 0
+            q_payload['slider_max'] = q.get('slider_max', 100) or 100
+            q_payload['slider_step'] = q.get('slider_step', 1) or 1
+        image_fn = arm_data.get('image_filename')
+        if image_fn:
+            q_payload['image_url'] = '/uploads/' + image_fn
+        payload['questions'].append(q_payload)
 
     return payload
 
@@ -139,6 +150,10 @@ def _get_aggregated_results(db, survey_id):
             'arms': [],
             'total_responses': 0,
         }
+        if q['question_type'] == 'slider':
+            q_data['slider_min'] = q.get('slider_min', 0) or 0
+            q_data['slider_max'] = q.get('slider_max', 100) or 100
+            q_data['slider_step'] = q.get('slider_step', 1) or 1
 
         for arm in arms:
             arm_q_info = q['arm_texts'].get(arm['id'], {})
@@ -148,6 +163,9 @@ def _get_aggregated_results(db, survey_id):
                 'label': arm['label'],
                 'question_text': arm_q_info.get('question_text', ''),
             }
+            image_fn = arm_q_info.get('image_filename')
+            if image_fn:
+                arm_data['image_url'] = '/uploads/' + image_fn
 
             responses = responses_by_key.get((arm['id'], q['id']), [])
             q_data['total_responses'] += len(responses)
@@ -161,7 +179,47 @@ def _get_aggregated_results(db, survey_id):
                 arm_data['options'] = option_texts
                 arm_data['counts'] = counts
                 arm_data['n'] = len(responses)
+            elif q['question_type'] == 'multiple_answer':
+                option_texts = arm_q_info.get('options', [])
+                counts = {opt: 0 for opt in option_texts}
+                for r in responses:
+                    try:
+                        selected = json.loads(r['answer_text'])
+                        for s in selected:
+                            if s in counts:
+                                counts[s] += 1
+                    except (json.JSONDecodeError, TypeError, ValueError):
+                        pass
+                arm_data['options'] = option_texts
+                arm_data['counts'] = counts
+                arm_data['n'] = len(responses)
+            elif q['question_type'] == 'short_answer':
+                texts = [r['answer_text'] for r in responses if r['answer_text']]
+                arm_data['responses'] = texts
+                arm_data['n'] = len(texts)
+            elif q['question_type'] == 'slider':
+                values = []
+                for r in responses:
+                    try:
+                        values.append(float(r['answer_text']))
+                    except (ValueError, TypeError):
+                        pass
+                arm_data['values'] = values
+                arm_data['n'] = len(values)
+                if values:
+                    sorted_vals = sorted(values)
+                    mean = sum(values) / len(values)
+                    arm_data['stats'] = {
+                        'mean': round(mean, 2),
+                        'median': round(sorted_vals[len(sorted_vals) // 2], 2),
+                        'min': round(min(values), 2),
+                        'max': round(max(values), 2),
+                        'std': round((sum((x - mean)**2 for x in values) / len(values)) ** 0.5, 2),
+                    }
+                else:
+                    arm_data['stats'] = None
             else:
+                # numeric
                 values = []
                 for r in responses:
                     try:

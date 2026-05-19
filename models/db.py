@@ -65,6 +65,20 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    # Migration: classroom password for student access
+    try:
+        db.execute("ALTER TABLE classroom ADD COLUMN classroom_password_hash TEXT NOT NULL DEFAULT ''")
+        db.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    # Migration: image uploads for arm questions
+    try:
+        db.execute('ALTER TABLE arm_question ADD COLUMN image_filename TEXT DEFAULT NULL')
+        db.commit()
+    except sqlite3.OperationalError:
+        pass
+
     # Migration: multi-question support
     try:
         db.execute('ALTER TABLE response ADD COLUMN question_id INTEGER REFERENCES survey_question(id)')
@@ -145,6 +159,36 @@ def init_db():
             db.commit()
         except sqlite3.OperationalError:
             pass
+
+    # Migration: add slider config columns to survey_question
+    for col, col_def in (
+        ('slider_min', 'REAL DEFAULT NULL'),
+        ('slider_max', 'REAL DEFAULT NULL'),
+        ('slider_step', 'REAL DEFAULT NULL'),
+    ):
+        try:
+            db.execute(f'ALTER TABLE survey_question ADD COLUMN {col} {col_def}')
+            db.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+    # Migration: remove CHECK constraint on question_type to allow new types
+    # (short_answer, multiple_answer). SQLite can't ALTER constraints, so we
+    # recreate the tables if they still have the old CHECK.
+    for table in ('survey', 'survey_question'):
+        table_sql = db.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)
+        ).fetchone()
+        if table_sql and 'multiple_choice' in table_sql['sql'] and 'CHECK' in table_sql['sql']:
+            # Table has the old CHECK constraint — recreate without it
+            cols = db.execute(f'PRAGMA table_info({table})').fetchall()
+            col_names = ', '.join(c['name'] for c in cols)
+            db.execute(f'ALTER TABLE {table} RENAME TO {table}_old')
+            # Re-run schema to create the new table (without CHECK)
+            db.executescript(open(schema_path, 'r').read())
+            db.execute(f'INSERT INTO {table} ({col_names}) SELECT {col_names} FROM {table}_old')
+            db.execute(f'DROP TABLE {table}_old')
+            db.commit()
 
 
 @click.command('init-db')

@@ -77,6 +77,13 @@ document.addEventListener('DOMContentLoaded', function() {
             if (q.label) headerText += ': ' + q.label;
 
             var html = '<h5>' + escapeHtml(headerText) + '</h5>';
+            if (q.image_url) {
+                if (q.image_url.toLowerCase().endsWith('.pdf')) {
+                    html += '<div class="mb-2"><a href="' + q.image_url + '" target="_blank" class="btn btn-sm btn-outline-secondary">View PDF</a></div>';
+                } else {
+                    html += '<img src="' + q.image_url + '" class="img-fluid mb-2 rounded" style="max-height:300px;" alt="Question image">';
+                }
+            }
             html += '<p class="fs-5 mb-3">' + escapeHtml(q.question_text) + '</p>';
 
             if (q.question_type === 'multiple_choice') {
@@ -89,7 +96,42 @@ document.addEventListener('DOMContentLoaded', function() {
                           + escapeHtml(opt) + '</button>';
                 });
                 html += '</div>';
+            } else if (q.question_type === 'multiple_answer') {
+                html += '<p class="text-muted small mb-2">Select all that apply:</p>';
+                html += '<div class="ma-buttons d-grid gap-2" data-qid="' + q.question_id + '">';
+                q.options.forEach(function(opt, oidx) {
+                    html += '<button type="button" class="btn btn-outline-primary btn-lg btn-ma-option" '
+                          + 'data-qid="' + q.question_id + '" '
+                          + 'data-answer="' + escapeHtml(opt) + '" '
+                          + 'data-index="' + oidx + '">'
+                          + escapeHtml(opt) + '</button>';
+                });
+                html += '</div>';
+            } else if (q.question_type === 'short_answer') {
+                html += '<div class="mb-1">'
+                      + '<input type="text" class="form-control form-control-lg short-answer-input" '
+                      + 'data-qid="' + q.question_id + '" placeholder="Type your answer..." maxlength="140">'
+                      + '</div>'
+                      + '<small class="text-muted"><span class="char-count" data-qid="' + q.question_id + '">0</span>/140</small>';
+            } else if (q.question_type === 'slider') {
+                var sMin = q.slider_min != null ? q.slider_min : 0;
+                var sMax = q.slider_max != null ? q.slider_max : 100;
+                var sStep = q.slider_step != null ? q.slider_step : 1;
+                var sDefault = Math.round(((sMin + sMax) / 2) / sStep) * sStep;
+                html += '<div class="slider-container mb-2">'
+                      + '<input type="range" class="form-range slider-answer-input" '
+                      + 'data-qid="' + q.question_id + '" '
+                      + 'min="' + sMin + '" max="' + sMax + '" step="' + sStep + '" '
+                      + 'value="' + sDefault + '">'
+                      + '<div class="d-flex justify-content-between">'
+                      + '<small class="text-muted">' + sMin + '</small>'
+                      + '<strong class="slider-value-display" data-qid="' + q.question_id + '">' + sDefault + '</strong>'
+                      + '<small class="text-muted">' + sMax + '</small>'
+                      + '</div></div>';
+                // Pre-populate answer with default value
+                answers[q.question_id] = { answer_text: String(sDefault), answer_index: null };
             } else {
+                // numeric
                 html += '<div class="input-group input-group-lg">'
                       + '<input type="number" class="form-control numeric-answer-input" '
                       + 'data-qid="' + q.question_id + '" placeholder="Enter a number" step="any">'
@@ -143,7 +185,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // MC option selection via event delegation
+    // MC option selection (single select) via event delegation
     document.getElementById('questions-container').addEventListener('click', function(e) {
         var btn = e.target.closest('.btn-mc-option');
         if (!btn) return;
@@ -152,10 +194,8 @@ document.addEventListener('DOMContentLoaded', function() {
         var answerText = btn.dataset.answer;
         var answerIndex = parseInt(btn.dataset.index);
 
-        // Record answer
         answers[qid] = { answer_text: answerText, answer_index: answerIndex };
 
-        // Highlight: deselect siblings, select this one
         var group = btn.closest('.mc-buttons');
         group.querySelectorAll('.btn-mc-option').forEach(function(b) {
             b.classList.remove('btn-primary');
@@ -163,6 +203,53 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         btn.classList.remove('btn-outline-primary');
         btn.classList.add('btn-primary');
+    });
+
+    // Multiple answer option selection (toggle) via event delegation
+    document.getElementById('questions-container').addEventListener('click', function(e) {
+        var btn = e.target.closest('.btn-ma-option');
+        if (!btn) return;
+
+        var qid = parseInt(btn.dataset.qid);
+        var answerText = btn.dataset.answer;
+
+        // Toggle this button
+        if (btn.classList.contains('btn-primary')) {
+            btn.classList.remove('btn-primary');
+            btn.classList.add('btn-outline-primary');
+        } else {
+            btn.classList.remove('btn-outline-primary');
+            btn.classList.add('btn-primary');
+        }
+
+        // Collect all selected options for this question
+        var group = btn.closest('.ma-buttons');
+        var selected = [];
+        group.querySelectorAll('.btn-ma-option.btn-primary').forEach(function(b) {
+            selected.push(b.dataset.answer);
+        });
+
+        if (selected.length > 0) {
+            answers[qid] = { answer_text: JSON.stringify(selected), answer_index: null };
+        } else {
+            delete answers[qid];
+        }
+    });
+
+    // Short answer character counter
+    document.getElementById('questions-container').addEventListener('input', function(e) {
+        if (e.target.classList.contains('short-answer-input')) {
+            var qid = e.target.dataset.qid;
+            var counter = document.querySelector('.char-count[data-qid="' + qid + '"]');
+            if (counter) counter.textContent = e.target.value.length;
+        }
+        // Slider value update
+        if (e.target.classList.contains('slider-answer-input')) {
+            var qid = parseInt(e.target.dataset.qid);
+            var display = document.querySelector('.slider-value-display[data-qid="' + qid + '"]');
+            if (display) display.textContent = e.target.value;
+            answers[qid] = { answer_text: e.target.value, answer_index: null };
+        }
     });
 
     // Submit all answers
@@ -187,7 +274,40 @@ document.addEventListener('DOMContentLoaded', function() {
                 } else {
                     allAnswered = false;
                 }
+            } else if (qtype === 'multiple_answer') {
+                if (answers[qid]) {
+                    answersArray.push({
+                        question_id: qid,
+                        answer_text: answers[qid].answer_text,  // JSON array string
+                        answer_index: null,
+                    });
+                } else {
+                    allAnswered = false;
+                }
+            } else if (qtype === 'short_answer') {
+                var textInput = section.querySelector('.short-answer-input');
+                if (textInput && textInput.value.trim() !== '') {
+                    answersArray.push({
+                        question_id: qid,
+                        answer_text: textInput.value.trim(),
+                        answer_index: null,
+                    });
+                } else {
+                    allAnswered = false;
+                }
+            } else if (qtype === 'slider') {
+                var sliderInput = section.querySelector('.slider-answer-input');
+                if (sliderInput) {
+                    answersArray.push({
+                        question_id: qid,
+                        answer_text: sliderInput.value,
+                        answer_index: null,
+                    });
+                } else {
+                    allAnswered = false;
+                }
             } else {
+                // numeric
                 var numInput = section.querySelector('.numeric-answer-input');
                 if (numInput && numInput.value !== '') {
                     answersArray.push({
@@ -231,9 +351,9 @@ document.addEventListener('DOMContentLoaded', function() {
             });
     });
 
-    // Also submit numeric on Enter key (only if single question)
+    // Also submit numeric/short_answer on Enter key (only if single question)
     document.getElementById('questions-container').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter' && e.target.classList.contains('numeric-answer-input')) {
+        if (e.key === 'Enter' && (e.target.classList.contains('numeric-answer-input') || e.target.classList.contains('short-answer-input'))) {
             var sections = document.querySelectorAll('.question-section');
             if (sections.length === 1) {
                 document.getElementById('submit-all').click();

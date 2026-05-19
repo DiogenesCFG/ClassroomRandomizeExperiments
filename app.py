@@ -8,7 +8,7 @@ if os.environ.get('ASYNC_MODE') == 'eventlet':
 
 import logging
 
-from flask import Flask
+from flask import Flask, send_from_directory
 from flask_socketio import SocketIO
 
 socketio = SocketIO()
@@ -22,8 +22,9 @@ def create_app():
     logging.basicConfig(level=logging.INFO)
     app.logger.setLevel(logging.INFO)
 
-    # Ensure instance folder exists
+    # Ensure instance and upload folders exist
     os.makedirs(app.instance_path, exist_ok=True)
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
     # Initialize SocketIO
     # Use eventlet on Render (production), threading locally (development)
@@ -44,6 +45,11 @@ def create_app():
     # Auto-create tables on startup if they don't exist
     with app.app_context():
         init_db()
+
+    # Route to serve uploaded question images
+    @app.route('/uploads/<filename>')
+    def uploaded_file(filename):
+        return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
     # Register blueprints
     from routes import register_blueprints

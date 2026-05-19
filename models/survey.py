@@ -52,21 +52,23 @@ def create_survey(classroom_id, title, group_number, password, arms, questions, 
     # Create questions with per-arm texts and options
     for qi, question in enumerate(questions):
         q_cursor = db.execute(
-            'INSERT INTO survey_question (survey_id, question_index, question_type, label) VALUES (?, ?, ?, ?)',
-            (survey_id, qi, question['question_type'], question.get('label', '')),
+            'INSERT INTO survey_question (survey_id, question_index, question_type, label, slider_min, slider_max, slider_step) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            (survey_id, qi, question['question_type'], question.get('label', ''),
+             question.get('slider_min'), question.get('slider_max'), question.get('slider_step')),
         )
         question_id = q_cursor.lastrowid
 
         for ai, arm_id in enumerate(arm_ids):
             arm_data = question.get('arms', {}).get(ai, {})
             q_text = arm_data.get('question_text', '')
+            image_filename = arm_data.get('image_filename')
             aq_cursor = db.execute(
-                'INSERT INTO arm_question (arm_id, question_id, question_text) VALUES (?, ?, ?)',
-                (arm_id, question_id, q_text),
+                'INSERT INTO arm_question (arm_id, question_id, question_text, image_filename) VALUES (?, ?, ?, ?)',
+                (arm_id, question_id, q_text, image_filename),
             )
             aq_id = aq_cursor.lastrowid
 
-            if question['question_type'] == 'multiple_choice':
+            if question['question_type'] in ('multiple_choice', 'multiple_answer'):
                 for oi, opt_text in enumerate(arm_data.get('options', [])):
                     if opt_text.strip():
                         db.execute(
@@ -75,7 +77,7 @@ def create_survey(classroom_id, title, group_number, password, arms, questions, 
                         )
 
             # Also populate legacy arm_option for first question
-            if qi == 0 and question['question_type'] == 'multiple_choice':
+            if qi == 0 and question['question_type'] in ('multiple_choice', 'multiple_answer'):
                 for oi, opt_text in enumerate(arm_data.get('options', [])):
                     if opt_text.strip():
                         db.execute(
@@ -95,8 +97,18 @@ def create_survey(classroom_id, title, group_number, password, arms, questions, 
 
 
 def update_survey(survey_id, title, group_number, arms, questions, members):
-    """Update an existing survey, replacing all arms, questions, and members."""
+    """Update an existing survey, replacing all arms, questions, and members.
+    Returns list of old image filenames that were removed (caller should delete files)."""
     db = get_db()
+
+    # Collect old image filenames before deleting arm_questions
+    old_images = db.execute(
+        'SELECT aq.image_filename FROM arm_question aq '
+        'JOIN survey_arm sa ON aq.arm_id = sa.id '
+        'WHERE sa.survey_id=? AND aq.image_filename IS NOT NULL',
+        (survey_id,)
+    ).fetchall()
+    old_image_filenames = [r['image_filename'] for r in old_images]
 
     first_type = questions[0]['question_type'] if questions else 'multiple_choice'
     db.execute('UPDATE survey SET title=?, group_number=?, question_type=? WHERE id=?',
@@ -122,21 +134,23 @@ def update_survey(survey_id, title, group_number, arms, questions, members):
     # Recreate questions
     for qi, question in enumerate(questions):
         q_cursor = db.execute(
-            'INSERT INTO survey_question (survey_id, question_index, question_type, label) VALUES (?, ?, ?, ?)',
-            (survey_id, qi, question['question_type'], question.get('label', '')),
+            'INSERT INTO survey_question (survey_id, question_index, question_type, label, slider_min, slider_max, slider_step) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            (survey_id, qi, question['question_type'], question.get('label', ''),
+             question.get('slider_min'), question.get('slider_max'), question.get('slider_step')),
         )
         question_id = q_cursor.lastrowid
 
         for ai, arm_id in enumerate(arm_ids):
             arm_data = question.get('arms', {}).get(ai, {})
             q_text = arm_data.get('question_text', '')
+            image_filename = arm_data.get('image_filename')
             aq_cursor = db.execute(
-                'INSERT INTO arm_question (arm_id, question_id, question_text) VALUES (?, ?, ?)',
-                (arm_id, question_id, q_text),
+                'INSERT INTO arm_question (arm_id, question_id, question_text, image_filename) VALUES (?, ?, ?, ?)',
+                (arm_id, question_id, q_text, image_filename),
             )
             aq_id = aq_cursor.lastrowid
 
-            if question['question_type'] == 'multiple_choice':
+            if question['question_type'] in ('multiple_choice', 'multiple_answer'):
                 for oi, opt_text in enumerate(arm_data.get('options', [])):
                     if opt_text.strip():
                         db.execute(
@@ -144,7 +158,7 @@ def update_survey(survey_id, title, group_number, arms, questions, members):
                             (aq_id, oi, opt_text.strip()),
                         )
 
-            if qi == 0 and question['question_type'] == 'multiple_choice':
+            if qi == 0 and question['question_type'] in ('multiple_choice', 'multiple_answer'):
                 for oi, opt_text in enumerate(arm_data.get('options', [])):
                     if opt_text.strip():
                         db.execute(
@@ -160,6 +174,17 @@ def update_survey(survey_id, title, group_number, arms, questions, members):
             )
 
     db.commit()
+
+    # Return old filenames so caller can delete files that are no longer referenced
+    # (only those not re-used in the new data)
+    new_images = set()
+    for q in questions:
+        for ai_data in q.get('arms', {}).values():
+            fn = ai_data.get('image_filename')
+            if fn:
+                new_images.add(fn)
+    removed = [f for f in old_image_filenames if f not in new_images]
+    return removed
 
 
 def get_survey(survey_id):
@@ -198,11 +223,13 @@ def get_survey(survey_id):
                 q_dict['arms'][arm['arm_index']] = {
                     'question_text': aq['question_text'],
                     'options': [o['option_text'] for o in options],
+                    'image_filename': aq['image_filename'],
                 }
             else:
                 q_dict['arms'][arm['arm_index']] = {
                     'question_text': '',
                     'options': [],
+                    'image_filename': None,
                 }
         survey['questions'].append(q_dict)
 
@@ -269,7 +296,15 @@ def get_next_survey_id(current_survey_id, classroom_id):
 
 
 def delete_survey(survey_id):
-    """Delete a survey and all its related data."""
+    """Delete a survey and all its related data. Returns list of image filenames to clean up."""
     db = get_db()
+    images = db.execute(
+        'SELECT aq.image_filename FROM arm_question aq '
+        'JOIN survey_arm sa ON aq.arm_id = sa.id '
+        'WHERE sa.survey_id=? AND aq.image_filename IS NOT NULL',
+        (survey_id,)
+    ).fetchall()
+    image_filenames = [r['image_filename'] for r in images]
     db.execute('DELETE FROM survey WHERE id=?', (survey_id,))
     db.commit()
+    return image_filenames

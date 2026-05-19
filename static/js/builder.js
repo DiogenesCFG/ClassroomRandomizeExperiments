@@ -39,6 +39,14 @@ document.addEventListener('DOMContentLoaded', function() {
             var labelInput = qBlock.querySelector('input[name*="[label]"]');
             if (labelInput) labelInput.name = 'questions[' + qi + '][label]';
 
+            // Update slider config field names
+            var sliderMin = qBlock.querySelector('.slider-min-input');
+            var sliderMax = qBlock.querySelector('.slider-max-input');
+            var sliderStep = qBlock.querySelector('.slider-step-input');
+            if (sliderMin) sliderMin.name = 'questions[' + qi + '][slider_min]';
+            if (sliderMax) sliderMax.name = 'questions[' + qi + '][slider_max]';
+            if (sliderStep) sliderStep.name = 'questions[' + qi + '][slider_step]';
+
             // Update remove button visibility
             var removeQBtn = qBlock.querySelector('.remove-question-btn');
             if (removeQBtn) removeQBtn.style.display = questionBlocks.length > 1 ? '' : 'none';
@@ -55,6 +63,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     qTextInput.name = 'questions[' + qi + '][arms][' + ai + '][question_text]';
                     qTextInput.placeholder = 'Question text for ' + (armLabels[ai] || 'this arm');
                 }
+
+                // Reindex image input
+                var imageInput = aBlock.querySelector('.arm-image-input');
+                if (imageInput) imageInput.name = 'questions[' + qi + '][arms][' + ai + '][image]';
+                var existingImageInput = aBlock.querySelector('.existing-image-input');
+                if (existingImageInput) existingImageInput.name = 'questions[' + qi + '][arms][' + ai + '][existing_image]';
 
                 // Reindex options
                 var optionRows = aBlock.querySelectorAll('.q-option-row');
@@ -81,13 +95,22 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // --- Build an arm block HTML for inside a question ---
+    function typeHasOptions(questionType) {
+        return questionType === 'multiple_choice' || questionType === 'multiple_answer';
+    }
+
     function buildQuestionArmHTML(qi, ai, armLabel, questionType) {
-        var showOptions = questionType === 'multiple_choice';
+        var showOptions = typeHasOptions(questionType);
         var html = '<div class="question-arm-block border-start border-3 ps-3 mb-3" data-arm-index="' + ai + '">';
         html += '<label class="form-label fw-bold arm-label-ref">' + (armLabel || 'Arm ' + (ai + 1)) + '</label>';
         html += '<input type="text" class="form-control mb-1 arm-question-text" ';
         html += 'name="questions[' + qi + '][arms][' + ai + '][question_text]" ';
         html += 'placeholder="Question text for ' + (armLabel || 'this arm') + '" required>';
+        html += '<div class="arm-image-section mb-1">';
+        html += '<input type="file" class="form-control form-control-sm arm-image-input" ';
+        html += 'name="questions[' + qi + '][arms][' + ai + '][image]" accept=".png,.jpg,.jpeg,.pdf">';
+        html += '<small class="text-muted">Optional image (PNG, JPEG, or PDF, max 2MB)</small>';
+        html += '</div>';
         html += '<div class="question-options-section"' + (showOptions ? '' : ' style="display:none"') + '>';
         html += '<label class="form-label text-muted small">Answer Options:</label>';
         html += '<div class="question-options-container">';
@@ -186,11 +209,22 @@ document.addEventListener('DOMContentLoaded', function() {
         html += '<div class="col-md-4"><label class="form-label">Type</label>';
         html += '<select class="form-select question-type-select" name="questions[' + qi + '][question_type]">';
         html += '<option value="multiple_choice">Multiple Choice</option>';
+        html += '<option value="multiple_answer">Multiple Answer</option>';
         html += '<option value="numeric">Numeric</option>';
+        html += '<option value="short_answer">Short Answer</option>';
+        html += '<option value="slider">Slider</option>';
         html += '</select></div>';
         html += '<div class="col-md-8"><label class="form-label">Label (optional)</label>';
         html += '<input type="text" class="form-control" name="questions[' + qi + '][label]" placeholder="e.g., Willingness to Pay">';
         html += '</div></div>';
+        html += '<div class="slider-config-section row g-2 mb-3" style="display:none">';
+        html += '<div class="col-md-4"><label class="form-label text-muted small">Min</label>';
+        html += '<input type="number" class="form-control slider-min-input" name="questions[' + qi + '][slider_min]" value="0" step="any"></div>';
+        html += '<div class="col-md-4"><label class="form-label text-muted small">Max</label>';
+        html += '<input type="number" class="form-control slider-max-input" name="questions[' + qi + '][slider_max]" value="100" step="any"></div>';
+        html += '<div class="col-md-4"><label class="form-label text-muted small">Step</label>';
+        html += '<input type="number" class="form-control slider-step-input" name="questions[' + qi + '][slider_step]" value="1" step="any" min="0.01"></div>';
+        html += '</div>';
         html += '<div class="question-arms">';
         for (var ai = 0; ai < armLabels.length; ai++) {
             html += buildQuestionArmHTML(qi, ai, armLabels[ai], 'multiple_choice');
@@ -213,11 +247,15 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- Per-question type toggle ---
     questionsContainer.addEventListener('change', function(e) {
         if (e.target.classList.contains('question-type-select')) {
-            var show = e.target.value === 'multiple_choice';
+            var qtype = e.target.value;
+            var showOptions = typeHasOptions(qtype);
+            var showSlider = qtype === 'slider';
             var qBlock = e.target.closest('.question-block');
             qBlock.querySelectorAll('.question-options-section').forEach(function(section) {
-                section.style.display = show ? '' : 'none';
+                section.style.display = showOptions ? '' : 'none';
             });
+            var sliderSection = qBlock.querySelector('.slider-config-section');
+            if (sliderSection) sliderSection.style.display = showSlider ? '' : 'none';
         }
     });
 

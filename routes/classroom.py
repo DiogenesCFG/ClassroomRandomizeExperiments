@@ -2,7 +2,7 @@ import sqlite3
 
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash
 
-from models.classroom import create_classroom, get_classroom_by_code, check_host_password
+from models.classroom import create_classroom, get_classroom_by_code, check_host_password, check_classroom_password
 
 bp = Blueprint('classroom', __name__, url_prefix='/c')
 
@@ -13,6 +13,7 @@ def create():
         code = request.form.get('code', '').strip().upper()
         name = request.form.get('name', '').strip()
         host_password = request.form.get('host_password', '').strip()
+        classroom_password = request.form.get('classroom_password', '').strip()
 
         errors = []
         if not code:
@@ -21,6 +22,8 @@ def create():
             errors.append('Classroom name is required.')
         if not host_password:
             errors.append('Host password is required.')
+        if not classroom_password:
+            errors.append('Classroom password is required.')
 
         if errors:
             for e in errors:
@@ -28,7 +31,7 @@ def create():
             return render_template('classroom/create.html', code=code, name=name)
 
         try:
-            classroom = create_classroom(code, name, host_password)
+            classroom = create_classroom(code, name, host_password, classroom_password)
             flash(f'Classroom "{name}" created with code {classroom["code"]}!', 'success')
             return redirect(url_for('classroom.lobby', code=classroom['code']))
         except sqlite3.IntegrityError:
@@ -42,9 +45,14 @@ def create():
 def join():
     if request.method == 'POST':
         code = request.form.get('code', '').strip().upper()
+        password = request.form.get('password', '').strip()
         classroom = get_classroom_by_code(code)
         if not classroom:
             flash('Classroom not found. Check the code and try again.', 'danger')
+            return render_template('classroom/join.html')
+
+        if not check_classroom_password(classroom['id'], password):
+            flash('Incorrect classroom password.', 'danger')
             return render_template('classroom/join.html')
 
         session['classroom_id'] = classroom['id']

@@ -15,6 +15,76 @@ document.addEventListener('DOMContentLoaded', function() {
         'rgba(255, 159, 64, 1)',
     ];
 
+    function escapeHtml(text) {
+        var div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function isChartType(qtype) {
+        return qtype === 'multiple_choice' || qtype === 'multiple_answer' || qtype === 'numeric' || qtype === 'slider';
+    }
+
+    function computeHistogramBins(q) {
+        var sMin = q.slider_min != null ? q.slider_min : 0;
+        var sMax = q.slider_max != null ? q.slider_max : 100;
+        var sStep = q.slider_step != null ? q.slider_step : 1;
+        var range = sMax - sMin;
+        var numPossible = Math.round(range / sStep) + 1;
+
+        var binLabels, binEdges;
+        if (numPossible <= 20) {
+            // Each possible value is its own bin
+            binLabels = [];
+            binEdges = [];
+            for (var v = sMin; v <= sMax + sStep * 0.001; v += sStep) {
+                var rounded = Math.round(v * 1000) / 1000;
+                binLabels.push(String(rounded));
+                binEdges.push(rounded);
+            }
+        } else {
+            // Group into ~10 bins
+            var numBins = 10;
+            var binWidth = range / numBins;
+            binLabels = [];
+            binEdges = [];
+            for (var i = 0; i < numBins; i++) {
+                var lo = Math.round((sMin + i * binWidth) * 100) / 100;
+                var hi = Math.round((sMin + (i + 1) * binWidth) * 100) / 100;
+                binLabels.push(lo + '-' + hi);
+                binEdges.push(lo);
+            }
+            binEdges.push(sMax); // upper bound of last bin
+        }
+        return { binLabels: binLabels, binEdges: binEdges, exactBins: numPossible <= 20 };
+    }
+
+    function binValues(values, binInfo) {
+        var counts = new Array(binInfo.binLabels.length).fill(0);
+        if (binInfo.exactBins) {
+            values.forEach(function(v) {
+                for (var i = 0; i < binInfo.binEdges.length; i++) {
+                    if (Math.abs(v - binInfo.binEdges[i]) < 0.0001) {
+                        counts[i]++;
+                        break;
+                    }
+                }
+            });
+        } else {
+            var numBins = binInfo.binLabels.length;
+            var lo = binInfo.binEdges[0];
+            var hi = binInfo.binEdges[binInfo.binEdges.length - 1];
+            var binWidth = (hi - lo) / numBins;
+            values.forEach(function(v) {
+                var idx = Math.floor((v - lo) / binWidth);
+                if (idx >= numBins) idx = numBins - 1;
+                if (idx < 0) idx = 0;
+                counts[idx]++;
+            });
+        }
+        return counts;
+    }
+
     function updateParticipantBadge(count) {
         if (typeof count === 'number') {
             document.getElementById('participant-badge').textContent = count + ' students';
@@ -150,18 +220,26 @@ document.addEventListener('DOMContentLoaded', function() {
 
         var questions = data.questions || [];
 
-        // If same survey, fast-path: update chart data in place
+        // If same survey, fast-path: update data in place
         if (data.survey_id === activeSurveyId && Object.keys(charts).length > 0) {
             var maxResponses = 0;
             questions.forEach(function(q) {
                 if (q.total_responses > maxResponses) maxResponses = q.total_responses;
                 var canvasId = 'chart-' + q.question_id;
                 var chart = charts[canvasId];
-                if (chart) {
-                    if (q.question_type === 'multiple_choice') {
-                        updateMCChart(q, chart);
-                    } else {
-                        var pane = document.getElementById('q-pane-' + q.question_id);
+                var pane = document.getElementById('q-pane-' + q.question_id);
+
+                if (q.question_type === 'multiple_choice' || q.question_type === 'multiple_answer') {
+                    if (chart) updateMCChart(q, chart);
+                } else if (q.question_type === 'short_answer') {
+                    if (pane) updateShortAnswerPane(q, pane);
+                } else if (q.question_type === 'slider') {
+                    if (chart) {
+                        var tbody = pane ? pane.querySelector('.stats-tbody') : null;
+                        updateSliderChart(q, chart, tbody);
+                    }
+                } else {
+                    if (chart) {
                         var tbody = pane ? pane.querySelector('.stats-tbody') : null;
                         updateNumericChart(q, chart, tbody);
                     }
@@ -223,20 +301,32 @@ document.addEventListener('DOMContentLoaded', function() {
 
             var canvasId = 'chart-' + q.question_id;
 
-            if (q.question_type === 'multiple_choice') {
+            if (q.question_type === 'multiple_choice' || q.question_type === 'multiple_answer') {
+                var chartTitle = q.question_type === 'multiple_answer' ? 'Selections by Arm' : 'Responses by Arm';
                 pane.innerHTML = '<div class="chart-container"><canvas id="' + canvasId + '"></canvas></div>';
-            } else {
+                contentContainer.appendChild(pane);
+                renderMCChart(q, canvasId, chartTitle);
+            } else if (q.question_type === 'short_answer') {
+                pane.innerHTML = '<div class="short-answer-results"></div>';
+                contentContainer.appendChild(pane);
+                renderShortAnswerPane(q, pane);
+                // Use a placeholder in charts so fast-path knows this question exists
+                charts['chart-' + q.question_id] = { _shortAnswer: true, destroy: function() {} };
+            } else if (q.question_type === 'slider') {
                 pane.innerHTML = '<div class="chart-container mb-4"><canvas id="' + canvasId + '"></canvas></div>'
                     + '<div class="table-responsive"><table class="table table-bordered">'
                     + '<thead><tr><th>Arm</th><th>N</th><th>Mean</th><th>Median</th><th>Std Dev</th><th>Min</th><th>Max</th></tr></thead>'
                     + '<tbody class="stats-tbody"></tbody></table></div>';
-            }
-            contentContainer.appendChild(pane);
-
-            // Render chart
-            if (q.question_type === 'multiple_choice') {
-                renderMCChart(q, canvasId);
+                contentContainer.appendChild(pane);
+                var tbody = pane.querySelector('.stats-tbody');
+                renderSliderChart(q, canvasId, tbody);
             } else {
+                // numeric
+                pane.innerHTML = '<div class="chart-container mb-4"><canvas id="' + canvasId + '"></canvas></div>'
+                    + '<div class="table-responsive"><table class="table table-bordered">'
+                    + '<thead><tr><th>Arm</th><th>N</th><th>Mean</th><th>Median</th><th>Std Dev</th><th>Min</th><th>Max</th></tr></thead>'
+                    + '<tbody class="stats-tbody"></tbody></table></div>';
+                contentContainer.appendChild(pane);
                 var tbody = pane.querySelector('.stats-tbody');
                 renderNumericChart(q, canvasId, tbody);
             }
@@ -296,7 +386,36 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function renderMCChart(q, canvasId) {
+    function renderShortAnswerPane(q, pane) {
+        var container = pane.querySelector('.short-answer-results');
+        var html = '<div class="table-responsive"><table class="table table-bordered">'
+            + '<thead><tr><th>Arm</th><th>N</th><th>Responses</th></tr></thead><tbody>';
+        q.arms.forEach(function(arm, i) {
+            var texts = arm.responses || [];
+            var cellHtml = '';
+            if (texts.length > 0) {
+                cellHtml = '<ul class="mb-0 ps-3">';
+                texts.forEach(function(t) {
+                    cellHtml += '<li>' + escapeHtml(t) + '</li>';
+                });
+                cellHtml += '</ul>';
+            } else {
+                cellHtml = '<span class="text-muted">No responses yet</span>';
+            }
+            html += '<tr><td><strong style="color: ' + BORDER_COLORS[i % BORDER_COLORS.length] + '">'
+                + escapeHtml(arm.label) + '</strong></td>'
+                + '<td>' + arm.n + '</td>'
+                + '<td>' + cellHtml + '</td></tr>';
+        });
+        html += '</tbody></table></div>';
+        container.innerHTML = html;
+    }
+
+    function updateShortAnswerPane(q, pane) {
+        renderShortAnswerPane(q, pane);
+    }
+
+    function renderMCChart(q, canvasId, title) {
         var allOptions = [];
         q.arms.forEach(function(arm) {
             if (arm.options) {
@@ -323,7 +442,7 @@ document.addEventListener('DOMContentLoaded', function() {
             options: {
                 responsive: true,
                 plugins: {
-                    title: { display: true, text: 'Responses by Arm', font: { size: 16 } },
+                    title: { display: true, text: title || 'Responses by Arm', font: { size: 16 } },
                     legend: { position: 'top' }
                 },
                 scales: {
@@ -390,6 +509,98 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    function renderSliderChart(q, canvasId, tbody) {
+        var binInfo = computeHistogramBins(q);
+
+        var datasets = q.arms.map(function(arm, i) {
+            var counts = binValues(arm.values || [], binInfo);
+            return {
+                label: arm.label + ' (n=' + arm.n + ')',
+                data: counts,
+                backgroundColor: COLORS[i % COLORS.length],
+                borderColor: BORDER_COLORS[i % BORDER_COLORS.length],
+                borderWidth: 1
+            };
+        });
+
+        var ctx = document.getElementById(canvasId);
+        charts[canvasId] = new Chart(ctx, {
+            type: 'bar',
+            data: { labels: binInfo.binLabels, datasets: datasets },
+            options: {
+                responsive: true,
+                plugins: {
+                    title: { display: true, text: 'Response Distribution by Arm', font: { size: 16 } },
+                    legend: { position: 'top' }
+                },
+                scales: {
+                    x: { title: { display: true, text: 'Value' } },
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'Count' },
+                        ticks: { stepSize: 1 }
+                    }
+                }
+            }
+        });
+        // Store binInfo on chart for fast-path updates
+        charts[canvasId]._binInfo = binInfo;
+
+        // Stats table
+        if (tbody) {
+            tbody.innerHTML = '';
+            q.arms.forEach(function(arm) {
+                var row = document.createElement('tr');
+                if (arm.stats) {
+                    row.innerHTML = '<td><strong>' + arm.label + '</strong></td>'
+                        + '<td>' + arm.n + '</td>'
+                        + '<td>' + arm.stats.mean + '</td>'
+                        + '<td>' + arm.stats.median + '</td>'
+                        + '<td>' + arm.stats.std + '</td>'
+                        + '<td>' + arm.stats.min + '</td>'
+                        + '<td>' + arm.stats.max + '</td>';
+                } else {
+                    row.innerHTML = '<td><strong>' + arm.label + '</strong></td>'
+                        + '<td>0</td>'
+                        + '<td colspan="5" class="text-muted">No responses yet</td>';
+                }
+                tbody.appendChild(row);
+            });
+        }
+    }
+
+    function updateSliderChart(q, chart, tbody) {
+        var binInfo = chart._binInfo || computeHistogramBins(q);
+        q.arms.forEach(function(arm, i) {
+            if (chart.data.datasets[i]) {
+                chart.data.datasets[i].label = arm.label + ' (n=' + arm.n + ')';
+                chart.data.datasets[i].data = binValues(arm.values || [], binInfo);
+            }
+        });
+        chart.update();
+
+        if (tbody) {
+            tbody.innerHTML = '';
+            q.arms.forEach(function(arm) {
+                var row = document.createElement('tr');
+                if (arm.stats) {
+                    row.innerHTML = '<td><strong>' + arm.label + '</strong></td>'
+                        + '<td>' + arm.n + '</td>'
+                        + '<td>' + arm.stats.mean + '</td>'
+                        + '<td>' + arm.stats.median + '</td>'
+                        + '<td>' + arm.stats.std + '</td>'
+                        + '<td>' + arm.stats.min + '</td>'
+                        + '<td>' + arm.stats.max + '</td>';
+                } else {
+                    row.innerHTML = '<td><strong>' + arm.label + '</strong></td>'
+                        + '<td>0</td>'
+                        + '<td colspan="5" class="text-muted">No responses yet</td>';
+                }
+                tbody.appendChild(row);
+            });
+        }
+    }
+
     function renderArmsDetail(data) {
         var container = document.getElementById('arms-detail');
         container.innerHTML = '';
@@ -409,7 +620,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 var qText = armData ? armData.question_text : '(N/A)';
                 var qLabel = 'Q' + (qi + 1);
                 if (q.label) qLabel += ' (' + q.label + ')';
-                questionsHtml += '<p class="mb-1 small"><strong>' + qLabel + ':</strong> ' + qText + '</p>';
+                questionsHtml += '<p class="mb-1 small"><strong>' + qLabel + ':</strong> ' + escapeHtml(qText) + '</p>';
+                if (armData && armData.image_url) {
+                    if (armData.image_url.toLowerCase().endsWith('.pdf')) {
+                        questionsHtml += '<p class="mb-1"><a href="' + armData.image_url + '" target="_blank" class="btn btn-sm btn-outline-secondary py-0">View PDF</a></p>';
+                    } else {
+                        questionsHtml += '<img src="' + armData.image_url + '" class="img-fluid mb-1 rounded" style="max-height:120px;" alt="Question image">';
+                    }
+                }
             });
             col.innerHTML = '<div class="card"><div class="card-body p-2">'
                 + '<h6 style="color: ' + BORDER_COLORS[i % BORDER_COLORS.length] + '">' + arm.label + '</h6>'

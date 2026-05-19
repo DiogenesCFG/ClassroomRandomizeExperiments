@@ -1,4 +1,8 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session, abort
+import os
+import uuid
+
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, abort, current_app
+from werkzeug.utils import secure_filename
 
 from models.classroom import get_classroom_by_code
 from models.survey import (
@@ -6,6 +10,8 @@ from models.survey import (
 )
 
 bp = Blueprint('builder', __name__, url_prefix='/c/<code>/builder')
+
+ALLOWED_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.pdf'}
 
 
 def _get_classroom_or_404(code):
@@ -20,7 +26,31 @@ def _is_classroom_host(classroom_id):
     return session.get(f'host_authenticated_{classroom_id}') is True
 
 
-def _parse_form(form):
+def _save_upload(file_obj):
+    """Save an uploaded file. Returns the stored filename, or None if invalid/empty."""
+    if not file_obj or not file_obj.filename:
+        return None
+    ext = os.path.splitext(file_obj.filename)[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        return None
+    safe_name = secure_filename(file_obj.filename)
+    unique_name = f'{uuid.uuid4().hex}_{safe_name}'
+    file_obj.save(os.path.join(current_app.config['UPLOAD_FOLDER'], unique_name))
+    return unique_name
+
+
+def _delete_upload(filename):
+    """Delete an uploaded file from disk (best-effort)."""
+    if not filename:
+        return
+    path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def _parse_form(form, files=None):
     """Parse the builder form data into structured dicts for multi-question surveys."""
     title = form.get('title', '').strip()
     group_number = form.get('group_number', '').strip()
@@ -38,24 +68,55 @@ def _parse_form(form):
     questions = []
     q_idx = 0
     while f'questions[{q_idx}][question_type]' in form:
+        q_type = form.get(f'questions[{q_idx}][question_type]', 'multiple_choice')
         question = {
-            'question_type': form.get(f'questions[{q_idx}][question_type]', 'multiple_choice'),
+            'question_type': q_type,
             'label': form.get(f'questions[{q_idx}][label]', '').strip(),
             'arms': {},
         }
+        if q_type == 'slider':
+            try:
+                question['slider_min'] = float(form.get(f'questions[{q_idx}][slider_min]', '0'))
+            except (ValueError, TypeError):
+                question['slider_min'] = 0
+            try:
+                question['slider_max'] = float(form.get(f'questions[{q_idx}][slider_max]', '100'))
+            except (ValueError, TypeError):
+                question['slider_max'] = 100
+            try:
+                question['slider_step'] = float(form.get(f'questions[{q_idx}][slider_step]', '1'))
+            except (ValueError, TypeError):
+                question['slider_step'] = 1
         for ai in range(len(arms)):
             q_text = form.get(f'questions[{q_idx}][arms][{ai}][question_text]', '').strip()
             options = []
-            if question['question_type'] == 'multiple_choice':
+            if question['question_type'] in ('multiple_choice', 'multiple_answer'):
                 opt_idx = 0
                 while f'questions[{q_idx}][arms][{ai}][options][{opt_idx}]' in form:
                     opt = form.get(f'questions[{q_idx}][arms][{ai}][options][{opt_idx}]', '').strip()
                     if opt:
                         options.append(opt)
                     opt_idx += 1
+
+            # Handle image upload
+            image_filename = None
+            if files:
+                file_key = f'questions[{q_idx}][arms][{ai}][image]'
+                file_obj = files.get(file_key)
+                saved = _save_upload(file_obj)
+                if saved:
+                    image_filename = saved
+
+            # If no new upload, keep existing image
+            if not image_filename:
+                existing = form.get(f'questions[{q_idx}][arms][{ai}][existing_image]', '').strip()
+                if existing:
+                    image_filename = existing
+
             question['arms'][ai] = {
                 'question_text': q_text,
                 'options': options,
+                'image_filename': image_filename,
             }
         questions.append(question)
         q_idx += 1
@@ -94,8 +155,16 @@ def _validate(title, group_number, arms, questions, members):
             arm_data = q.get('arms', {}).get(ai, {})
             if not arm_data.get('question_text'):
                 errors.append(f'Question {qi+1}, Arm {ai+1} needs question text.')
-            if q['question_type'] == 'multiple_choice' and len(arm_data.get('options', [])) < 2:
+            if q['question_type'] in ('multiple_choice', 'multiple_answer') and len(arm_data.get('options', [])) < 2:
                 errors.append(f'Question {qi+1}, Arm {ai+1} needs at least 2 options.')
+        if q['question_type'] == 'slider':
+            s_min = q.get('slider_min', 0)
+            s_max = q.get('slider_max', 100)
+            s_step = q.get('slider_step', 1)
+            if s_min >= s_max:
+                errors.append(f'Question {qi+1}: Slider min must be less than max.')
+            if s_step <= 0:
+                errors.append(f'Question {qi+1}: Slider step must be greater than 0.')
     if not members:
         errors.append('At least one group member is required.')
     return errors
@@ -115,7 +184,7 @@ def new(code):
     classroom = _get_classroom_or_404(code)
 
     if request.method == 'POST':
-        title, group_number, arms, questions, members = _parse_form(request.form)
+        title, group_number, arms, questions, members = _parse_form(request.form, request.files)
         password = request.form.get('password', '').strip()
 
         errors = _validate(title, group_number, arms, questions, members)
@@ -150,8 +219,8 @@ def new(code):
         'question_type': 'multiple_choice',
         'label': '',
         'arms': {
-            0: {'question_text': '', 'options': ['', '']},
-            1: {'question_text': '', 'options': ['', '']},
+            0: {'question_text': '', 'options': ['', ''], 'image_filename': None},
+            1: {'question_text': '', 'options': ['', ''], 'image_filename': None},
         },
     }]
     default_members = [{'name': '', 'sis_code': ''}]
@@ -175,13 +244,13 @@ def edit(code, survey_id):
         password = request.form.get('password', '').strip()
         if not is_host and not check_password(survey_id, password):
             flash('Incorrect password.', 'danger')
-            title, group_number, arms, questions, members = _parse_form(request.form)
+            title, group_number, arms, questions, members = _parse_form(request.form, request.files)
             return render_template('builder/form.html', mode='edit', survey_id=survey_id,
                                    title=title, group_number=group_number,
                                    arms=arms, questions=questions, members=members,
                                    is_host=is_host, classroom=classroom)
 
-        title, group_number, arms, questions, members = _parse_form(request.form)
+        title, group_number, arms, questions, members = _parse_form(request.form, request.files)
 
         errors = _validate(title, group_number, arms, questions, members)
 
@@ -194,7 +263,9 @@ def edit(code, survey_id):
                                    is_host=is_host, classroom=classroom)
 
         try:
-            update_survey(survey_id, title, int(group_number), arms, questions, members)
+            removed_files = update_survey(survey_id, title, int(group_number), arms, questions, members)
+            for fn in removed_files:
+                _delete_upload(fn)
             flash('Survey updated successfully!', 'success')
             return redirect(url_for('builder.index', code=code))
         except Exception as e:
@@ -214,14 +285,19 @@ def edit(code, survey_id):
             'label': q.get('label', ''),
             'arms': {},
         }
+        if q['question_type'] == 'slider':
+            question['slider_min'] = q.get('slider_min', 0)
+            question['slider_max'] = q.get('slider_max', 100)
+            question['slider_step'] = q.get('slider_step', 1)
         for ai in range(len(arms)):
             arm_data = q.get('arms', {}).get(ai, {})
             options = arm_data.get('options', [])
-            if not options and q['question_type'] == 'multiple_choice':
+            if not options and q['question_type'] in ('multiple_choice', 'multiple_answer'):
                 options = ['', '']
             question['arms'][ai] = {
                 'question_text': arm_data.get('question_text', ''),
                 'options': options,
+                'image_filename': arm_data.get('image_filename'),
             }
         questions.append(question)
 
@@ -234,6 +310,7 @@ def edit(code, survey_id):
                 ai: {
                     'question_text': a.get('question_text', ''),
                     'options': ['', ''],
+                    'image_filename': None,
                 } for ai, a in enumerate(survey.get('arms', []))
             },
         }]
@@ -259,7 +336,9 @@ def delete(code, survey_id):
         return redirect(url_for('builder.index', code=code))
 
     try:
-        delete_survey(survey_id)
+        removed_files = delete_survey(survey_id)
+        for fn in removed_files:
+            _delete_upload(fn)
         flash('Survey deleted.', 'success')
     except Exception as e:
         flash(f'Error deleting survey: {e}', 'danger')
