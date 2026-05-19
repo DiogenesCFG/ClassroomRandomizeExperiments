@@ -13,7 +13,9 @@ def create():
         code = request.form.get('code', '').strip().upper()
         name = request.form.get('name', '').strip()
         host_password = request.form.get('host_password', '').strip()
+        host_password_confirm = request.form.get('host_password_confirm', '').strip()
         classroom_password = request.form.get('classroom_password', '').strip()
+        classroom_password_confirm = request.form.get('classroom_password_confirm', '').strip()
 
         errors = []
         if not code:
@@ -22,8 +24,12 @@ def create():
             errors.append('Classroom name is required.')
         if not host_password:
             errors.append('Host password is required.')
+        elif host_password != host_password_confirm:
+            errors.append('Host passwords do not match.')
         if not classroom_password:
             errors.append('Classroom password is required.')
+        elif classroom_password != classroom_password_confirm:
+            errors.append('Classroom passwords do not match.')
 
         if errors:
             for e in errors:
