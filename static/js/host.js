@@ -85,6 +85,53 @@ document.addEventListener('DOMContentLoaded', function() {
         return counts;
     }
 
+    function computeNumericBins(q) {
+        var allValues = [];
+        q.arms.forEach(function(arm) {
+            if (arm.values) {
+                arm.values.forEach(function(v) { allValues.push(v); });
+            }
+        });
+
+        if (allValues.length === 0) {
+            return { binLabels: ['0'], binEdges: [0], exactBins: true };
+        }
+
+        var dMin = Math.min.apply(null, allValues);
+        var dMax = Math.max.apply(null, allValues);
+
+        if (dMin === dMax) {
+            return { binLabels: [String(dMin)], binEdges: [dMin], exactBins: true };
+        }
+
+        var allIntegers = allValues.every(function(v) { return v === Math.floor(v); });
+        var range = dMax - dMin;
+
+        if (allIntegers && range <= 19) {
+            var binLabels = [];
+            var binEdges = [];
+            for (var v = dMin; v <= dMax; v++) {
+                binLabels.push(String(v));
+                binEdges.push(v);
+            }
+            return { binLabels: binLabels, binEdges: binEdges, exactBins: true };
+        }
+
+        var numBins = Math.min(10, allValues.length);
+        if (numBins < 2) numBins = 2;
+        var binWidth = range / numBins;
+        var binLabels = [];
+        var binEdges = [];
+        for (var i = 0; i < numBins; i++) {
+            var lo = Math.round((dMin + i * binWidth) * 100) / 100;
+            var hi = Math.round((dMin + (i + 1) * binWidth) * 100) / 100;
+            binLabels.push(lo + '-' + hi);
+            binEdges.push(lo);
+        }
+        binEdges.push(dMax);
+        return { binLabels: binLabels, binEdges: binEdges, exactBins: false };
+    }
+
     function updateParticipantBadge(count) {
         if (typeof count === 'number') {
             document.getElementById('participant-badge').textContent = count + ' students';
@@ -361,9 +408,18 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function updateNumericChart(q, chart, tbody) {
-        chart.data.labels = q.arms.map(function(a) { return a.label; });
-        chart.data.datasets[0].data = q.arms.map(function(a) { return a.stats ? a.stats.mean : 0; });
+        // Recompute bins since the data range may have changed
+        var binInfo = computeNumericBins(q);
+        chart.data.labels = binInfo.binLabels;
+        chart._binInfo = binInfo;
+        q.arms.forEach(function(arm, i) {
+            if (chart.data.datasets[i]) {
+                chart.data.datasets[i].label = arm.label + ' (n=' + arm.n + ')';
+                chart.data.datasets[i].data = binValues(arm.values || [], binInfo);
+            }
+        });
         chart.update();
+
         if (tbody) {
             tbody.innerHTML = '';
             q.arms.forEach(function(arm) {
@@ -458,55 +514,62 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function renderNumericChart(q, canvasId, tbody) {
-        var labels = q.arms.map(function(a) { return a.label; });
-        var means = q.arms.map(function(a) { return a.stats ? a.stats.mean : 0; });
+        var binInfo = computeNumericBins(q);
 
-        var datasets = [{
-            label: 'Mean',
-            data: means,
-            backgroundColor: q.arms.map(function(_, i) { return COLORS[i % COLORS.length]; }),
-            borderColor: q.arms.map(function(_, i) { return BORDER_COLORS[i % BORDER_COLORS.length]; }),
-            borderWidth: 1
-        }];
+        var datasets = q.arms.map(function(arm, i) {
+            var counts = binValues(arm.values || [], binInfo);
+            return {
+                label: arm.label + ' (n=' + arm.n + ')',
+                data: counts,
+                backgroundColor: COLORS[i % COLORS.length],
+                borderColor: BORDER_COLORS[i % BORDER_COLORS.length],
+                borderWidth: 1
+            };
+        });
 
         var ctx = document.getElementById(canvasId);
         charts[canvasId] = new Chart(ctx, {
             type: 'bar',
-            data: { labels: labels, datasets: datasets },
+            data: { labels: binInfo.binLabels, datasets: datasets },
             options: {
                 responsive: true,
                 plugins: {
-                    title: { display: true, text: 'Mean Response by Arm', font: { size: 16 } },
-                    legend: { display: false }
+                    title: { display: true, text: 'Response Distribution by Arm', font: { size: 16 } },
+                    legend: { position: 'top' }
                 },
                 scales: {
+                    x: { title: { display: true, text: 'Value' } },
                     y: {
                         beginAtZero: true,
-                        title: { display: true, text: 'Value' }
+                        title: { display: true, text: 'Count' },
+                        ticks: { stepSize: 1 }
                     }
                 }
             }
         });
+        charts[canvasId]._binInfo = binInfo;
 
         // Stats table
-        tbody.innerHTML = '';
-        q.arms.forEach(function(arm) {
-            var row = document.createElement('tr');
-            if (arm.stats) {
-                row.innerHTML = '<td><strong>' + arm.label + '</strong></td>'
-                    + '<td>' + arm.n + '</td>'
-                    + '<td>' + arm.stats.mean + '</td>'
-                    + '<td>' + arm.stats.median + '</td>'
-                    + '<td>' + arm.stats.std + '</td>'
-                    + '<td>' + arm.stats.min + '</td>'
-                    + '<td>' + arm.stats.max + '</td>';
-            } else {
-                row.innerHTML = '<td><strong>' + arm.label + '</strong></td>'
-                    + '<td>0</td>'
-                    + '<td colspan="5" class="text-muted">No responses yet</td>';
-            }
-            tbody.appendChild(row);
-        });
+        if (tbody) {
+            tbody.innerHTML = '';
+            q.arms.forEach(function(arm) {
+                var row = document.createElement('tr');
+                if (arm.stats) {
+                    row.innerHTML = '<td><strong>' + arm.label + '</strong></td>'
+                        + '<td>' + arm.n + '</td>'
+                        + '<td>' + arm.stats.mean + '</td>'
+                        + '<td>' + arm.stats.median + '</td>'
+                        + '<td>' + arm.stats.std + '</td>'
+                        + '<td>' + arm.stats.min + '</td>'
+                        + '<td>' + arm.stats.max + '</td>';
+                } else {
+                    row.innerHTML = '<td><strong>' + arm.label + '</strong></td>'
+                        + '<td>0</td>'
+                        + '<td colspan="5" class="text-muted">No responses yet</td>';
+                }
+                tbody.appendChild(row);
+            });
+        }
     }
 
     function renderSliderChart(q, canvasId, tbody) {
