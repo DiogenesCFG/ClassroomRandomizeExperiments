@@ -685,11 +685,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (q.label) qLabel += ' (' + q.label + ')';
                 questionsHtml += '<p class="mb-1 small"><strong>' + qLabel + ':</strong> ' + escapeHtml(qText) + '</p>';
                 if (armData && armData.image_url) {
-                    if (armData.image_url.toLowerCase().endsWith('.pdf')) {
-                        questionsHtml += '<p class="mb-1"><a href="' + armData.image_url + '" target="_blank" class="btn btn-sm btn-outline-secondary py-0">View PDF</a></p>';
-                    } else {
-                        questionsHtml += '<img src="' + armData.image_url + '" class="img-fluid mb-1 rounded" style="max-height:120px;" alt="Question image">';
-                    }
+                    questionsHtml += '<img src="' + armData.image_url + '" class="img-fluid mb-1 rounded" style="max-height:120px;" alt="Question image">';
                 }
             });
             col.innerHTML = '<div class="card"><div class="card-body p-2">'

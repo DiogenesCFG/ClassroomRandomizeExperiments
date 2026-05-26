@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Uploaded Images - {{ classroom.name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>Uploaded Images</h2>
+    <a href="{{ url_for('host.dashboard', code=classroom.code) }}" class="btn btn-outline-secondary">Back to Dashboard</a>
+</div>
+
+{% if images %}
+<p class="text-muted">{{ images|length }} image{{ 's' if images|length != 1 else '' }} uploaded across all surveys.</p>
+<div class="row g-3">
+    {% for img in images %}
+    <div class="col-6 col-md-4 col-lg-3">
+        <div class="card h-100">
+            <a href="/uploads/{{ img.image_filename }}" target="_blank">
+                <img src="/uploads/{{ img.image_filename }}" class="card-img-top" alt="Uploaded image"
+                     style="object-fit: contain; height: 180px; background: #f8f9fa;">
+            </a>
+            <div class="card-body p-2">
+                <small class="text-muted d-block"><strong>#{{ img.group_number }}</strong> {{ img.survey_title }}</small>
+                <small class="text-muted d-block">{{ img.arm_label }} &mdash; Q{{ img.question_index + 1 }}{% if img.question_label %} ({{ img.question_label }}){% endif %}</small>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="text-center text-muted mt-5">
+    <h4>No images uploaded</h4>
+    <p>Students have not attached any images to their survey questions yet.</p>
+</div>
+{% endif %}
+{% endblock %}

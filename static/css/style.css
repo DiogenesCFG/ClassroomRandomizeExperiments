@@ -1,3 +1,17 @@
+/* Light mode: pale warm background */
+[data-bs-theme="light"] body {
+    background-color: #f5f3ef;
+}
+
+/* Dark mode: handled by Bootstrap, tweak active survey color */
+[data-bs-theme="dark"] .survey-list-item:hover {
+    background-color: #2c3034;
+}
+[data-bs-theme="dark"] .survey-list-item.active-survey {
+    background-color: #1a3d2a;
+    border-color: #28a745;
+}
+
 /* Waiting screen pulse animation */
 .pulse {
     animation: pulse 2s ease-in-out infinite;

@@ -55,18 +55,20 @@ def join():
         classroom = get_classroom_by_code(code)
         if not classroom:
             flash('Classroom not found. Check the code and try again.', 'danger')
-            return render_template('classroom/join.html')
+            return render_template('classroom/join.html', prefill_code=code)
 
         if not check_classroom_password(classroom['id'], password):
             flash('Incorrect classroom password.', 'danger')
-            return render_template('classroom/join.html')
+            return render_template('classroom/join.html', prefill_code=code)
 
         session['classroom_id'] = classroom['id']
         session['classroom_code'] = classroom['code']
         session['classroom_name'] = classroom['name']
         return redirect(url_for('classroom.lobby', code=classroom['code']))
 
-    return render_template('classroom/join.html')
+    prefill_code = request.args.get('code', '')
+    prefill_password = request.args.get('password', '')
+    return render_template('classroom/join.html', prefill_code=prefill_code, prefill_password=prefill_password)
 
 
 @bp.route('/<code>/lobby')

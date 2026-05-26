@@ -80,6 +80,18 @@ def session_state(code):
     if not active:
         return jsonify({'ok': True, 'state': 'waiting'})
 
+    # Check if student is a designer of this survey and should be blocked
+    block_designers = db.execute(
+        'SELECT block_designers FROM classroom WHERE id=?', (classroom['id'],)
+    ).fetchone()['block_designers']
+    if block_designers:
+        is_designer = db.execute(
+            'SELECT 1 FROM group_member WHERE survey_id=? AND sis_code=?',
+            (active['id'], session['student_id']),
+        ).fetchone()
+        if is_designer:
+            return jsonify({'ok': True, 'state': 'blocked_designer', 'survey_id': active['id']})
+
     if _is_fully_answered(db, session['participant_id'], active['id']):
         return jsonify({
             'ok': True,

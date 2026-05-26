@@ -55,7 +55,7 @@ Deterministic via SHA-256: `hash(student_id + ":" + survey_id) % num_arms`. This
 
 SQLite with WAL mode. Key tables:
 
-- `classroom` -- code, name, hashed host password, hashed classroom password (for student access)
+- `classroom` -- code, name, hashed host password, hashed classroom password (for student access), `classroom_password_plain` (recoverable plaintext for display/QR), `block_designers` flag
 - `survey` -- title, group_number, is_active flag, belongs to classroom
 - `survey_arm` -- treatment/control arms per survey
 - `survey_question` -- questions per survey (supports multiple), includes `slider_min`/`slider_max`/`slider_step` for slider type
@@ -76,7 +76,7 @@ Five question types are supported. The type is stored per-question in `survey_qu
 
 - **multiple_choice** -- single-select buttons, grouped bar chart on dashboard
 - **multiple_answer** -- multi-select toggle buttons, stored as JSON array in `answer_text` (e.g., `["Option A","Option C"]`), grouped bar chart on dashboard (same as MC but counts can exceed n since each student can select multiple)
-- **numeric** -- number input, mean bar chart + stats table (mean, median, std, min, max) on dashboard
+- **numeric** -- number input, histogram + stats table (mean, median, std, min, max) on dashboard. Bins are computed client-side in `host.js` using adaptive logic: exact bins for small integer ranges (≤19 distinct values), grouped bins (~10) for larger/decimal ranges
 - **short_answer** -- text input (140 char limit), response table on dashboard listing all answers by arm
 - **slider** -- range slider input with configurable min/max/step, histogram + stats table on dashboard. Config stored in `survey_question.slider_min`, `slider_max`, `slider_step` columns. The student sees a draggable slider with live value display. Response stored as numeric string in `answer_text`. Histogram bins are computed client-side in `host.js` from the slider config and raw values.
 
@@ -88,20 +88,32 @@ Two separate passwords protect each classroom:
 - **Host password** -- required to access the host dashboard (`/c/host-join`). Only the instructor should know this.
 - **Classroom password** -- required for students to join via `/c/join`. The instructor shares this with the class. This prevents unauthorized users from guessing classroom codes.
 
-Both passwords are hashed with SHA-256 and stored in the `classroom` table. The classroom password is set during classroom creation and cannot be changed after (would require a new feature).
+Both passwords are hashed with SHA-256 and stored in the `classroom` table. The classroom password is also stored in plaintext (`classroom_password_plain`) so the host can see it on the dashboard and it can be embedded in the QR code URL. The classroom creation form requires both passwords to be typed twice (confirm fields) with server-side validation.
 
 ## Image Uploads
 
-Survey builders can attach images (PNG, JPEG, PDF) to individual arm-questions. Images are:
+Survey builders can attach images (PNG, JPEG only -- PDF was removed) to individual arm-questions. Images are:
 - Stored on disk in `UPLOAD_FOLDER` (locally: `instance/uploads/`, on Render: `/data/uploads/` on the persistent disk)
 - Named with a UUID prefix to avoid collisions: `{uuid4}_{original_filename}`
 - Limited to 2MB per file via Flask's `MAX_CONTENT_LENGTH`
 - Served via `GET /uploads/<filename>` route in `app.py`
 - Cleaned up from disk when surveys are updated (old images removed) or deleted
 
-In the student view, images render as `<img>` tags above the question text (or as a "View PDF" link for PDFs). In the host dashboard, images appear as thumbnails in the arms detail section.
+In the student view, images render as `<img>` tags above the question text. In the host dashboard, images appear as thumbnails in the arms detail section. The host can also view all uploaded images across surveys from `GET /c/<code>/host/images` (the image gallery).
 
 The builder form uses `enctype="multipart/form-data"`. On edit, existing images are preserved via a hidden `existing_image` form field unless a new file is uploaded.
+
+## Block Designers
+
+The host can toggle "Block survey designers" on the dashboard. When enabled, students whose SIS code appears in the `group_member` table for the active survey are shown a "blocked" state instead of the survey questions. This prevents designers from biasing their own experiment. The toggle calls `POST /c/<code>/host/toggle-block-designers`, which flips the `block_designers` column on the `classroom` table. The student state endpoint checks this flag and returns `state: 'blocked_designer'` for matching students.
+
+## QR Code
+
+The host dashboard displays a QR code that encodes the join URL (`/c/join?code=XXX&password=YYY`). The join page reads the `code` and `password` query parameters and pre-fills the form fields. Generated client-side using the [qrcodejs](https://github.com/davidshimjs/qrcodejs) library via CDN. The QR container has a forced white background so it remains scannable in dark mode.
+
+## Dark / Light Mode
+
+The app auto-detects the browser's `prefers-color-scheme` media query and sets Bootstrap 5.3.3's `data-bs-theme` attribute accordingly. A small inline script in `base.html` runs before the page renders to prevent flash of wrong theme. Light mode uses a pale warm background (`#f5f3ef`). Dark mode uses Bootstrap's built-in dark theme with minor CSS overrides for survey list items in `style.css`.
 
 ## Key Design Decisions
 
@@ -115,3 +127,5 @@ The builder form uses `enctype="multipart/form-data"`. On edit, existing images 
 - `sockets/events.py` functions are used as imports by route handlers even though the SocketIO event handlers themselves are unused. Don't delete the file without moving the helper functions.
 - The `handleResultsUpdate` function in `host.js` has a fast-path (update charts in place) and a full-rebuild path. The fast path only activates when the same survey refreshes. Switching surveys always triggers a full rebuild -- don't set `activeSurveyId` before calling `handleResultsUpdate` or the fast path will silently fail.
 - Student polling is 3 seconds. This means there's up to a 3-second delay between the host activating a survey and students seeing it.
+- The QR code container must have a forced white background (`background:#ffffff`) or it becomes invisible in dark mode. Don't remove this inline style.
+- `classroom_password_plain` is only populated for classrooms created after this feature was added. Older classrooms will show an empty password on the dashboard.

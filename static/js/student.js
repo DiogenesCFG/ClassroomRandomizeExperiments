@@ -78,11 +78,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             var html = '<h5>' + escapeHtml(headerText) + '</h5>';
             if (q.image_url) {
-                if (q.image_url.toLowerCase().endsWith('.pdf')) {
-                    html += '<div class="mb-2"><a href="' + q.image_url + '" target="_blank" class="btn btn-sm btn-outline-secondary">View PDF</a></div>';
-                } else {
-                    html += '<img src="' + q.image_url + '" class="img-fluid mb-2 rounded" style="max-height:300px;" alt="Question image">';
-                }
+                html += '<img src="' + q.image_url + '" class="img-fluid mb-2 rounded" style="max-height:300px;" alt="Question image">';
             }
             html += '<p class="fs-5 mb-3">' + escapeHtml(q.question_text) + '</p>';
 
@@ -157,6 +153,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (currentState !== 'waiting') showState('waiting');
                 } else if (data.state === 'submitted') {
                     markSubmitted(data.survey_id);
+                } else if (data.state === 'blocked_designer') {
+                    showState('blocked');
                 } else if (data.state === 'assignment' && data.assignment) {
                     renderAssignment(data.assignment);
                 }

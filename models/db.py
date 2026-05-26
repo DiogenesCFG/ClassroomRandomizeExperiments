@@ -72,6 +72,20 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    # Migration: block_designers flag on classroom
+    try:
+        db.execute('ALTER TABLE classroom ADD COLUMN block_designers INTEGER NOT NULL DEFAULT 0')
+        db.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    # Migration: store classroom password in plaintext for display
+    try:
+        db.execute("ALTER TABLE classroom ADD COLUMN classroom_password_plain TEXT NOT NULL DEFAULT ''")
+        db.commit()
+    except sqlite3.OperationalError:
+        pass
+
     # Migration: image uploads for arm questions
     try:
         db.execute('ALTER TABLE arm_question ADD COLUMN image_filename TEXT DEFAULT NULL')

@@ -1,6 +1,16 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-bs-theme="light">
 <head>
+    <script>
+        (function() {
+            var mq = window.matchMedia('(prefers-color-scheme: dark)');
+            function applyTheme(e) {
+                document.documentElement.setAttribute('data-bs-theme', e.matches ? 'dark' : 'light');
+            }
+            applyTheme(mq);
+            mq.addEventListener('change', applyTheme);
+        })();
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Classroom Experiments{% endblock %}</title>

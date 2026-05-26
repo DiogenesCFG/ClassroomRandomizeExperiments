@@ -5,9 +5,13 @@
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <style>
-    .sidebar {
-        max-height: calc(100vh - 120px);
+    .survey-list {
+        max-height: 400px;
         overflow-y: auto;
+    }
+    #qr-container canvas, #qr-container img {
+        display: block;
+        margin: 0 auto;
     }
 </style>
 {% endblock %}
@@ -20,11 +24,14 @@
             <div class="card-header d-flex justify-content-between align-items-center">
                 <div>
                     <strong>{{ classroom.name }}</strong>
-                    <br><small class="text-muted">{{ classroom.code }}</small>
+                    <br><small class="text-muted">Code: {{ classroom.code }}</small>
+                    {% if classroom.classroom_password_plain %}
+                    <br><small class="text-muted">Password: {{ classroom.classroom_password_plain }}</small>
+                    {% endif %}
                 </div>
                 <span class="badge bg-primary" id="participant-badge">0 students</span>
             </div>
-            <div class="list-group list-group-flush sidebar" id="survey-list">
+            <div class="list-group list-group-flush survey-list" id="survey-list">
                 {% for s in surveys %}
                 <button class="list-group-item list-group-item-action survey-list-item"
                         data-survey-id="{{ s.id }}" data-group-number="{{ s.group_number }}">
@@ -43,9 +50,31 @@
             <button class="btn btn-outline-danger btn-sm" id="btn-reset">Reset Session</button>
             <a href="{{ url_for('download.download_all', code=classroom.code) }}" class="btn btn-outline-primary btn-sm">Download All Data (CSV)</a>
             <a href="{{ url_for('download.download_surveys_config', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">Download Survey Configs</a>
+            <a href="{{ url_for('host.image_gallery', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">View Uploaded Images</a>
             <form method="POST" action="{{ url_for('download.clear_responses', code=classroom.code) }}" onsubmit="return confirm('Delete ALL responses for this classroom? This cannot be undone.')">
                 <button type="submit" class="btn btn-outline-danger btn-sm w-100">Clear All Responses</button>
             </form>
+            <form method="POST" action="{{ url_for('host.delete_classroom', code=classroom.code) }}" onsubmit="return confirm('Delete this entire classroom? All surveys, participants, responses, and uploaded images will be permanently removed. This cannot be undone.')">
+                <button type="submit" class="btn btn-danger btn-sm w-100">Delete Classroom</button>
+            </form>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-body p-2">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="block-designers-toggle"
+                           {% if classroom.block_designers %}checked{% endif %}>
+                    <label class="form-check-label small" for="block-designers-toggle">
+                        Block designers from own survey
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header p-2"><strong class="small">QR Code (Join)</strong></div>
+            <div class="card-body p-2 text-center" id="qr-container"
+                 style="background:#ffffff; border-radius: 0 0 0.375rem 0.375rem;"></div>
         </div>
     </div>
 
@@ -94,12 +123,35 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <script>
     const CLASSROOM_ID = {{ classroom.id }};
     const HOST_STATE_URL = "{{ url_for('host.state', code=classroom.code) }}";
     const HOST_ACTIVATE_URL = "{{ url_for('host.activate_http', code=classroom.code) }}";
     const HOST_NEXT_URL = "{{ url_for('host.next_http', code=classroom.code) }}";
     const HOST_RESET_URL = "{{ url_for('host.reset_http', code=classroom.code) }}";
+    const HOST_TOGGLE_BLOCK_URL = "{{ url_for('host.toggle_block_designers', code=classroom.code) }}";
+
+    // Block designers toggle
+    document.getElementById('block-designers-toggle').addEventListener('change', function() {
+        fetch(HOST_TOGGLE_BLOCK_URL, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+        });
+    });
+
+    // QR Code generation
+    var joinUrl = window.location.origin + "{{ url_for('classroom.join') }}"
+        + "?code={{ classroom.code }}"
+        + "{% if classroom.classroom_password_plain %}&password={{ classroom.classroom_password_plain | urlencode }}{% endif %}";
+    new QRCode(document.getElementById('qr-container'), {
+        text: joinUrl,
+        width: 160,
+        height: 160,
+        colorDark: '#000000',
+        colorLight: '#ffffff',
+    });
 </script>
-<script src="{{ url_for('static', filename='js/host.js') }}?v=20260519"></script>
+<script src="{{ url_for('static', filename='js/host.js') }}?v=20260521"></script>
 {% endblock %}

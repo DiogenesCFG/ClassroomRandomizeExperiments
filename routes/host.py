@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash, abort, jsonify
 
-from models.classroom import get_classroom_by_code, check_host_password
+from models.classroom import get_classroom_by_code, check_host_password, delete_classroom as delete_classroom_model
 from models.db import get_db
 from models.survey import list_surveys
 
@@ -193,6 +193,66 @@ def reset_http(code):
     # Notify students that session is reset
     socketio.emit('survey_deactivated', {}, room=f'students_{classroom["id"]}')
     return jsonify({'ok': True})
+
+
+@bp.route('/toggle-block-designers', methods=['POST'])
+def toggle_block_designers(code):
+    """Toggle whether survey designers are blocked from participating in their own survey."""
+    classroom = _get_classroom_or_404(code)
+
+    if not session.get(f'host_authenticated_{classroom["id"]}'):
+        return jsonify({'ok': False, 'error': 'not_authenticated'}), 401
+
+    db = get_db()
+    current = db.execute(
+        'SELECT block_designers FROM classroom WHERE id=?', (classroom['id'],)
+    ).fetchone()
+    new_val = 0 if current['block_designers'] else 1
+    db.execute('UPDATE classroom SET block_designers=? WHERE id=?', (new_val, classroom['id']))
+    db.commit()
+    return jsonify({'ok': True, 'block_designers': bool(new_val)})
+
+
+@bp.route('/delete-classroom', methods=['POST'])
+def delete_classroom(code):
+    """Delete the entire classroom and all its data."""
+    classroom = _get_classroom_or_404(code)
+
+    if not session.get(f'host_authenticated_{classroom["id"]}'):
+        return jsonify({'ok': False, 'error': 'not_authenticated'}), 401
+
+    from routes.builder import _delete_upload
+
+    removed_files = delete_classroom_model(classroom['id'])
+    for fn in removed_files:
+        _delete_upload(fn)
+
+    session.pop(f'host_authenticated_{classroom["id"]}', None)
+    return redirect(url_for('main.index'))
+
+
+@bp.route('/images')
+def image_gallery(code):
+    """View all uploaded images for this classroom's surveys."""
+    classroom = _get_classroom_or_404(code)
+
+    if not session.get(f'host_authenticated_{classroom["id"]}'):
+        return redirect(url_for('host.login', code=code))
+
+    db = get_db()
+    images = db.execute(
+        'SELECT aq.image_filename, sq.label AS question_label, sq.question_index, '
+        '       sa.label AS arm_label, s.title AS survey_title, s.group_number '
+        'FROM arm_question aq '
+        'JOIN survey_arm sa ON aq.arm_id = sa.id '
+        'JOIN survey_question sq ON aq.question_id = sq.id '
+        'JOIN survey s ON sa.survey_id = s.id '
+        'WHERE s.classroom_id = ? AND aq.image_filename IS NOT NULL '
+        'ORDER BY s.group_number, sq.question_index, sa.arm_index',
+        (classroom['id'],),
+    ).fetchall()
+
+    return render_template('host/gallery.html', classroom=classroom, images=images)
 
 
 @bp.route('/debug')

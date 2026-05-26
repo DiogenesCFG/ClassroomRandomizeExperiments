@@ -11,7 +11,7 @@ from models.survey import (
 
 bp = Blueprint('builder', __name__, url_prefix='/c/<code>/builder')
 
-ALLOWED_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.pdf'}
+ALLOWED_EXTENSIONS = {'.png', '.jpg', '.jpeg'}
 
 
 def _get_classroom_or_404(code):

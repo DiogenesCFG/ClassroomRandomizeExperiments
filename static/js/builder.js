@@ -108,8 +108,8 @@ document.addEventListener('DOMContentLoaded', function() {
         html += 'placeholder="Question text for ' + (armLabel || 'this arm') + '" required>';
         html += '<div class="arm-image-section mb-1">';
         html += '<input type="file" class="form-control form-control-sm arm-image-input" ';
-        html += 'name="questions[' + qi + '][arms][' + ai + '][image]" accept=".png,.jpg,.jpeg,.pdf">';
-        html += '<small class="text-muted">Optional image (PNG, JPEG, or PDF, max 2MB)</small>';
+        html += 'name="questions[' + qi + '][arms][' + ai + '][image]" accept=".png,.jpg,.jpeg">';
+        html += '<small class="text-muted">Optional image (PNG or JPEG, max 2MB)</small>';
         html += '</div>';
         html += '<div class="question-options-section"' + (showOptions ? '' : ' style="display:none"') + '>';
         html += '<label class="form-label text-muted small">Answer Options:</label>';
