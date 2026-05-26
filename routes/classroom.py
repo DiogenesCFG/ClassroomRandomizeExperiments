@@ -38,6 +38,7 @@ def create():
 
         try:
             classroom = create_classroom(code, name, host_password, classroom_password)
+            session[f'classroom_joined_{classroom["id"]}'] = True
             flash(f'Classroom "{name}" created with code {classroom["code"]}!', 'success')
             return redirect(url_for('classroom.lobby', code=classroom['code']))
         except sqlite3.IntegrityError:
@@ -64,6 +65,7 @@ def join():
         session['classroom_id'] = classroom['id']
         session['classroom_code'] = classroom['code']
         session['classroom_name'] = classroom['name']
+        session[f'classroom_joined_{classroom["id"]}'] = True
         return redirect(url_for('classroom.lobby', code=classroom['code']))
 
     prefill_code = request.args.get('code', '')
@@ -77,6 +79,12 @@ def lobby(code):
     if not classroom:
         flash('Classroom not found.', 'danger')
         return redirect(url_for('main.index'))
+
+    # Allow access if student joined via password or host is authenticated
+    if not session.get(f'classroom_joined_{classroom["id"]}') and \
+       not session.get(f'host_authenticated_{classroom["id"]}'):
+        flash('Please join the classroom first.', 'danger')
+        return redirect(url_for('classroom.join', code=code))
 
     session['classroom_id'] = classroom['id']
     session['classroom_code'] = classroom['code']

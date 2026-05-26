@@ -14,6 +14,15 @@ bp = Blueprint('builder', __name__, url_prefix='/c/<code>/builder')
 ALLOWED_EXTENSIONS = {'.png', '.jpg', '.jpeg'}
 
 
+def _require_classroom_access(classroom, code):
+    """Redirect to join page if user hasn't entered the classroom password."""
+    if not session.get(f'classroom_joined_{classroom["id"]}') and \
+       not session.get(f'host_authenticated_{classroom["id"]}'):
+        flash('Please join the classroom first.', 'danger')
+        return redirect(url_for('classroom.join', code=code))
+    return None
+
+
 def _get_classroom_or_404(code):
     classroom = get_classroom_by_code(code)
     if not classroom:
@@ -173,6 +182,9 @@ def _validate(title, group_number, arms, questions, members):
 @bp.route('/')
 def index(code):
     classroom = _get_classroom_or_404(code)
+    denied = _require_classroom_access(classroom, code)
+    if denied:
+        return denied
     surveys = list_surveys(classroom['id'])
     is_host = _is_classroom_host(classroom['id'])
     return render_template('builder/list.html', surveys=surveys, is_host=is_host,
@@ -182,6 +194,9 @@ def index(code):
 @bp.route('/new', methods=['GET', 'POST'])
 def new(code):
     classroom = _get_classroom_or_404(code)
+    denied = _require_classroom_access(classroom, code)
+    if denied:
+        return denied
 
     if request.method == 'POST':
         title, group_number, arms, questions, members = _parse_form(request.form, request.files)
@@ -233,6 +248,9 @@ def new(code):
 @bp.route('/<int:survey_id>/edit', methods=['GET', 'POST'])
 def edit(code, survey_id):
     classroom = _get_classroom_or_404(code)
+    denied = _require_classroom_access(classroom, code)
+    if denied:
+        return denied
     survey = get_survey(survey_id)
     if not survey:
         flash('Survey not found.', 'danger')
@@ -328,6 +346,9 @@ def edit(code, survey_id):
 @bp.route('/<int:survey_id>/delete', methods=['POST'])
 def delete(code, survey_id):
     classroom = _get_classroom_or_404(code)
+    denied = _require_classroom_access(classroom, code)
+    if denied:
+        return denied
     is_host = _is_classroom_host(classroom['id'])
     password = request.form.get('password', '').strip()
 

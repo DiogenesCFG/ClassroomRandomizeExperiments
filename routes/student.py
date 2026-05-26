@@ -16,9 +16,21 @@ def _get_classroom_or_404(code):
     return classroom
 
 
+def _require_classroom_access(classroom):
+    """Check that the user has joined via classroom password or is host."""
+    if not session.get(f'classroom_joined_{classroom["id"]}') and \
+       not session.get(f'host_authenticated_{classroom["id"]}'):
+        return False
+    return True
+
+
 @bp.route('/', methods=['GET', 'POST'])
 def login(code):
     classroom = _get_classroom_or_404(code)
+
+    if not _require_classroom_access(classroom):
+        flash('Please join the classroom first.', 'danger')
+        return redirect(url_for('classroom.join', code=code))
 
     if request.method == 'POST':
         name = request.form.get('name', '').strip()
@@ -57,6 +69,9 @@ def logout(code):
 @bp.route('/session')
 def live_session(code):
     classroom = _get_classroom_or_404(code)
+
+    if not _require_classroom_access(classroom):
+        return redirect(url_for('classroom.join', code=code))
 
     if 'participant_id' not in session:
         return redirect(url_for('student.login', code=code))
