@@ -132,3 +132,61 @@ def export_participants_csv(classroom_id):
         writer.writerow([row['name'], row['student_id'], row['logged_in_at']])
 
     return output.getvalue()
+
+
+def export_survey_designers_csv(classroom_id):
+    """Export which students designed each survey. One row per designer per survey."""
+    db = get_db()
+    rows = db.execute('''
+        SELECT
+            s.group_number,
+            s.title AS survey_title,
+            gm.name AS member_name,
+            gm.sis_code AS member_sis_code
+        FROM group_member gm
+        JOIN survey s ON gm.survey_id = s.id
+        WHERE s.classroom_id = ?
+        ORDER BY s.group_number, gm.name
+    ''', (classroom_id,)).fetchall()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['group_number', 'survey_title', 'member_name', 'member_sis_code'])
+    for row in rows:
+        writer.writerow([
+            row['group_number'], row['survey_title'],
+            row['member_name'], row['member_sis_code']
+        ])
+
+    return output.getvalue()
+
+
+def export_survey_participation_csv(classroom_id):
+    """Export which students participated in each survey. One row per student per survey."""
+    db = get_db()
+    rows = db.execute('''
+        SELECT DISTINCT
+            s.group_number,
+            s.title AS survey_title,
+            p.name AS participant_name,
+            p.student_id AS participant_student_id,
+            sa.label AS arm_label
+        FROM response r
+        JOIN survey s ON r.survey_id = s.id
+        JOIN participant p ON r.participant_id = p.id
+        JOIN survey_arm sa ON r.arm_id = sa.id
+        WHERE s.classroom_id = ?
+        ORDER BY s.group_number, p.name
+    ''', (classroom_id,)).fetchall()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['group_number', 'survey_title', 'participant_name', 'participant_student_id', 'arm_label'])
+    for row in rows:
+        writer.writerow([
+            row['group_number'], row['survey_title'],
+            row['participant_name'], row['participant_student_id'],
+            row['arm_label']
+        ])
+
+    return output.getvalue()

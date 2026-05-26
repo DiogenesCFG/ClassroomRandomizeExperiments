@@ -48,8 +48,15 @@
         <div class="d-grid gap-2 mt-3">
             <button class="btn btn-success btn-lg" id="btn-next">Next Survey</button>
             <button class="btn btn-outline-danger btn-sm" id="btn-reset">Reset Session</button>
-            <a href="{{ url_for('download.download_all', code=classroom.code) }}" class="btn btn-outline-primary btn-sm">Download All Data (CSV)</a>
-            <a href="{{ url_for('download.download_surveys_config', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">Download Survey Configs</a>
+            <div class="dropdown">
+                <button class="btn btn-outline-primary btn-sm w-100 dropdown-toggle" type="button" data-bs-toggle="dropdown">Download CSV</button>
+                <ul class="dropdown-menu w-100">
+                    <li><a class="dropdown-item" href="{{ url_for('download.download_all', code=classroom.code) }}">All Responses</a></li>
+                    <li><a class="dropdown-item" href="{{ url_for('download.download_surveys_config', code=classroom.code) }}">Survey Configs</a></li>
+                    <li><a class="dropdown-item" href="{{ url_for('download.download_designers', code=classroom.code) }}">Survey Designers</a></li>
+                    <li><a class="dropdown-item" href="{{ url_for('download.download_participation', code=classroom.code) }}">Survey Participation</a></li>
+                </ul>
+            </div>
             <a href="{{ url_for('host.image_gallery', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">View Uploaded Images</a>
             <form method="POST" action="{{ url_for('download.clear_responses', code=classroom.code) }}" onsubmit="return promptHostPassword(this, 'Delete ALL responses for this classroom? This cannot be undone.\n\nEnter host password to confirm:')">
                 <input type="hidden" name="host_password" value="">

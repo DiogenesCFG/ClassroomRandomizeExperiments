@@ -24,7 +24,7 @@ document.addEventListener('DOMContentLoaded', function() {
             block.querySelector('.arm-number-label').textContent = 'Arm ' + (i + 1) + ':';
             block.querySelector('input').name = 'arms[' + i + '][label]';
             var removeBtn = block.querySelector('.remove-arm-btn');
-            if (removeBtn) removeBtn.style.display = armBlocks.length > 2 ? '' : 'none';
+            if (removeBtn) removeBtn.style.display = armBlocks.length > 1 ? '' : 'none';
         });
 
         // Reindex question blocks
@@ -161,7 +161,7 @@ document.addEventListener('DOMContentLoaded', function() {
     armsContainer.addEventListener('click', function(e) {
         if (e.target.classList.contains('remove-arm-btn')) {
             var armBlock = e.target.closest('.arm-label-block');
-            if (armsContainer.querySelectorAll('.arm-label-block').length <= 2) return;
+            if (armsContainer.querySelectorAll('.arm-label-block').length <= 1) return;
             var removedIndex = parseInt(armBlock.dataset.armIndex);
             armBlock.remove();
 

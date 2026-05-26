@@ -143,8 +143,8 @@ def _validate(title, group_number, arms, questions, members):
         errors.append('Title is required.')
     if not group_number or not group_number.isdigit():
         errors.append('Group number must be a valid number.')
-    if len(arms) < 2:
-        errors.append('At least 2 arms are required.')
+    if len(arms) < 1:
+        errors.append('At least 1 arm is required.')
     for i, arm in enumerate(arms):
         if not arm['label']:
             errors.append(f'Arm {i+1} needs a label.')

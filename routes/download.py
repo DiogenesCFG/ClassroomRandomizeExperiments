@@ -2,7 +2,10 @@ from flask import Blueprint, Response, session, abort, redirect, url_for, reques
 
 from models.classroom import get_classroom_by_code, check_host_password
 from models.db import get_db
-from models.download import export_all_responses_csv, export_surveys_config_csv, export_participants_csv
+from models.download import (
+    export_all_responses_csv, export_surveys_config_csv, export_participants_csv,
+    export_survey_designers_csv, export_survey_participation_csv,
+)
 
 bp = Blueprint('download', __name__, url_prefix='/c/<code>/download')
 
@@ -47,6 +50,28 @@ def download_participants(code):
         csv_data,
         mimetype='text/csv',
         headers={'Content-Disposition': 'attachment; filename=participants.csv'}
+    )
+
+
+@bp.route('/designers')
+def download_designers(code):
+    classroom = _get_classroom_or_403(code)
+    csv_data = export_survey_designers_csv(classroom['id'])
+    return Response(
+        csv_data,
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=survey_designers.csv'}
+    )
+
+
+@bp.route('/participation')
+def download_participation(code):
+    classroom = _get_classroom_or_403(code)
+    csv_data = export_survey_participation_csv(classroom['id'])
+    return Response(
+        csv_data,
+        mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=survey_participation.csv'}
     )
 
 

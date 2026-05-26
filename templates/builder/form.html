@@ -37,7 +37,7 @@
                 <input type="text" class="form-control" name="arms[{{ arm_idx }}][label]"
                        value="{{ arm.label }}" placeholder="e.g., Control" required>
                 <button type="button" class="btn btn-sm btn-outline-danger remove-arm-btn"
-                        {% if arms|length <= 2 %}style="display:none"{% endif %}>Remove</button>
+                        {% if arms|length <= 1 %}style="display:none"{% endif %}>Remove</button>
             </div>
             {% endfor %}
         </div>

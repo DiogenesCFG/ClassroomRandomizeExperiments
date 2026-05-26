@@ -44,7 +44,7 @@ The current implementation has, for simplicity, there's the following limits:
 | | Minimum | Maximum |
 | --- | --- | --- |
 | Surveys per classroom | no limit | no limit |
-| Arms per survey | 2 (server-enforced) | 4 (client side only in builder.js:113) |
+| Arms per survey | 1 (server-enforced, defaults to 2) | 4 (client side only in builder.js:113) |
 | Questions per survey | 1 (server enforced) | no limit | 
 | Options per MC question | 2 (server-enforced) | 5 (client side only, in builder.js:229) | 
 | Group members | 1 (server-enforced) | no limit |
