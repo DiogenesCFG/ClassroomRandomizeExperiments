@@ -43,6 +43,17 @@ def login(code):
     return render_template('student/login.html', classroom=classroom)
 
 
+@bp.route('/logout', methods=['POST'])
+def logout(code):
+    classroom = _get_classroom_or_404(code)
+    session.pop('participant_id', None)
+    session.pop('student_id', None)
+    session.pop('student_name', None)
+    session.pop('classroom_id', None)
+    session.pop('classroom_code', None)
+    return redirect(url_for('student.login', code=code))
+
+
 @bp.route('/session')
 def live_session(code):
     classroom = _get_classroom_or_404(code)

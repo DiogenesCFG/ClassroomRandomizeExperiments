@@ -221,6 +221,11 @@ def delete_classroom(code):
     if not session.get(f'host_authenticated_{classroom["id"]}'):
         return jsonify({'ok': False, 'error': 'not_authenticated'}), 401
 
+    password = request.form.get('host_password', '').strip()
+    if not check_host_password(classroom['id'], password):
+        flash('Incorrect host password.', 'danger')
+        return redirect(url_for('host.dashboard', code=code))
+
     from routes.builder import _delete_upload
 
     removed_files = delete_classroom_model(classroom['id'])

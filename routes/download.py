@@ -1,6 +1,6 @@
-from flask import Blueprint, Response, session, abort, redirect, url_for
+from flask import Blueprint, Response, session, abort, redirect, url_for, request, flash
 
-from models.classroom import get_classroom_by_code
+from models.classroom import get_classroom_by_code, check_host_password
 from models.db import get_db
 from models.download import export_all_responses_csv, export_surveys_config_csv, export_participants_csv
 
@@ -54,6 +54,12 @@ def download_participants(code):
 def clear_responses(code):
     """Delete all responses for this classroom (keeps surveys and participants)."""
     classroom = _get_classroom_or_403(code)
+
+    password = request.form.get('host_password', '').strip()
+    if not check_host_password(classroom['id'], password):
+        flash('Incorrect host password.', 'danger')
+        return redirect(url_for('host.dashboard', code=code))
+
     db = get_db()
     db.execute(
         'DELETE FROM response WHERE survey_id IN (SELECT id FROM survey WHERE classroom_id=?)',

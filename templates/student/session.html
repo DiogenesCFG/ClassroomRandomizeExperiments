@@ -4,7 +4,11 @@
 
 {% block content %}
 <div class="text-center mt-3">
-    <p class="text-muted">Logged in as <strong>{{ student_name }}</strong></p>
+    <p class="text-muted">Logged in as <strong>{{ student_name }}</strong>
+        <form method="POST" action="{{ url_for('student.logout', code=classroom.code) }}" class="d-inline">
+            <button type="submit" class="btn btn-link btn-sm p-0 ms-1 text-muted">(change)</button>
+        </form>
+    </p>
 </div>
 
 <!-- State 1: Waiting -->
