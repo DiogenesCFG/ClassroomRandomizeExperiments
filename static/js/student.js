@@ -6,11 +6,36 @@ document.addEventListener('DOMContentLoaded', function() {
     var submittedSurveyIds = {}; // track surveys we've already submitted
     var isSubmitting = false;
     var statePollTimer = null;
+    var currentQuestionIndex = 0;
+    var questionsData = []; // store questions for navigation and piping
 
     function escapeHtml(text) {
         var div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    // Answer piping: replace {{Q1}}, {{Q2}}, etc. with answers from earlier questions
+    function pipeAnswers(text) {
+        return text.replace(/\{\{Q(\d+)\}\}/gi, function(match, num) {
+            var qIndex = parseInt(num) - 1; // Q1 -> index 0
+            if (qIndex < 0 || qIndex >= questionsData.length) return match;
+            var qid = questionsData[qIndex].question_id;
+            var qtype = questionsData[qIndex].question_type;
+            var ans = answers[qid];
+            if (!ans) return match; // not answered yet, keep placeholder
+
+            var answerText = ans.answer_text;
+            if (qtype === 'multiple_answer' && answerText) {
+                try {
+                    var arr = JSON.parse(answerText);
+                    return arr.join(', ');
+                } catch(e) {
+                    return answerText;
+                }
+            }
+            return answerText || match;
+        });
     }
 
     // State management
@@ -43,6 +68,100 @@ document.addEventListener('DOMContentLoaded', function() {
         alert(message || 'Your answer was not saved. Please try again.');
     }
 
+    // --- Sequential question navigation ---
+
+    function showQuestion(index) {
+        currentQuestionIndex = index;
+        var sections = document.querySelectorAll('.question-section');
+        sections.forEach(function(s, i) {
+            s.style.display = (i === index) ? '' : 'none';
+        });
+
+        // Apply answer piping to the visible question's text
+        if (questionsData[index]) {
+            var section = sections[index];
+            var pElem = section.querySelector('.question-text-display');
+            if (pElem) {
+                pElem.innerHTML = escapeHtml(pipeAnswers(questionsData[index].question_text));
+            }
+        }
+
+        // Update progress indicator
+        var totalQuestions = questionsData.length;
+        document.getElementById('q-current-num').textContent = index + 1;
+        document.getElementById('q-total-num').textContent = totalQuestions;
+        document.getElementById('question-progress').style.display = '';
+
+        // Update navigation buttons
+        var prevBtn = document.getElementById('prev-question');
+        var nextBtn = document.getElementById('next-question');
+        var submitBtn = document.getElementById('submit-all');
+        var navDiv = document.getElementById('question-nav');
+
+        if (totalQuestions <= 1) {
+            // Single question: no navigation, just submit
+            navDiv.style.display = 'none';
+            submitBtn.style.display = '';
+        } else {
+            navDiv.style.display = '';
+            prevBtn.disabled = (index === 0);
+
+            if (index === totalQuestions - 1) {
+                // Last question: hide Next, show Submit
+                nextBtn.style.display = 'none';
+                submitBtn.style.display = '';
+            } else {
+                // Not last: show Next, hide Submit
+                nextBtn.style.display = '';
+                submitBtn.style.display = 'none';
+            }
+        }
+    }
+
+    function isCurrentQuestionAnswered() {
+        var sections = document.querySelectorAll('.question-section');
+        var section = sections[currentQuestionIndex];
+        if (!section) return false;
+
+        var qid = parseInt(section.dataset.questionId);
+        var qtype = section.dataset.questionType;
+
+        if (qtype === 'multiple_choice' || qtype === 'multiple_answer') {
+            return !!answers[qid];
+        } else if (qtype === 'short_answer') {
+            var textInput = section.querySelector('.short-answer-input');
+            return textInput && textInput.value.trim() !== '';
+        } else if (qtype === 'slider') {
+            return !!answers[qid];
+        } else {
+            // numeric
+            var numInput = section.querySelector('.numeric-answer-input');
+            return numInput && numInput.value !== '';
+        }
+    }
+
+    // Capture short_answer and numeric values into the answers object (needed for piping)
+    function captureCurrentAnswer() {
+        var sections = document.querySelectorAll('.question-section');
+        var section = sections[currentQuestionIndex];
+        if (!section) return;
+
+        var qid = parseInt(section.dataset.questionId);
+        var qtype = section.dataset.questionType;
+
+        if (qtype === 'short_answer') {
+            var textInput = section.querySelector('.short-answer-input');
+            if (textInput && textInput.value.trim() !== '') {
+                answers[qid] = { answer_text: textInput.value.trim(), answer_index: null };
+            }
+        } else if (qtype === 'numeric') {
+            var numInput = section.querySelector('.numeric-answer-input');
+            if (numInput && numInput.value !== '') {
+                answers[qid] = { answer_text: numInput.value, answer_index: null };
+            }
+        }
+    }
+
     function renderAssignment(data) {
         console.log('[student] assignment survey=' + data.survey_id +
                     ' arm=' + data.arm_id + ' questions=' + data.questions.length);
@@ -60,6 +179,8 @@ document.addEventListener('DOMContentLoaded', function() {
         currentSurveyId = data.survey_id;
         currentArmId = data.arm_id;
         answers = {};
+        questionsData = data.questions;
+        currentQuestionIndex = 0;
 
         document.getElementById('q-group-number').textContent = data.group_number;
         document.getElementById('q-title').textContent = data.title;
@@ -69,7 +190,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         data.questions.forEach(function(q, idx) {
             var section = document.createElement('div');
-            section.className = 'question-section mb-4' + (idx > 0 ? ' border-top pt-3' : '');
+            section.className = 'question-section mb-4';
             section.dataset.questionId = q.question_id;
             section.dataset.questionType = q.question_type;
 
@@ -80,7 +201,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (q.image_url) {
                 html += '<img src="' + q.image_url + '" class="img-fluid mb-2 rounded" style="max-height:300px;" alt="Question image">';
             }
-            html += '<p class="fs-5 mb-3">' + escapeHtml(q.question_text) + '</p>';
+            html += '<p class="fs-5 mb-3 question-text-display">' + escapeHtml(q.question_text) + '</p>';
 
             if (q.question_type === 'multiple_choice') {
                 html += '<div class="mc-buttons d-grid gap-2" data-qid="' + q.question_id + '">';
@@ -139,6 +260,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
         showState('answering');
+        showQuestion(0);
     }
 
     function pollStateOnce() {
@@ -234,7 +356,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Short answer character counter
+    // Short answer character counter + capture for piping
     document.getElementById('questions-container').addEventListener('input', function(e) {
         if (e.target.classList.contains('short-answer-input')) {
             var qid = e.target.dataset.qid;
@@ -250,9 +372,32 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    // Next question button
+    document.getElementById('next-question').addEventListener('click', function() {
+        if (!isCurrentQuestionAnswered()) {
+            alert('Please answer this question before continuing.');
+            return;
+        }
+        captureCurrentAnswer();
+        if (currentQuestionIndex < questionsData.length - 1) {
+            showQuestion(currentQuestionIndex + 1);
+        }
+    });
+
+    // Previous question button
+    document.getElementById('prev-question').addEventListener('click', function() {
+        captureCurrentAnswer();
+        if (currentQuestionIndex > 0) {
+            showQuestion(currentQuestionIndex - 1);
+        }
+    });
+
     // Submit all answers
     document.getElementById('submit-all').addEventListener('click', function() {
         if (isSubmitting) return;
+
+        // Capture current question's answer before validating
+        captureCurrentAnswer();
 
         var sections = document.querySelectorAll('.question-section');
         var answersArray = [];
@@ -349,11 +494,12 @@ document.addEventListener('DOMContentLoaded', function() {
             });
     });
 
-    // Also submit numeric/short_answer on Enter key (only if single question)
+    // Enter key: advance to next question, or submit on last question
     document.getElementById('questions-container').addEventListener('keypress', function(e) {
         if (e.key === 'Enter' && (e.target.classList.contains('numeric-answer-input') || e.target.classList.contains('short-answer-input'))) {
-            var sections = document.querySelectorAll('.question-section');
-            if (sections.length === 1) {
+            if (currentQuestionIndex < questionsData.length - 1) {
+                document.getElementById('next-question').click();
+            } else {
                 document.getElementById('submit-all').click();
             }
         }

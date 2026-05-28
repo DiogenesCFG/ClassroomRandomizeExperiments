@@ -114,7 +114,9 @@ def update_survey(survey_id, title, group_number, arms, questions, members):
     db.execute('UPDATE survey SET title=?, group_number=?, question_type=? WHERE id=?',
                (title, group_number, first_type, survey_id))
 
-    # Delete old data (cascades handle arm_question, arm_question_option, arm_option)
+    # Delete old data -- responses must go first since they reference arms/questions
+    # without ON DELETE CASCADE
+    db.execute('DELETE FROM response WHERE survey_id=?', (survey_id,))
     db.execute('DELETE FROM survey_question WHERE survey_id=?', (survey_id,))
     db.execute('DELETE FROM survey_arm WHERE survey_id=?', (survey_id,))
     db.execute('DELETE FROM group_member WHERE survey_id=?', (survey_id,))

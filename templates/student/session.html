@@ -28,8 +28,15 @@
             <h4 id="q-title" class="mb-0"></h4>
         </div>
         <div class="card-body">
+            <div id="question-progress" class="text-muted mb-3 text-center" style="display:none;">
+                Question <span id="q-current-num">1</span> of <span id="q-total-num">1</span>
+            </div>
             <div id="questions-container">
-                <!-- Dynamically populated by JS: one section per question -->
+                <!-- Dynamically populated by JS: one question at a time -->
+            </div>
+            <div id="question-nav" class="d-flex justify-content-between mt-3" style="display:none;">
+                <button class="btn btn-outline-secondary" id="prev-question">Previous</button>
+                <button class="btn btn-primary" id="next-question">Next</button>
             </div>
             <button class="btn btn-success btn-lg w-100 mt-3" id="submit-all">Submit All Answers</button>
         </div>
@@ -63,5 +70,5 @@
     const STUDENT_STATE_URL = "{{ url_for('student.session_state', code=classroom.code) }}";
     const STUDENT_SUBMIT_URL = "{{ url_for('student.submit_answer_http', code=classroom.code) }}";
 </script>
-<script src="{{ url_for('static', filename='js/student.js') }}?v=20260519"></script>
+<script src="{{ url_for('static', filename='js/student.js') }}?v=20260527"></script>
 {% endblock %}
