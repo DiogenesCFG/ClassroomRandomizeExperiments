@@ -257,10 +257,16 @@ def edit(code, survey_id):
         return redirect(url_for('builder.index', code=code))
 
     is_host = _is_classroom_host(classroom['id'])
+    unlocked = session.get(f'survey_unlocked_{survey_id}', False)
+
+    # Block non-host users from viewing the edit form without verifying the password first
+    if request.method == 'GET' and not is_host and not unlocked:
+        flash('Please enter the survey password to edit.', 'danger')
+        return redirect(url_for('builder.index', code=code))
 
     if request.method == 'POST':
         password = request.form.get('password', '').strip()
-        if not is_host and not check_password(survey_id, password):
+        if not is_host and not unlocked and not check_password(survey_id, password):
             flash('Incorrect password.', 'danger')
             title, group_number, arms, questions, members = _parse_form(request.form, request.files)
             return render_template('builder/form.html', mode='edit', survey_id=survey_id,
@@ -341,6 +347,21 @@ def edit(code, survey_id):
                            title=survey['title'], group_number=survey['group_number'],
                            arms=arms, questions=questions, members=members,
                            is_host=is_host, classroom=classroom)
+
+
+@bp.route('/<int:survey_id>/unlock', methods=['POST'])
+def unlock(code, survey_id):
+    """Verify survey password and redirect to the edit page."""
+    classroom = _get_classroom_or_404(code)
+    denied = _require_classroom_access(classroom, code)
+    if denied:
+        return denied
+    password = request.form.get('password', '').strip()
+    if not check_password(survey_id, password):
+        flash('Incorrect password.', 'danger')
+        return redirect(url_for('builder.index', code=code))
+    session[f'survey_unlocked_{survey_id}'] = True
+    return redirect(url_for('builder.edit', code=code, survey_id=survey_id))
 
 
 @bp.route('/<int:survey_id>/delete', methods=['POST'])
