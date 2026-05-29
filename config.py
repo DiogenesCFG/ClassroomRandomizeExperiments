@@ -10,5 +10,5 @@ DATABASE = os.environ.get('DATABASE_PATH', os.path.join(BASE_DIR, 'instance', 'a
 SEND_FILE_MAX_AGE_DEFAULT = 3600
 # Upload folder for question images (on Render, use persistent disk)
 UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', os.path.join(BASE_DIR, 'instance', 'uploads'))
-# Max upload size: 2 MB
-MAX_CONTENT_LENGTH = 2 * 1024 * 1024
+# Max upload size: 5 MB
+MAX_CONTENT_LENGTH = 5 * 1024 * 1024
