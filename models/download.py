@@ -190,3 +190,179 @@ def export_survey_participation_csv(classroom_id):
         ])
 
     return output.getvalue()
+
+
+# --- Per-survey exports (filtered by survey_id AND classroom_id) ---
+
+def export_survey_responses_csv(survey_id, classroom_id):
+    """Export responses for a single survey as CSV."""
+    db = get_db()
+    rows = db.execute('''
+        SELECT
+            s.group_number,
+            s.title AS survey_title,
+            sq.question_index,
+            sq.question_type,
+            sq.label AS question_label,
+            sa.label AS arm_label,
+            aq.question_text AS arm_question,
+            p.name AS participant_name,
+            p.student_id AS participant_student_id,
+            r.answer_text,
+            r.answer_index,
+            r.answered_at
+        FROM response r
+        JOIN survey s ON r.survey_id = s.id
+        JOIN survey_arm sa ON r.arm_id = sa.id
+        JOIN participant p ON r.participant_id = p.id
+        LEFT JOIN survey_question sq ON r.question_id = sq.id
+        LEFT JOIN arm_question aq ON aq.arm_id = sa.id AND aq.question_id = sq.id
+        WHERE r.survey_id = ? AND s.classroom_id = ?
+        ORDER BY sq.question_index, sa.arm_index, r.answered_at
+    ''', (survey_id, classroom_id)).fetchall()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        'group_number', 'survey_title', 'question_index', 'question_type', 'question_label',
+        'arm_label', 'arm_question',
+        'participant_name', 'participant_student_id',
+        'answer_text', 'answer_index', 'answered_at'
+    ])
+    for row in rows:
+        writer.writerow([
+            row['group_number'], row['survey_title'],
+            row['question_index'], row['question_type'], row['question_label'],
+            row['arm_label'], row['arm_question'],
+            row['participant_name'], row['participant_student_id'],
+            row['answer_text'], row['answer_index'], row['answered_at']
+        ])
+
+    return output.getvalue()
+
+
+def export_single_survey_config_csv(survey_id, classroom_id):
+    """Export configuration for a single survey as CSV."""
+    db = get_db()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        'group_number', 'survey_title',
+        'question_index', 'question_type', 'question_label',
+        'member_name', 'member_sis_code',
+        'arm_index', 'arm_label', 'arm_question_text',
+        'option_index', 'option_text'
+    ])
+
+    survey = db.execute(
+        'SELECT * FROM survey WHERE id=? AND classroom_id=?', (survey_id, classroom_id)
+    ).fetchone()
+    if not survey:
+        return output.getvalue()
+
+    members = db.execute(
+        'SELECT * FROM group_member WHERE survey_id=?', (survey['id'],)
+    ).fetchall()
+    arms = db.execute(
+        'SELECT * FROM survey_arm WHERE survey_id=? ORDER BY arm_index', (survey['id'],)
+    ).fetchall()
+    questions = db.execute(
+        'SELECT * FROM survey_question WHERE survey_id=? ORDER BY question_index', (survey['id'],)
+    ).fetchall()
+
+    for question in questions:
+        for arm in arms:
+            aq = db.execute(
+                'SELECT * FROM arm_question WHERE arm_id=? AND question_id=?',
+                (arm['id'], question['id'])
+            ).fetchone()
+            if not aq:
+                continue
+
+            options = db.execute(
+                'SELECT * FROM arm_question_option WHERE arm_question_id=? ORDER BY option_index',
+                (aq['id'],)
+            ).fetchall()
+
+            if options:
+                for opt in options:
+                    for member in members:
+                        writer.writerow([
+                            survey['group_number'], survey['title'],
+                            question['question_index'], question['question_type'],
+                            question['label'],
+                            member['name'], member['sis_code'],
+                            arm['arm_index'], arm['label'], aq['question_text'],
+                            opt['option_index'], opt['option_text']
+                        ])
+            else:
+                for member in members:
+                    writer.writerow([
+                        survey['group_number'], survey['title'],
+                        question['question_index'], question['question_type'],
+                        question['label'],
+                        member['name'], member['sis_code'],
+                        arm['arm_index'], arm['label'], aq['question_text'],
+                        '', ''
+                    ])
+
+    return output.getvalue()
+
+
+def export_single_survey_designers_csv(survey_id, classroom_id):
+    """Export designers for a single survey. One row per designer."""
+    db = get_db()
+    rows = db.execute('''
+        SELECT
+            s.group_number,
+            s.title AS survey_title,
+            gm.name AS member_name,
+            gm.sis_code AS member_sis_code
+        FROM group_member gm
+        JOIN survey s ON gm.survey_id = s.id
+        WHERE gm.survey_id = ? AND s.classroom_id = ?
+        ORDER BY gm.name
+    ''', (survey_id, classroom_id)).fetchall()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['group_number', 'survey_title', 'member_name', 'member_sis_code'])
+    for row in rows:
+        writer.writerow([
+            row['group_number'], row['survey_title'],
+            row['member_name'], row['member_sis_code']
+        ])
+
+    return output.getvalue()
+
+
+def export_single_survey_participation_csv(survey_id, classroom_id):
+    """Export participation for a single survey. One row per student who answered."""
+    db = get_db()
+    rows = db.execute('''
+        SELECT DISTINCT
+            s.group_number,
+            s.title AS survey_title,
+            p.name AS participant_name,
+            p.student_id AS participant_student_id,
+            sa.label AS arm_label
+        FROM response r
+        JOIN survey s ON r.survey_id = s.id
+        JOIN participant p ON r.participant_id = p.id
+        JOIN survey_arm sa ON r.arm_id = sa.id
+        WHERE r.survey_id = ? AND s.classroom_id = ?
+        ORDER BY p.name
+    ''', (survey_id, classroom_id)).fetchall()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['group_number', 'survey_title', 'participant_name', 'participant_student_id', 'arm_label'])
+    for row in rows:
+        writer.writerow([
+            row['group_number'], row['survey_title'],
+            row['participant_name'], row['participant_student_id'],
+            row['arm_label']
+        ])
+
+    return output.getvalue()

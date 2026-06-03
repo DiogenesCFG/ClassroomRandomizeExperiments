@@ -1,12 +1,16 @@
 import os
 import uuid
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session, abort, current_app
+from flask import Blueprint, Response, render_template, request, redirect, url_for, flash, session, abort, current_app
 from werkzeug.utils import secure_filename
 
 from models.classroom import get_classroom_by_code
 from models.survey import (
     create_survey, get_survey, list_surveys, update_survey, delete_survey, check_password,
+)
+from models.download import (
+    export_survey_responses_csv, export_single_survey_config_csv,
+    export_single_survey_designers_csv, export_single_survey_participation_csv,
 )
 
 bp = Blueprint('builder', __name__, url_prefix='/c/<code>/builder')
@@ -385,3 +389,60 @@ def delete(code, survey_id):
     except Exception as e:
         flash(f'Error deleting survey: {e}', 'danger')
     return redirect(url_for('builder.index', code=code))
+
+
+# --- Per-survey download routes ---
+
+def _require_download_access(classroom, code, survey_id):
+    """Check classroom access + survey unlock (or host). Returns redirect or None."""
+    denied = _require_classroom_access(classroom, code)
+    if denied:
+        return denied
+    if not _is_classroom_host(classroom['id']) and not session.get(f'survey_unlocked_{survey_id}'):
+        flash('Please unlock the survey first.', 'danger')
+        return redirect(url_for('builder.index', code=code))
+    return None
+
+
+@bp.route('/<int:survey_id>/download/responses')
+def download_responses(code, survey_id):
+    classroom = _get_classroom_or_404(code)
+    denied = _require_download_access(classroom, code, survey_id)
+    if denied:
+        return denied
+    csv_data = export_survey_responses_csv(survey_id, classroom['id'])
+    return Response(csv_data, mimetype='text/csv',
+                    headers={'Content-Disposition': 'attachment; filename=survey_responses.csv'})
+
+
+@bp.route('/<int:survey_id>/download/config')
+def download_config(code, survey_id):
+    classroom = _get_classroom_or_404(code)
+    denied = _require_download_access(classroom, code, survey_id)
+    if denied:
+        return denied
+    csv_data = export_single_survey_config_csv(survey_id, classroom['id'])
+    return Response(csv_data, mimetype='text/csv',
+                    headers={'Content-Disposition': 'attachment; filename=survey_config.csv'})
+
+
+@bp.route('/<int:survey_id>/download/designers')
+def download_designers(code, survey_id):
+    classroom = _get_classroom_or_404(code)
+    denied = _require_download_access(classroom, code, survey_id)
+    if denied:
+        return denied
+    csv_data = export_single_survey_designers_csv(survey_id, classroom['id'])
+    return Response(csv_data, mimetype='text/csv',
+                    headers={'Content-Disposition': 'attachment; filename=survey_designers.csv'})
+
+
+@bp.route('/<int:survey_id>/download/participation')
+def download_participation(code, survey_id):
+    classroom = _get_classroom_or_404(code)
+    denied = _require_download_access(classroom, code, survey_id)
+    if denied:
+        return denied
+    csv_data = export_single_survey_participation_csv(survey_id, classroom['id'])
+    return Response(csv_data, mimetype='text/csv',
+                    headers={'Content-Disposition': 'attachment; filename=survey_participation.csv'})

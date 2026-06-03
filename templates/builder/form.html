@@ -187,6 +187,23 @@
         <a href="{{ url_for('builder.index', code=classroom.code) }}" class="btn btn-outline-secondary btn-lg">Cancel</a>
     </div>
 </form>
+
+{% if mode == 'edit' %}
+<div class="mt-4 mb-5">
+    <h5>Download Data</h5>
+    <div class="dropdown">
+        <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+            Download
+        </button>
+        <ul class="dropdown-menu">
+            <li><a class="dropdown-item" href="{{ url_for('builder.download_responses', code=classroom.code, survey_id=survey_id) }}">All Responses</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('builder.download_config', code=classroom.code, survey_id=survey_id) }}">Survey Config</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('builder.download_designers', code=classroom.code, survey_id=survey_id) }}">Survey Designers</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('builder.download_participation', code=classroom.code, survey_id=survey_id) }}">Survey Participation</a></li>
+        </ul>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
