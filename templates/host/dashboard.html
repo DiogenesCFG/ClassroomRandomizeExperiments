@@ -51,10 +51,13 @@
             <div class="dropdown">
                 <button class="btn btn-outline-primary btn-sm w-100 dropdown-toggle" type="button" data-bs-toggle="dropdown">Download CSV</button>
                 <ul class="dropdown-menu w-100">
+                    <li><a class="dropdown-item fw-semibold" href="{{ url_for('download.download_everything', code=classroom.code) }}">Everything (.zip, incl. images)</a></li>
+                    <li><hr class="dropdown-divider"></li>
                     <li><a class="dropdown-item" href="{{ url_for('download.download_all', code=classroom.code) }}">All Responses</a></li>
                     <li><a class="dropdown-item" href="{{ url_for('download.download_surveys_config', code=classroom.code) }}">Survey Configs</a></li>
                     <li><a class="dropdown-item" href="{{ url_for('download.download_designers', code=classroom.code) }}">Survey Designers</a></li>
                     <li><a class="dropdown-item" href="{{ url_for('download.download_participation', code=classroom.code) }}">Survey Participation</a></li>
+                    <li><a class="dropdown-item" href="{{ url_for('download.download_participants', code=classroom.code) }}">Participants</a></li>
                 </ul>
             </div>
             <a href="{{ url_for('host.image_gallery', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">View Uploaded Images</a>

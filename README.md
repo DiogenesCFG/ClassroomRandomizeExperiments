@@ -37,7 +37,7 @@ For example, a survey testing anchoring bias might have:
 - **Image gallery** -- the host can browse all uploaded images across surveys from a single page
 - **Manual refresh** -- host clicks "Refresh Results" to recount all submitted votes and update charts
 - **Per-classroom isolation** -- multiple classrooms can run independently
-- **CSV export** -- download all responses, survey configs, and participant lists
+- **CSV export** -- download all responses, survey configs, and participant lists, or everything (all CSVs + uploaded images) as a single .zip
 
 The current implementation has, for simplicity, there's the following limits:
 

@@ -1,4 +1,11 @@
-from flask import Blueprint, Response, session, abort, redirect, url_for, request, flash
+import csv
+import io
+import os
+import zipfile
+from datetime import datetime
+
+from flask import Blueprint, Response, session, abort, redirect, url_for, request, flash, current_app
+from werkzeug.utils import secure_filename
 
 from models.classroom import get_classroom_by_code, check_host_password
 from models.db import get_db
@@ -72,6 +79,56 @@ def download_participation(code):
         csv_data,
         mimetype='text/csv',
         headers={'Content-Disposition': 'attachment; filename=survey_participation.csv'}
+    )
+
+
+@bp.route('/everything')
+def download_everything(code):
+    """Download all CSV exports plus uploaded images as a single .zip archive."""
+    classroom = _get_classroom_or_403(code)
+    cid = classroom['id']
+
+    images = get_db().execute('''
+        SELECT s.group_number, s.title AS survey_title, sa.label AS arm_label,
+               sq.question_index, aq.image_filename
+        FROM arm_question aq
+        JOIN survey_arm sa ON aq.arm_id = sa.id
+        JOIN survey s ON sa.survey_id = s.id
+        JOIN survey_question sq ON aq.question_id = sq.id
+        WHERE s.classroom_id = ? AND aq.image_filename IS NOT NULL
+        ORDER BY s.group_number, sq.question_index, sa.arm_index
+    ''', (cid,)).fetchall()
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr('all_responses.csv', export_all_responses_csv(cid))
+        zf.writestr('surveys_config.csv', export_surveys_config_csv(cid))
+        zf.writestr('participants.csv', export_participants_csv(cid))
+        zf.writestr('survey_designers.csv', export_survey_designers_csv(cid))
+        zf.writestr('survey_participation.csv', export_survey_participation_csv(cid))
+
+        index = io.StringIO()
+        writer = csv.writer(index)
+        writer.writerow(['group_number', 'survey_title', 'arm_label', 'question_index', 'file', 'found'])
+        written = set()
+        for img in images:
+            fn = img['image_filename']
+            arcname = f'images/{fn}'
+            path = os.path.join(current_app.config['UPLOAD_FOLDER'], fn)
+            found = os.path.isfile(path)
+            if found and arcname not in written:
+                zf.write(path, arcname)
+                written.add(arcname)
+            writer.writerow([img['group_number'], img['survey_title'], img['arm_label'],
+                             img['question_index'], arcname, 'yes' if found else 'missing'])
+        zf.writestr('images_index.csv', index.getvalue())
+
+    stamp = datetime.now().strftime('%Y-%m-%d')
+    filename = secure_filename(f'{classroom["code"]}_export_{stamp}.zip')
+    return Response(
+        buf.getvalue(),
+        mimetype='application/zip',
+        headers={'Content-Disposition': f'attachment; filename={filename}'}
     )
 
 
