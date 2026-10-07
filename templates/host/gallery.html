@@ -5,7 +5,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2>Uploaded Images</h2>
-    <a href="{{ url_for('host.dashboard', code=classroom.code) }}" class="btn btn-outline-secondary">Back to Dashboard</a>
+    <a href="{{ url_for('host.home', code=classroom.code) }}" class="btn btn-outline-secondary">Back to instructor home</a>
 </div>
 
 {% if images %}

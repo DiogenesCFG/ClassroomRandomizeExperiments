@@ -1,22 +1,42 @@
 {% extends "base.html" %}
 
-{% block title %}Live Session{% endblock %}
+{% block title %}{% if open_survey %}{{ open_survey.title }}{% else %}Live Session{% endif %}{% endblock %}
 
 {% block content %}
-<div class="text-center mt-3">
-    <p class="text-muted">Logged in as <strong>{{ student_name }}</strong>
-        <form method="POST" action="{{ url_for('student.logout', code=classroom.code) }}" class="d-inline">
-            <button type="submit" class="btn btn-link btn-sm p-0 ms-1 text-muted">(change)</button>
-        </form>
-    </p>
+{% if preview %}
+<div class="alert alert-info mx-auto d-flex justify-content-between align-items-center flex-wrap gap-2" style="max-width: 700px;">
+    <div class="small">
+        <strong>Preview</strong>: this is what a respondent in
+        <strong>{{ survey.arms[preview_arm].label }}</strong> sees. Answers are not saved.
+    </div>
+    <div class="btn-group btn-group-sm" role="group" aria-label="Arm">
+        {% for arm in survey.arms %}
+        <a class="btn {% if loop.index0 == preview_arm %}btn-primary{% else %}btn-outline-primary{% endif %}"
+           href="{{ url_for('builder.preview_survey', code=classroom.code, survey_id=survey.id, arm=loop.index0) }}">{{ arm.label }}</a>
+        {% endfor %}
+    </div>
 </div>
+{% else %}
+<div class="text-center mt-3">
+    <p class="text-muted">Signed in as <strong>{{ student_name }}</strong>
+        &middot; <a href="{{ url_for('classroom.lobby', code=classroom.code) }}" class="text-muted">Back to lobby</a>
+    </p>
+    {% if open_survey %}
+    <p class="small text-muted mb-0">Open survey from Group {{ open_survey.group_number }}, answer by {{ open_survey.early_deadline_label }}.</p>
+    {% endif %}
+</div>
+{% endif %}
 
 <!-- State 1: Waiting -->
 <div id="state-waiting" class="state-panel active">
     <div class="text-center mt-5">
         <div class="spinner-border text-primary mb-3" role="status"></div>
+        {% if open_survey or preview %}
+        <h3>Loading&hellip;</h3>
+        {% else %}
         <h3 class="pulse">Waiting for the next survey...</h3>
         <p class="text-muted">The host will start a survey shortly.</p>
+        {% endif %}
     </div>
 </div>
 
@@ -45,10 +65,33 @@
 
 <!-- State 3: Submitted -->
 <div id="state-submitted" class="state-panel">
-    <div class="text-center mt-5">
+    <div class="text-center mt-5 mx-auto" style="max-width: 600px;">
         <h3 class="text-success">Answer submitted!</h3>
+        {% if preview %}
+        <p class="text-muted mt-2">(Preview: nothing was saved.)</p>
+        <a class="btn btn-outline-primary mt-2" href="">Try again</a>
+        {% elif open_survey %}
+        <p class="text-muted mt-2">Thanks! You can go back to your lobby.</p>
+        <a class="btn btn-outline-primary mt-2" href="{{ url_for('classroom.lobby', code=classroom.code) }}">Back to lobby</a>
+        {% else %}
         <p class="text-muted mt-2">Waiting for the next survey...</p>
         <div class="spinner-border spinner-border-sm text-secondary mt-2" role="status"></div>
+        {% endif %}
+
+        {% if not preview %}
+        <!-- Optional private note for later feedback; collapsed so it never gets in the way -->
+        <div id="note-box" class="mt-4 text-start" style="display:none">
+            <button type="button" class="btn btn-link btn-sm p-0" id="note-toggle">&#128221; Add a note for your feedback (optional)</button>
+            <div id="note-panel" class="mt-2" style="display:none">
+                <textarea id="note-text" class="form-control" rows="3" maxlength="3000"
+                          placeholder="Thoughts on this survey while they're fresh. Only you can see this; it becomes your draft comment."></textarea>
+                <div class="d-flex justify-content-between align-items-center mt-1">
+                    <small class="text-muted" id="note-status"></small>
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="note-save">Save note</button>
+                </div>
+            </div>
+        </div>
+        {% endif %}
     </div>
 </div>
 
@@ -60,6 +103,15 @@
         <div class="spinner-border spinner-border-sm text-secondary mt-2" role="status"></div>
     </div>
 </div>
+
+<!-- State 5: Closed (an open survey past its deadline) -->
+<div id="state-closed" class="state-panel">
+    <div class="text-center mt-5">
+        <h3 class="text-secondary">This survey is closed</h3>
+        <p class="text-muted mt-2">Its deadline has passed.</p>
+        <a class="btn btn-outline-primary mt-2" href="{{ url_for('classroom.lobby', code=classroom.code) }}">Back to lobby</a>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -67,8 +119,63 @@
     const PARTICIPANT_ID = {{ participant_id }};
     const STUDENT_ID = "{{ student_id }}";
     const CLASSROOM_ID = {{ classroom.id }};
+    {% if preview or open_survey %}
+    const STUDENT_STATE_URL = "{{ state_url }}";
+    const STUDENT_SUBMIT_URL = "{{ submit_url }}";
+    const POLL_ONCE = true;  // a single survey, not a live session to watch
+    {% else %}
     const STUDENT_STATE_URL = "{{ url_for('student.session_state', code=classroom.code) }}";
     const STUDENT_SUBMIT_URL = "{{ url_for('student.submit_answer_http', code=classroom.code) }}";
+    const POLL_ONCE = false;
+    {% endif %}
 </script>
-<script src="{{ url_for('static', filename='js/student.js') }}?v=20260527"></script>
+<script src="{{ url_for('static', filename='js/student.js') }}?v=20261007"></script>
+{% if not preview %}
+<script>
+    // Note box: shown after submitting a survey that isn't the student's own
+    (function() {
+        var box = document.getElementById('note-box');
+        var panel = document.getElementById('note-panel');
+        var text = document.getElementById('note-text');
+        var status = document.getElementById('note-status');
+        var noteUrlBase = "{{ url_for('feedback.save_note', code=classroom.code, survey_id=0) }}".replace(/0\/note$/, '');
+        var surveyId = null;
+
+        document.addEventListener('survey-submitted', function(e) {
+            if (e.detail.surveyId === surveyId) return;
+            surveyId = e.detail.surveyId;
+            box.style.display = 'none';
+            panel.style.display = 'none';
+            text.value = '';
+            status.textContent = '';
+            fetch(noteUrlBase + surveyId + '/note', { credentials: 'same-origin' })
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (!d.ok || d.own || d.sent) return;
+                    text.value = d.body || '';
+                    box.style.display = '';
+                    if (d.body) panel.style.display = '';
+                })
+                .catch(function() {});
+        });
+
+        document.getElementById('note-toggle').addEventListener('click', function() {
+            panel.style.display = panel.style.display === 'none' ? '' : 'none';
+            if (panel.style.display === '') text.focus();
+        });
+
+        document.getElementById('note-save').addEventListener('click', function() {
+            status.textContent = 'Saving…';
+            fetch(noteUrlBase + surveyId + '/note', {
+                method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ body: text.value }),
+            })
+                .then(function(r) { return r.json(); })
+                .then(function(d) { status.textContent = d.ok ? 'Saved. You’ll find it in your lobby.' : 'Could not save.'; })
+                .catch(function() { status.textContent = 'Could not save.'; });
+        });
+    })();
+</script>
+{% endif %}
 {% endblock %}

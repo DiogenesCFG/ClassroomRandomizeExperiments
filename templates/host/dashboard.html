@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Host Dashboard - {{ classroom.name }}{% endblock %}
+{% block title %}Live Session - {{ classroom.name }}{% endblock %}
 
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
@@ -24,15 +24,21 @@
             <div class="card-header d-flex justify-content-between align-items-center">
                 <div>
                     <strong>{{ classroom.name }}</strong>
-                    <br><small class="text-muted">Code: {{ classroom.code }}</small>
+                    <br>Code: <strong>{{ classroom.code }}</strong>
                     {% if classroom.classroom_password_plain %}
-                    <br><small class="text-muted">Password: {{ classroom.classroom_password_plain }}</small>
+                    <br>Password: <strong>{{ classroom.classroom_password_plain }}</strong>
                     {% endif %}
                 </div>
                 <span class="badge bg-primary" id="participant-badge">0 students</span>
             </div>
             <div class="list-group list-group-flush survey-list" id="survey-list">
                 {% for s in surveys %}
+                {% if s.external %}
+                <div class="list-group-item text-muted" title="This group runs its survey on another platform: they present, but there are no live results.">
+                    <strong>#{{ s.group_number }}</strong> {{ s.title }}
+                    <br><small>Other platform &middot; presents without live results</small>
+                </div>
+                {% else %}
                 <button class="list-group-item list-group-item-action survey-list-item"
                         data-survey-id="{{ s.id }}" data-group-number="{{ s.group_number }}">
                     <strong>#{{ s.group_number }}</strong> {{ s.title }}
@@ -40,7 +46,9 @@
                     <small class="text-muted">
                         {{ s.question_count or 1 }} Q ({{ s.question_types or s.question_type }})
                     </small>
+                    {% if s.early_open %}<span class="badge text-bg-info">open early until {{ s.early_deadline_label }}</span>{% endif %}
                 </button>
+                {% endif %}
                 {% endfor %}
             </div>
         </div>
@@ -48,27 +56,7 @@
         <div class="d-grid gap-2 mt-3">
             <button class="btn btn-success btn-lg" id="btn-next">Next Survey</button>
             <button class="btn btn-outline-danger btn-sm" id="btn-reset">Reset Session</button>
-            <div class="dropdown">
-                <button class="btn btn-outline-primary btn-sm w-100 dropdown-toggle" type="button" data-bs-toggle="dropdown">Download CSV</button>
-                <ul class="dropdown-menu w-100">
-                    <li><a class="dropdown-item fw-semibold" href="{{ url_for('download.download_everything', code=classroom.code) }}">Everything (.zip, incl. images)</a></li>
-                    <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item" href="{{ url_for('download.download_all', code=classroom.code) }}">All Responses</a></li>
-                    <li><a class="dropdown-item" href="{{ url_for('download.download_surveys_config', code=classroom.code) }}">Survey Configs</a></li>
-                    <li><a class="dropdown-item" href="{{ url_for('download.download_designers', code=classroom.code) }}">Survey Designers</a></li>
-                    <li><a class="dropdown-item" href="{{ url_for('download.download_participation', code=classroom.code) }}">Survey Participation</a></li>
-                    <li><a class="dropdown-item" href="{{ url_for('download.download_participants', code=classroom.code) }}">Participants</a></li>
-                </ul>
-            </div>
-            <a href="{{ url_for('host.image_gallery', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">View Uploaded Images</a>
-            <form method="POST" action="{{ url_for('download.clear_responses', code=classroom.code) }}" onsubmit="return promptHostPassword(this, 'Delete ALL responses for this classroom? This cannot be undone.\n\nEnter host password to confirm:')">
-                <input type="hidden" name="host_password" value="">
-                <button type="submit" class="btn btn-outline-danger btn-sm w-100">Clear All Responses</button>
-            </form>
-            <form method="POST" action="{{ url_for('host.delete_classroom', code=classroom.code) }}" onsubmit="return promptHostPassword(this, 'Delete this entire classroom? All surveys, participants, responses, and uploaded images will be permanently removed.\n\nEnter host password to confirm:')">
-                <input type="hidden" name="host_password" value="">
-                <button type="submit" class="btn btn-danger btn-sm w-100">Delete Classroom</button>
-            </form>
+            <a href="{{ url_for('host.home', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">&larr; Instructor home</a>
         </div>
 
         <div class="card mt-3">
@@ -128,7 +116,7 @@
         <!-- All done message -->
         <div id="all-done-msg" style="display:none" class="text-center mt-5">
             <h3 class="text-success">All surveys completed!</h3>
-            <p>You can download the results using the button on the left.</p>
+            <p>Download the results from the instructor home.</p>
         </div>
     </div>
 </div>
@@ -167,11 +155,11 @@
         + "{% if classroom.classroom_password_plain %}&password={{ classroom.classroom_password_plain | urlencode }}{% endif %}";
     new QRCode(document.getElementById('qr-container'), {
         text: joinUrl,
-        width: 160,
-        height: 160,
+        width: 200,
+        height: 200,
         colorDark: '#000000',
         colorLight: '#ffffff',
     });
 </script>
-<script src="{{ url_for('static', filename='js/host.js') }}?v=20260521"></script>
+<script src="{{ url_for('static', filename='js/host.js') }}?v=20261007"></script>
 {% endblock %}

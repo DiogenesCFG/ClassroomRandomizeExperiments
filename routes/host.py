@@ -22,27 +22,57 @@ def login(code):
         password = request.form.get('password', '').strip()
         if check_host_password(classroom['id'], password):
             session[f'host_authenticated_{classroom["id"]}'] = True
-            return redirect(url_for('host.dashboard', code=code))
+            return redirect(url_for('host.home', code=code))
         else:
             flash('Incorrect host password.', 'danger')
 
-    # If already authenticated, go straight to dashboard
+    # If already authenticated, go straight to the instructor home
     if session.get(f'host_authenticated_{classroom["id"]}'):
-        return redirect(url_for('host.dashboard', code=code))
+        return redirect(url_for('host.home', code=code))
 
     return render_template('host/login.html', classroom=classroom)
 
 
-@bp.route('/dashboard')
-def dashboard(code):
+@bp.route('/home')
+def home(code):
+    """Instructor home: everything between classes (phase, roster, surveys, downloads)."""
     classroom = _get_classroom_or_404(code)
 
     if not session.get(f'host_authenticated_{classroom["id"]}'):
         return redirect(url_for('host.login', code=code))
 
+    from models import feedback as fb
+    from routes.feedback import class_phase
+    db = get_db()
     surveys = list_surveys(classroom['id'])
-    return render_template('host/dashboard.html',
+    roster = db.execute('SELECT COUNT(*) AS n, SUM(password_hash IS NOT NULL) AS signed_up FROM roster_student '
+                        'WHERE classroom_id=? AND hidden=0', (classroom['id'],)).fetchone()
+    has_assignments = fb.assignments_exist(classroom['id'])
+    done, total = fb.feedback_progress(classroom) if has_assignments else (0, 0)
+    return render_template('host/home.html',
+                           classroom=classroom,
                            surveys=surveys,
+                           roster_count=roster['n'] or 0,
+                           signed_up=roster['signed_up'] or 0,
+                           response_count=db.execute(
+                               'SELECT COUNT(*) FROM (SELECT DISTINCT r.participant_id, r.survey_id FROM response r '
+                               'JOIN survey s ON r.survey_id = s.id WHERE s.classroom_id=?)',
+                               (classroom['id'],)).fetchone()[0],
+                           phase=class_phase(classroom),
+                           has_assignments=has_assignments,
+                           feedback_done=done, feedback_students=total)
+
+
+@bp.route('/dashboard')
+def dashboard(code):
+    """Live session: run surveys one by one, with the QR code and results."""
+    classroom = _get_classroom_or_404(code)
+
+    if not session.get(f'host_authenticated_{classroom["id"]}'):
+        return redirect(url_for('host.login', code=code))
+
+    return render_template('host/dashboard.html',
+                           surveys=list_surveys(classroom['id']),
                            classroom=classroom)
 
 
@@ -104,14 +134,14 @@ def activate_http(code):
 
     db = get_db()
     survey = db.execute(
-        'SELECT id, group_number, title FROM survey WHERE id=? AND classroom_id=?',
+        'SELECT id, group_number, title FROM survey WHERE id=? AND classroom_id=? AND external=0',
         (survey_id, classroom['id']),
     ).fetchone()
     if not survey:
         return jsonify({'ok': False, 'error': 'survey_not_found'}), 404
 
     db.execute('UPDATE survey SET is_active=0 WHERE is_active=1 AND classroom_id=?', (classroom['id'],))
-    db.execute('UPDATE survey SET is_active=1 WHERE id=?', (survey_id,))
+    db.execute('UPDATE survey SET is_active=1, went_live=1 WHERE id=?', (survey_id,))
     db.commit()
 
     # Notify students of the new active survey
@@ -145,14 +175,14 @@ def next_http(code):
 
     if current:
         next_row = db.execute(
-            'SELECT id, group_number, title FROM survey WHERE group_number > ? AND classroom_id=? '
+            'SELECT id, group_number, title FROM survey WHERE group_number > ? AND classroom_id=? AND external=0 '
             'ORDER BY group_number LIMIT 1',
             (current['group_number'], classroom['id']),
         ).fetchone()
         db.execute('UPDATE survey SET is_active=0 WHERE id=?', (current['id'],))
     else:
         next_row = db.execute(
-            'SELECT id, group_number, title FROM survey WHERE classroom_id=? ORDER BY group_number LIMIT 1',
+            'SELECT id, group_number, title FROM survey WHERE classroom_id=? AND external=0 ORDER BY group_number LIMIT 1',
             (classroom['id'],),
         ).fetchone()
 
@@ -161,7 +191,7 @@ def next_http(code):
         socketio.emit('survey_deactivated', {}, room=f'students_{classroom["id"]}')
         return jsonify({'ok': True, 'done': True, 'results': None})
 
-    db.execute('UPDATE survey SET is_active=1 WHERE id=?', (next_row['id'],))
+    db.execute('UPDATE survey SET is_active=1, went_live=1 WHERE id=?', (next_row['id'],))
     db.commit()
 
     # Notify students of the new active survey
@@ -213,6 +243,7 @@ def toggle_block_designers(code):
     return jsonify({'ok': True, 'block_designers': bool(new_val)})
 
 
+
 @bp.route('/delete-classroom', methods=['POST'])
 def delete_classroom(code):
     """Delete the entire classroom and all its data."""
@@ -224,7 +255,7 @@ def delete_classroom(code):
     password = request.form.get('host_password', '').strip()
     if not check_host_password(classroom['id'], password):
         flash('Incorrect host password.', 'danger')
-        return redirect(url_for('host.dashboard', code=code))
+        return redirect(url_for('host.home', code=code))
 
     from routes.builder import _delete_upload
 

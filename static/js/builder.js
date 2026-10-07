@@ -1,7 +1,6 @@
 document.addEventListener('DOMContentLoaded', function() {
     var armsContainer = document.getElementById('arms-container');
     var questionsContainer = document.getElementById('questions-container');
-    var membersContainer = document.getElementById('members-container');
 
     // --- Helper: get current arm labels ---
     function getArmLabels() {
@@ -57,6 +56,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 aBlock.dataset.armIndex = ai;
                 var armLabelRef = aBlock.querySelector('.arm-label-ref');
                 if (armLabelRef) armLabelRef.textContent = armLabels[ai] || 'Arm ' + (ai + 1);
+                var copyBtn = aBlock.querySelector('.copy-from-first-btn');
+                if (copyBtn) {
+                    copyBtn.style.display = ai === 0 ? 'none' : '';
+                    copyBtn.querySelector('.first-arm-name').textContent = armLabels[0] || 'Arm 1';
+                }
 
                 var qTextInput = aBlock.querySelector('.arm-question-text');
                 if (qTextInput) {
@@ -81,17 +85,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
             });
         });
-
-        // Reindex members
-        var memberRows = membersContainer.querySelectorAll('.member-row');
-        memberRows.forEach(function(row, i) {
-            var nameInput = row.querySelector('input[name*="[name]"]');
-            var sisInput = row.querySelector('input[name*="[sis_code]"]');
-            if (nameInput) nameInput.name = 'members[' + i + '][name]';
-            if (sisInput) sisInput.name = 'members[' + i + '][sis_code]';
-            var removeBtn = row.querySelector('.remove-member-btn');
-            if (removeBtn) removeBtn.style.display = memberRows.length > 1 ? '' : 'none';
-        });
     }
 
     // --- Build an arm block HTML for inside a question ---
@@ -102,14 +95,18 @@ document.addEventListener('DOMContentLoaded', function() {
     function buildQuestionArmHTML(qi, ai, armLabel, questionType) {
         var showOptions = typeHasOptions(questionType);
         var html = '<div class="question-arm-block border-start border-3 ps-3 mb-3" data-arm-index="' + ai + '">';
+        html += '<div class="d-flex justify-content-between align-items-baseline gap-2">';
         html += '<label class="form-label fw-bold arm-label-ref">' + (armLabel || 'Arm ' + (ai + 1)) + '</label>';
+        html += '<button type="button" class="btn btn-link btn-sm p-0 copy-from-first-btn"' + (ai === 0 ? ' style="display:none"' : '') + '>';
+        html += 'Copy from <span class="first-arm-name">' + (getArmLabels()[0] || 'Arm 1') + '</span></button>';
+        html += '</div>';
         html += '<input type="text" class="form-control mb-1 arm-question-text" ';
         html += 'name="questions[' + qi + '][arms][' + ai + '][question_text]" ';
         html += 'placeholder="Question text for ' + (armLabel || 'this arm') + '" required>';
         html += '<div class="arm-image-section mb-1">';
         html += '<input type="file" class="form-control form-control-sm arm-image-input" ';
         html += 'name="questions[' + qi + '][arms][' + ai + '][image]" accept=".png,.jpg,.jpeg">';
-        html += '<small class="text-muted">Optional image (PNG or JPEG, max 2MB)</small>';
+        html += '<small class="text-muted">Optional image (PNG or JPEG, max 5MB)</small>';
         html += '</div>';
         html += '<div class="question-options-section"' + (showOptions ? '' : ' style="display:none"') + '>';
         html += '<label class="form-label text-muted small">Answer Options:</label>';
@@ -191,14 +188,29 @@ document.addEventListener('DOMContentLoaded', function() {
                     var textInput = armBlocks[ai].querySelector('.arm-question-text');
                     if (textInput) textInput.placeholder = 'Question text for ' + label;
                 }
+                if (ai === 0) {
+                    qBlock.querySelectorAll('.first-arm-name').forEach(function(span) { span.textContent = label; });
+                }
             });
         }
     });
 
     // --- Add question ---
-    document.getElementById('add-question-btn').addEventListener('click', function() {
+    var maxQuestions = parseInt(document.getElementById('survey-form').dataset.maxQuestions || '0', 10);
+    var addQuestionBtn = document.getElementById('add-question-btn');
+    function updateAddQuestionBtn() {
+        if (!maxQuestions) return;
+        var atLimit = questionsContainer.querySelectorAll('.question-block').length >= maxQuestions;
+        addQuestionBtn.disabled = atLimit;
+        addQuestionBtn.title = atLimit ? 'Your instructor allows up to ' + maxQuestions + ' question(s).' : '';
+    }
+    updateAddQuestionBtn();
+    new MutationObserver(updateAddQuestionBtn).observe(questionsContainer, { childList: true });
+
+    addQuestionBtn.addEventListener('click', function() {
         var armLabels = getArmLabels();
         var qi = questionsContainer.querySelectorAll('.question-block').length;
+        if (maxQuestions && qi >= maxQuestions) return;
 
         var html = '<div class="question-block border rounded p-3 mb-3" data-question-index="' + qi + '">';
         html += '<div class="d-flex justify-content-between align-items-center mb-2">';
@@ -299,24 +311,293 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // --- Add member ---
-    document.getElementById('add-member-btn').addEventListener('click', function() {
-        var i = membersContainer.querySelectorAll('.member-row').length;
-        var html = '<div class="row g-2 mb-2 member-row">';
-        html += '<div class="col-md-5"><input type="text" class="form-control" name="members[' + i + '][name]" placeholder="Student Name" required></div>';
-        html += '<div class="col-md-5"><input type="text" class="form-control" name="members[' + i + '][sis_code]" placeholder="SIS Code" required></div>';
-        html += '<div class="col-md-2"><button type="button" class="btn btn-outline-danger remove-member-btn">Remove</button></div>';
-        html += '</div>';
-        membersContainer.insertAdjacentHTML('beforeend', html);
+    // --- Copy question text, options and image from the first arm ---
+    questionsContainer.addEventListener('click', function(e) {
+        var btn = e.target.closest('.copy-from-first-btn');
+        if (!btn) return;
+        var target = btn.closest('.question-arm-block');
+        var source = btn.closest('.question-arms').querySelector('.question-arm-block');
+        if (!source || source === target) return;
+
+        target.querySelector('.arm-question-text').value = source.querySelector('.arm-question-text').value;
+
+        // Options: rebuild the target's rows to mirror the source's
+        var srcInputs = source.querySelectorAll('.q-option-row input');
+        var container = target.querySelector('.question-options-container');
+        container.innerHTML = '';
+        srcInputs.forEach(function(input) {
+            var row = document.createElement('div');
+            row.className = 'input-group mb-1 q-option-row';
+            row.innerHTML = '<input type="text" class="form-control form-control-sm">' +
+                '<button type="button" class="btn btn-sm btn-outline-danger remove-q-option-btn">x</button>';
+            row.querySelector('input').value = input.value;
+            container.appendChild(row);
+        });
+
+        // Image: reuse the first arm's saved image, if any
+        var srcImage = source.querySelector('.existing-image-input');
+        setExistingImage(target, srcImage ? srcImage.value : null);
+
         reindexAll();
+        target.querySelector('.arm-question-text').focus();
     });
 
-    // --- Remove member ---
-    membersContainer.addEventListener('click', function(e) {
-        if (e.target.classList.contains('remove-member-btn')) {
-            if (membersContainer.querySelectorAll('.member-row').length <= 1) return;
-            e.target.closest('.member-row').remove();
-            reindexAll();
+    // --- Existing (saved) image display for an arm block ---
+    function setExistingImage(armBlock, filename) {
+        var section = armBlock.querySelector('.arm-image-section');
+        var info = section.querySelector('.existing-image-info');
+        var hidden = section.querySelector('.existing-image-input');
+        if (info) info.remove();
+        if (hidden) hidden.remove();
+        if (!filename) return;
+        var shortName = filename.indexOf('_') !== -1 ? filename.split('_').slice(1).join('_') : filename;
+        info = document.createElement('div');
+        info.className = 'd-flex align-items-center gap-2 mb-1 existing-image-info';
+        info.innerHTML = '<small class="text-muted"></small>' +
+            '<a target="_blank" class="btn btn-sm btn-outline-secondary py-0">View</a>' +
+            '<button type="button" class="btn btn-sm btn-outline-danger py-0 remove-image-btn">Remove</button>';
+        info.querySelector('small').textContent = 'Image: ' + shortName;
+        info.querySelector('a').href = '/uploads/' + encodeURIComponent(filename);
+        hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.className = 'existing-image-input';
+        hidden.value = filename;
+        section.insertBefore(hidden, section.firstChild);
+        section.insertBefore(info, section.firstChild);
+        reindexAll();
+    }
+
+    questionsContainer.addEventListener('click', function(e) {
+        if (e.target.classList.contains('remove-image-btn')) {
+            setExistingImage(e.target.closest('.question-arm-block'), null);
+        }
+    });
+
+    // --- Autosave (edit page only) ---
+    // Saves the whole form in the background shortly after any change. The first
+    // version seen in this browser tab is kept in sessionStorage so "Discard all
+    // changes from this session" can put it back (no versions are stored on the server).
+    var form = document.getElementById('survey-form');
+    // "We're sending our survey from another platform": arms and questions become optional.
+    // Disabling their fieldset skips their validation and leaves them out of the posted form.
+    var externalBox = document.getElementById('external');
+    if (externalBox) {
+        externalBox.addEventListener('change', function() {
+            var design = document.getElementById('in-app-design');
+            design.disabled = externalBox.checked;
+            design.style.display = externalBox.checked ? 'none' : '';
+            document.getElementById('external-fields').style.display = externalBox.checked ? '' : 'none';
+        });
+    }
+
+    var autosaveUrl = form && form.dataset.autosaveUrl;
+    if (autosaveUrl) {
+        var statusEl = document.getElementById('autosave-status');
+        var discardBtn = document.getElementById('discard-btn');
+        var baselineKey = 'survey-baseline-' + form.dataset.surveyId;
+        var saveTimer = null, saving = false, pending = false, stopped = false;
+
+        function serializeForm() {
+            var entries = [];
+            new FormData(form).forEach(function(value, key) {
+                if (!(value instanceof File)) entries.push([key, value]);
+            });
+            return entries;
+        }
+
+        function storageGet(key) { try { return sessionStorage.getItem(key); } catch (err) { return null; } }
+        function storageSet(key, value) { try { sessionStorage.setItem(key, value); } catch (err) {} }
+        function storageRemove(key) { try { sessionStorage.removeItem(key); } catch (err) {} }
+
+        var baseline = storageGet(baselineKey);
+        if (!baseline) {
+            baseline = JSON.stringify(serializeForm());
+            storageSet(baselineKey, baseline);
+        }
+
+        function updateDiscardVisibility() {
+            discardBtn.style.display = JSON.stringify(serializeForm()) !== baseline ? '' : 'none';
+        }
+        updateDiscardVisibility();
+
+        function setStatus(text, cls) {
+            statusEl.textContent = text;
+            statusEl.className = cls || '';
+        }
+
+        function renderWarnings(warnings) {
+            var box = document.getElementById('survey-warnings');
+            if (!box) return;
+            box.innerHTML = '';
+            (warnings || []).forEach(function(w) {
+                var div = document.createElement('div');
+                div.className = 'alert alert-warning py-2 small mb-2';
+                div.textContent = '⚠ ' + w;
+                box.appendChild(div);
+            });
+        }
+
+        function applySavedImages(images) {
+            // Newly uploaded files are now on the server: show them as saved images and clear the file pickers
+            questionsContainer.querySelectorAll('.question-block').forEach(function(qBlock, qi) {
+                qBlock.querySelectorAll('.question-arm-block').forEach(function(aBlock, ai) {
+                    var fileInput = aBlock.querySelector('.arm-image-input');
+                    if (fileInput && fileInput.value) {
+                        fileInput.value = '';
+                        setExistingImage(aBlock, images[qi + '_' + ai] || null);
+                    }
+                });
+            });
+        }
+
+        function post(entries, includeFiles) {
+            var data = new FormData();
+            entries.forEach(function(pair) { data.append(pair[0], pair[1]); });
+            if (includeFiles) {
+                form.querySelectorAll('.arm-image-input').forEach(function(input) {
+                    if (input.files && input.files[0]) data.append(input.name, input.files[0]);
+                });
+            }
+            return fetch(autosaveUrl, { method: 'POST', credentials: 'same-origin', body: data })
+                .then(function(resp) { return resp.json(); });
+        }
+
+        function saveNow() {
+            if (stopped) return;
+            if (saving) { pending = true; return; }
+            saving = true;
+            setStatus('Saving…', 'text-muted');
+            post(serializeForm(), true)
+                .then(function(res) {
+                    if (res.ok) {
+                        applySavedImages(res.images || {});
+                        renderWarnings(res.warnings);
+                        setStatus('All changes saved at ' + res.saved_at + '.', 'text-success');
+                    } else if (res.reason === 'invalid') {
+                        setStatus('Not saved yet: ' + res.errors[0] + (res.errors.length > 1 ? ' (+' + (res.errors.length - 1) + ' more)' : ''), 'text-warning-emphasis');
+                    } else if (res.reason === 'locked') {
+                        stopped = true;
+                        setStatus('Survey editing has been locked by your instructor. Changes are no longer saved.', 'text-danger');
+                    } else if (res.reason === 'has_responses') {
+                        stopped = true;
+                        setStatus('This survey now has responses, so autosave is off. Reload the page.', 'text-danger');
+                    } else {
+                        setStatus('Could not save. Check your connection; we will retry on your next change.', 'text-danger');
+                    }
+                })
+                .catch(function() {
+                    setStatus('Could not save. Check your connection; we will retry on your next change.', 'text-danger');
+                })
+                .finally(function() {
+                    saving = false;
+                    updateDiscardVisibility();
+                    if (pending) { pending = false; scheduleSave(); }
+                });
+        }
+
+        function scheduleSave() {
+            if (stopped) return;
+            clearTimeout(saveTimer);
+            setStatus('Unsaved changes…', 'text-muted');
+            saveTimer = setTimeout(saveNow, 1500);
+        }
+
+        form.addEventListener('input', scheduleSave);
+        form.addEventListener('change', scheduleSave);
+        // Adding/removing arms, questions, options or images changes the DOM without input events
+        new MutationObserver(function(mutations) {
+            if (saving) return;  // our own updates after a save (e.g. showing a just-uploaded image)
+            var structural = mutations.some(function(m) {
+                return Array.prototype.some.call(m.addedNodes.length ? m.addedNodes : m.removedNodes, function(n) {
+                    return n.nodeType === 1 && (n.matches('.arm-label-block, .question-block, .question-arm-block, .q-option-row, .existing-image-input') ||
+                        n.querySelector && n.querySelector('.q-option-row, .existing-image-input'));
+                });
+            });
+            if (structural) scheduleSave();
+        }).observe(form, { childList: true, subtree: true });
+
+        // The explicit "Save now" button just saves immediately instead of reloading the page
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            clearTimeout(saveTimer);
+            saveNow();
+        });
+
+        discardBtn.addEventListener('click', function() {
+            if (!confirm('Go back to how the survey was when you opened it in this tab? All changes since then will be lost.')) return;
+            stopped = true;
+            clearTimeout(saveTimer);
+            setStatus('Restoring…', 'text-muted');
+            post(JSON.parse(baseline), false)
+                .then(function(res) {
+                    if (!res.ok) throw new Error(res.reason);
+                    storageRemove(baselineKey);
+                    window.location.reload();
+                })
+                .catch(function() {
+                    stopped = false;
+                    setStatus('Could not restore the earlier version.', 'text-danger');
+                });
+        });
+    }
+
+    // --- Teammate invite picker ---
+    // Classmates come from a <datalist> whose options carry data-id. In "multi" mode
+    // (new survey) picked names become chips with hidden invite_ids inputs inside the
+    // survey form; in "single" mode (edit page) the picker's own form posts one invitee_id.
+    function findClassmateId(list, name) {
+        var match = null;
+        list.querySelectorAll('option').forEach(function(opt) {
+            if (opt.value.toLowerCase() === name.trim().toLowerCase()) match = opt;
+        });
+        return match ? { id: match.dataset.id, name: match.value } : null;
+    }
+
+    document.querySelectorAll('.invite-picker').forEach(function(picker) {
+        var input = picker.querySelector('.invite-search');
+        var list = document.getElementById(input.getAttribute('list'));
+        var feedback = picker.querySelector('.invite-feedback');
+        var chips = picker.querySelector('.invite-chips');
+
+        function showFeedback(msg) {
+            if (!feedback) return;
+            feedback.textContent = msg;
+            feedback.style.display = msg ? '' : 'none';
+        }
+
+        function addChip() {
+            var found = findClassmateId(list, input.value);
+            if (!found) { showFeedback('Pick a name from the list.'); return; }
+            if (chips.querySelector('input[value="' + found.id + '"]')) { input.value = ''; return; }
+            var chip = document.createElement('span');
+            chip.className = 'badge rounded-pill text-bg-primary me-1 mb-1 p-2';
+            chip.textContent = found.name + ' ';
+            var hidden = document.createElement('input');
+            hidden.type = 'hidden'; hidden.name = 'invite_ids'; hidden.value = found.id;
+            var x = document.createElement('button');
+            x.type = 'button'; x.className = 'btn-close btn-close-white ms-1';
+            x.style.fontSize = '0.6em'; x.setAttribute('aria-label', 'Remove');
+            x.addEventListener('click', function() { chip.remove(); });
+            chip.appendChild(hidden); chip.appendChild(x);
+            chips.appendChild(chip);
+            input.value = '';
+            showFeedback('');
+        }
+
+        if (picker.dataset.mode === 'multi') {
+            picker.querySelector('.invite-add-btn').addEventListener('click', addChip);
+            input.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') { e.preventDefault(); addChip(); }
+            });
+            input.addEventListener('change', function() {
+                if (findClassmateId(list, input.value)) addChip();
+            });
+        } else {
+            picker.addEventListener('submit', function(e) {
+                var found = findClassmateId(list, input.value);
+                if (!found) { e.preventDefault(); showFeedback('Pick a name from the list.'); return; }
+                picker.querySelector('input[name="invitee_id"]').value = found.id;
+            });
         }
     });
 });

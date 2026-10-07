@@ -1,38 +1,88 @@
 import hashlib
+import os
+
+from flask import current_app
 
 from models.db import get_db
 
 
-def _hash_password(password):
-    """Simple hash for survey edit passwords."""
-    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+def _image_fingerprint(filename, cache):
+    """Hash an uploaded image's contents so re-uploads of the same picture compare equal."""
+    if not filename:
+        return None
+    if filename not in cache:
+        path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
+        try:
+            with open(path, 'rb') as f:
+                cache[filename] = hashlib.sha256(f.read()).hexdigest()
+        except OSError:
+            cache[filename] = filename.split('_', 1)[-1]  # file missing: fall back to the original name
+    return cache[filename]
 
 
-def check_password(survey_id, password):
-    """Check if the password matches the survey's stored hash."""
-    db = get_db()
-    row = db.execute('SELECT password_hash FROM survey WHERE id=?', (survey_id,)).fetchone()
-    if not row:
-        return False
-    return row['password_hash'] == _hash_password(password)
+def survey_warnings(survey):
+    """Design problems worth flagging to the group (not errors: the survey still saves).
+
+    `survey` is a dict from get_survey(). Returns a list of messages.
+    """
+    if survey.get('external'):
+        return []  # run on another platform: nothing here to check
+    arms = survey.get('arms', [])
+    questions = survey.get('questions', [])
+    if len(arms) < 2:
+        return ['Only one arm: there is no treatment to compare against.']
+
+    cache = {}
+
+    def arm_signature(arm_index):
+        sig = []
+        for q in questions:
+            data = q['arms'].get(arm_index, {})
+            sig.append((
+                ' '.join((data.get('question_text') or '').lower().split()),
+                tuple(' '.join(o.lower().split()) for o in data.get('options', [])),
+                _image_fingerprint(data.get('image_filename'), cache),
+            ))
+        return sig
+
+    warnings = []
+    signatures = [arm_signature(a['arm_index']) for a in arms]
+    for i in range(len(arms)):
+        for j in range(i + 1, len(arms)):
+            if signatures[i] == signatures[j]:
+                warnings.append(f'Arms "{arms[i]["label"]}" and "{arms[j]["label"]}" are identical in every '
+                                f'question (text, options, and images), so there is no treatment difference.')
+    return warnings
 
 
-def create_survey(classroom_id, title, group_number, password, arms, questions, members):
+def respondent_count(survey_id):
+    """Number of distinct students who answered this survey."""
+    return get_db().execute('SELECT COUNT(DISTINCT participant_id) FROM response WHERE survey_id=?',
+                            (survey_id,)).fetchone()[0]
+
+
+def next_group_number(classroom_id):
+    """The next unused group number in a classroom (max + 1)."""
+    row = get_db().execute('SELECT MAX(group_number) FROM survey WHERE classroom_id=?', (classroom_id,)).fetchone()
+    return (row[0] or 0) + 1
+
+
+def create_survey(classroom_id, title, group_number, arms, questions, members):
     """
     Create a survey with arms, questions, and group members.
 
     arms: list of dicts, each with 'label'
     questions: list of dicts, each with 'question_type', 'label', and 'arms' dict
         where arms maps arm_index -> {'question_text': str, 'options': [str]}
-    members: list of dicts, each with 'name' and 'sis_code'
+    members: list of dicts, each with 'name', 'sis_code' and 'roster_student_id'
     """
     db = get_db()
 
     # Use first question's type for legacy column
     first_type = questions[0]['question_type'] if questions else 'multiple_choice'
     cursor = db.execute(
-        'INSERT INTO survey (classroom_id, title, group_number, question_type, password_hash) VALUES (?, ?, ?, ?, ?)',
-        (classroom_id, title, group_number, first_type, _hash_password(password)),
+        'INSERT INTO survey (classroom_id, title, group_number, question_type) VALUES (?, ?, ?, ?)',
+        (classroom_id, title, group_number, first_type),
     )
     survey_id = cursor.lastrowid
 
@@ -86,18 +136,17 @@ def create_survey(classroom_id, title, group_number, password, arms, questions, 
                         )
 
     for member in members:
-        if member['name'].strip() and member['sis_code'].strip():
-            db.execute(
-                'INSERT INTO group_member (survey_id, name, sis_code) VALUES (?, ?, ?)',
-                (survey_id, member['name'].strip(), member['sis_code'].strip()),
-            )
+        db.execute(
+            'INSERT INTO group_member (survey_id, name, sis_code, roster_student_id) VALUES (?, ?, ?, ?)',
+            (survey_id, member['name'], member['sis_code'], member.get('roster_student_id')),
+        )
 
     db.commit()
     return survey_id
 
 
-def update_survey(survey_id, title, group_number, arms, questions, members):
-    """Update an existing survey, replacing all arms, questions, and members.
+def update_survey(survey_id, title, group_number, arms, questions):
+    """Update an existing survey, replacing all arms and questions (group members are kept).
     Returns list of old image filenames that were removed (caller should delete files)."""
     db = get_db()
 
@@ -119,7 +168,6 @@ def update_survey(survey_id, title, group_number, arms, questions, members):
     db.execute('DELETE FROM response WHERE survey_id=?', (survey_id,))
     db.execute('DELETE FROM survey_question WHERE survey_id=?', (survey_id,))
     db.execute('DELETE FROM survey_arm WHERE survey_id=?', (survey_id,))
-    db.execute('DELETE FROM group_member WHERE survey_id=?', (survey_id,))
 
     # Recreate arms
     arm_ids = []
@@ -167,13 +215,6 @@ def update_survey(survey_id, title, group_number, arms, questions, members):
                             'INSERT INTO arm_option (arm_id, option_index, option_text) VALUES (?, ?, ?)',
                             (arm_id, oi, opt_text.strip()),
                         )
-
-    for member in members:
-        if member['name'].strip() and member['sis_code'].strip():
-            db.execute(
-                'INSERT INTO group_member (survey_id, name, sis_code) VALUES (?, ?, ?)',
-                (survey_id, member['name'].strip(), member['sis_code'].strip()),
-            )
 
     db.commit()
 
@@ -251,7 +292,8 @@ def list_surveys(classroom_id):
         '''SELECT s.*,
             (SELECT COUNT(*) FROM survey_question sq WHERE sq.survey_id = s.id) AS question_count,
             (SELECT GROUP_CONCAT(DISTINCT sq.question_type)
-             FROM survey_question sq WHERE sq.survey_id = s.id) AS question_types
+             FROM survey_question sq WHERE sq.survey_id = s.id) AS question_types,
+            (SELECT GROUP_CONCAT(gm.name, '; ') FROM group_member gm WHERE gm.survey_id = s.id) AS member_names
            FROM survey s
            WHERE s.classroom_id=?
            ORDER BY s.group_number''',
@@ -291,7 +333,7 @@ def get_next_survey_id(current_survey_id, classroom_id):
     if current is None:
         return None
     nxt = db.execute(
-        'SELECT id FROM survey WHERE group_number > ? AND classroom_id=? ORDER BY group_number LIMIT 1',
+        'SELECT id FROM survey WHERE group_number > ? AND classroom_id=? AND external=0 ORDER BY group_number LIMIT 1',
         (current['group_number'], classroom_id),
     ).fetchone()
     return nxt['id'] if nxt else None
@@ -307,6 +349,8 @@ def delete_survey(survey_id):
         (survey_id,)
     ).fetchall()
     image_filenames = [r['image_filename'] for r in images]
+    # Responses have no ON DELETE CASCADE, so remove them first
+    db.execute('DELETE FROM response WHERE survey_id=?', (survey_id,))
     db.execute('DELETE FROM survey WHERE id=?', (survey_id,))
     db.commit()
     return image_filenames

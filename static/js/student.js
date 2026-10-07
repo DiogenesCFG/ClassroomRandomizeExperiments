@@ -59,6 +59,8 @@ document.addEventListener('DOMContentLoaded', function() {
         isSubmitting = false;
         setSubmitEnabled(true);
         showState('submitted');
+        // Lets the page offer the optional feedback note for this survey
+        if (sid) document.dispatchEvent(new CustomEvent('survey-submitted', { detail: { surveyId: sid } }));
     }
 
     function markSubmitFailed(message) {
@@ -277,6 +279,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     markSubmitted(data.survey_id);
                 } else if (data.state === 'blocked_designer') {
                     showState('blocked');
+                } else if (data.state === 'closed') {
+                    showState('closed');
                 } else if (data.state === 'assignment' && data.assignment) {
                     renderAssignment(data.assignment);
                 }
@@ -505,5 +509,10 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    startStatePolling();
+    // Previews and early-open surveys load one assignment; there is no live session to watch
+    if (typeof POLL_ONCE !== 'undefined' && POLL_ONCE) {
+        pollStateOnce();
+    } else {
+        startStatePolling();
+    }
 });

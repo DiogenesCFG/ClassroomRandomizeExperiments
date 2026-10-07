@@ -133,8 +133,9 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function updateParticipantBadge(count) {
-        if (typeof count === 'number') {
-            document.getElementById('participant-badge').textContent = count + ' students';
+        var badge = document.getElementById('participant-badge');
+        if (badge && typeof count === 'number') {
+            badge.textContent = count + ' students';
         }
     }
 
@@ -164,7 +165,7 @@ document.addEventListener('DOMContentLoaded', function() {
             .finally(function() {
                 if (btn) {
                     btn.disabled = false;
-                    btn.textContent = 'Refresh Results';
+                    btn.textContent = btn.dataset.label || 'Refresh Results';
                 }
             });
     }
@@ -216,8 +217,9 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Next survey button
-    document.getElementById('btn-next').addEventListener('click', function() {
+    // Next survey / reset buttons (absent on the builder's dashboard preview page)
+    var noop = { addEventListener: function() {} };
+    (document.getElementById('btn-next') || noop).addEventListener('click', function() {
         console.log('[host] next_survey');
         postJson(HOST_NEXT_URL)
             .then(function(data) {
@@ -230,7 +232,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // Reset button
-    document.getElementById('btn-reset').addEventListener('click', function() {
+    (document.getElementById('btn-reset') || noop).addEventListener('click', function() {
         if (confirm('Reset the session? This will deactivate all surveys (data is preserved).')) {
             postJson(HOST_RESET_URL)
                 .then(showNoActiveSurvey)
@@ -442,28 +444,43 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    // Group identical answers (ignoring case, extra spaces and trailing punctuation),
+    // most common first, so repeated answers stand out on a projector.
+    function groupAnswers(texts) {
+        var groups = {};
+        var order = [];
+        texts.forEach(function(t) {
+            var key = String(t).toLowerCase().replace(/\s+/g, ' ').replace(/[.!?,;:]+$/, '').trim();
+            if (!key) return;
+            if (!groups[key]) { groups[key] = { text: String(t).trim(), count: 0 }; order.push(key); }
+            groups[key].count += 1;
+        });
+        return order.map(function(k) { return groups[k]; })
+            .sort(function(a, b) { return b.count - a.count; });
+    }
+
     function renderShortAnswerPane(q, pane) {
         var container = pane.querySelector('.short-answer-results');
-        var html = '<div class="table-responsive"><table class="table table-bordered">'
-            + '<thead><tr><th>Arm</th><th>N</th><th>Responses</th></tr></thead><tbody>';
+        var html = '<div class="row g-3">';
         q.arms.forEach(function(arm, i) {
-            var texts = arm.responses || [];
-            var cellHtml = '';
-            if (texts.length > 0) {
-                cellHtml = '<ul class="mb-0 ps-3">';
-                texts.forEach(function(t) {
-                    cellHtml += '<li>' + escapeHtml(t) + '</li>';
-                });
-                cellHtml += '</ul>';
-            } else {
-                cellHtml = '<span class="text-muted">No responses yet</span>';
+            var grouped = groupAnswers(arm.responses || []);
+            var color = BORDER_COLORS[i % BORDER_COLORS.length];
+            html += '<div class="col-md"><div class="card h-100" style="border-top: 4px solid ' + color + '">';
+            html += '<div class="card-header d-flex justify-content-between"><strong style="color: ' + color + '">'
+                + escapeHtml(arm.label) + '</strong><span class="text-muted">n = ' + arm.n + '</span></div>';
+            html += '<ul class="list-group list-group-flush" style="max-height: 420px; overflow-y: auto;">';
+            if (grouped.length === 0) {
+                html += '<li class="list-group-item text-muted">No responses yet</li>';
             }
-            html += '<tr><td><strong style="color: ' + BORDER_COLORS[i % BORDER_COLORS.length] + '">'
-                + escapeHtml(arm.label) + '</strong></td>'
-                + '<td>' + arm.n + '</td>'
-                + '<td>' + cellHtml + '</td></tr>';
+            grouped.forEach(function(g) {
+                html += '<li class="list-group-item d-flex justify-content-between align-items-start gap-2">'
+                    + '<span>' + escapeHtml(g.text) + '</span>'
+                    + (g.count > 1 ? '<span class="badge rounded-pill text-bg-secondary">&times;' + g.count + '</span>' : '')
+                    + '</li>';
+            });
+            html += '</ul></div></div>';
         });
-        html += '</tbody></table></div>';
+        html += '</div>';
         container.innerHTML = html;
     }
 

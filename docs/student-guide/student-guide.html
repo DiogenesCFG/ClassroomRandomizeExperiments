@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Classroom Experiments: Student Guide</title>
+<!-- Source of docs/student-guide.pdf. Regenerate with:
+     chrome --headless --no-pdf-header-footer --print-to-pdf=docs/student-guide.pdf docs/student-guide/student-guide.html -->
+<style>
+    @page { size: Letter; margin: 0.7in 0.75in; }
+    :root { --ink: #1f2328; --muted: #59636e; --accent: #0b5cad; --rule: #d8dee4; --soft: #f4f6f8; }
+    * { box-sizing: border-box; }
+    body { font-family: "Segoe UI", system-ui, -apple-system, Helvetica, Arial, sans-serif; color: var(--ink);
+           font-size: 10.5pt; line-height: 1.5; margin: 0; }
+    h1 { font-size: 24pt; margin: 0 0 4pt; letter-spacing: -0.01em; }
+    h2 { font-size: 15pt; margin: 22pt 0 6pt; padding-top: 6pt; border-top: 2px solid var(--accent); color: var(--accent);
+         break-after: avoid; }
+    h3 { font-size: 11.5pt; margin: 14pt 0 4pt; break-after: avoid; }
+    p { margin: 0 0 7pt; }
+    .subtitle { color: var(--muted); font-size: 11.5pt; margin-bottom: 14pt; }
+    .cover-note { background: var(--soft); border-left: 4px solid var(--accent); padding: 8pt 12pt; margin: 10pt 0 6pt; }
+    ol.overview { padding-left: 18pt; margin: 6pt 0 0; }
+    ol.overview li { margin-bottom: 3pt; }
+    .toc { columns: 2; column-gap: 24pt; padding-left: 18pt; margin: 4pt 0 0; }
+    .step { display: flex; gap: 10pt; margin: 10pt 0 4pt; break-inside: avoid; }
+    .num { flex: 0 0 auto; width: 20pt; height: 20pt; border-radius: 50%; background: var(--accent); color: #fff;
+           font-weight: 700; font-size: 10pt; display: flex; align-items: center; justify-content: center; margin-top: 1pt; }
+    .step p { margin: 0; }
+    figure { margin: 6pt 0 12pt 30pt; break-inside: avoid; }
+    figure img { display: block; max-width: 100%; border: 1px solid var(--rule); border-radius: 6px;
+                 box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+    figure.narrow img { width: 3.1in; }
+    figure.mid img { width: 4.6in; }
+    figcaption { color: var(--muted); font-size: 9pt; margin-top: 4pt; }
+    .tip { background: #fff8e6; border-left: 4px solid #d29922; padding: 6pt 10pt; margin: 8pt 0; break-inside: avoid; }
+    .tip strong:first-child { color: #9a6700; }
+    table { border-collapse: collapse; width: 100%; margin: 6pt 0 10pt; font-size: 9.8pt; break-inside: avoid; }
+    th, td { border: 1px solid var(--rule); padding: 4pt 7pt; text-align: left; vertical-align: top; }
+    th { background: var(--soft); }
+    code { font-family: Consolas, "Courier New", monospace; font-size: 9pt; background: var(--soft); padding: 0 3pt; border-radius: 3px; }
+    pre { font-family: Consolas, "Courier New", monospace; font-size: 9pt; background: var(--soft); padding: 7pt 10pt;
+          border-radius: 4px; margin: 6pt 0 10pt; break-inside: avoid; }
+    .page-break { break-before: page; }
+    .keep { break-inside: avoid; }
+    h2 + .keep, h2 + p { break-before: avoid; }
+    b, strong { font-weight: 650; }
+</style>
+</head>
+<body>
+
+<h1>Classroom Experiments</h1>
+<div class="subtitle">Student guide: building, running and reviewing your group's experiment</div>
+
+<p>Your group designs a small randomized experiment as a survey, runs it on your classmates in class, gives
+feedback on other groups' experiments, and analyzes your own results. Everything happens on one site,
+on a laptop or a phone.</p>
+
+<ol class="overview">
+    <li><b>Sign in</b> with the classroom code, the classroom password and your student ID.</li>
+    <li><b>Form your group and build your survey.</b> One person creates it and invites the rest.</li>
+    <li><b>Preview it</b> as a respondent and as the results screen, and fix any warnings.</li>
+    <li><b>Your instructor locks all surveys</b> before class. You can still preview and download.</li>
+    <li><b>Class day:</b> answer every other group's survey on your phone while each group presents, in the presentation order.</li>
+    <li><b>Give feedback</b> to the groups you're assigned, plus any others you like.</li>
+    <li><b>Download your responses</b> (anonymized) and analyze them.</li>
+</ol>
+
+<div class="cover-note"><b>Contents:</b>
+<ol class="toc">
+    <li>Joining and signing in</li>
+    <li>Your lobby</li>
+    <li>Forming your group</li>
+    <li>Designing your survey</li>
+    <li>Running your survey on another platform</li>
+    <li>Previewing before class</li>
+    <li>Presentation order</li>
+    <li>Class day</li>
+    <li>Peer feedback</li>
+    <li>Downloading your data</li>
+    <li>Troubleshooting</li>
+</ol>
+</div>
+
+<!-- 1 -->
+<h2 class="page-break">1. Joining and signing in</h2>
+<p>You sign in with your SIS User ID and a password you choose the first time. Your name comes from the class
+roster, so there's nothing to type and no typos in the data used for grading.</p>
+
+<div class="keep"><div class="step"><div class="num">1</div><p>Go to the site and click <b>Join Classroom</b>, or scan the QR code shown in class.
+Enter the <b>classroom code</b> and the <b>classroom password</b> your instructor gave you, then click <b>Join</b>.</p></div>
+<figure class="narrow"><img src="img/01_join.png" alt="Join a Classroom form"></figure></div>
+
+<div class="keep"><div class="step"><div class="num">2</div><p>Enter your <b>SIS User ID</b> and click <b>Continue</b>.</p></div>
+<figure class="narrow"><img src="img/02_signin_id.png" alt="Sign in with SIS User ID"></figure></div>
+
+<div class="keep"><div class="step"><div class="num">3</div><p>The first time, the site asks <b>"Are you [your first name]?"</b> Click <b>Yes, that's me</b>.
+If it shows someone else's name, click <b>No</b> and check your ID. Never sign in as a classmate.</p></div>
+<figure class="narrow"><img src="img/03_confirm.png" alt="Are you Sofia? confirmation"></figure></div>
+
+<div class="keep"><div class="step"><div class="num">4</div><p>Choose a password (at least 6 characters) and type it twice. A green check shows when both match.
+Click <b>Save and continue</b>. Next time, you sign in with your SIS User ID and this password.</p></div>
+<figure class="narrow"><img src="img/04_password.png" alt="Choose a password"></figure></div>
+
+<div class="tip"><strong>"ID not found"?</strong> Check your ID and try again. If it still fails, email your instructor: you may not be on the roster yet.</div>
+
+<!-- 2 -->
+<div class="keep"><h2>2. Your lobby</h2>
+<p>After signing in you land in your lobby. Everything you need is there, and sections appear only when they're relevant.</p>
+<table>
+    <tr><th style="width: 28%">Section</th><th>What it's for</th></tr>
+    <tr><td>Live Session</td><td>Join the surveys run in class. It shows <b>LIVE</b> in green when a survey is running.</td></tr>
+    <tr><td>Group invites</td><td>Invites from classmates to join their group. Accept or decline.</td></tr>
+    <tr><td>Open surveys</td><td>Surveys a group was allowed to run early. Answer them before their deadline.</td></tr>
+    <tr><td>My group</td><td>Your group's survey: members, status, warnings, number of responses and the data download.</td></tr>
+    <tr><td>Presentation order</td><td>Every group's survey, in the order they run and present in class.</td></tr>
+    <tr><td>Feedback for other groups</td><td>The groups you must comment on, and your comments.</td></tr>
+</table></div>
+
+<!-- 3 -->
+<h2>3. Forming your group</h2>
+<p>Only one person per group creates the survey; everyone else waits for an invite. Each student can be in one group
+(unless your instructor says otherwise).</p>
+
+<div class="step"><div class="num">1</div><p><b>One member</b> clicks <b>Create your group's survey</b> in the lobby. They're added to the group
+automatically, and the group gets its number automatically. That number is your place in the presentation order.</p></div>
+<div class="step"><div class="num">2</div><p>Under <b>Teammates</b>, they start typing each classmate's name, pick it from the list and click <b>Add</b>.
+Invites can also be sent later from the survey's page, under <b>Group Members</b>.</p></div>
+<div class="keep"><div class="step"><div class="num">3</div><p><b>The other members</b> accept the invite in their lobby, under <b>Group invites</b>.</p></div>
+<figure><img src="img/05_lobby_invite.png" alt="Lobby with a group invite"><figcaption>A new student's lobby: an invite from a classmate, or the button to create your own group's survey.</figcaption></figure></div>
+
+<div class="keep"><p>Once you accept, your group appears under <b>My group</b>:</p>
+<figure><img src="img/06_lobby_group.png" alt="Lobby after joining a group"></figure></div>
+
+<div class="tip"><strong>"You can't accept this"?</strong> You're already in another group. Click <b>Leave</b> next to that group in your
+lobby first. The last member of a group can't leave; invite someone first or delete the survey.
+Once your instructor locks surveys and groups, membership can't change.</div>
+
+<!-- 4 -->
+<h2>4. Designing your survey</h2>
+<p>A survey is one experiment: each respondent is randomly shown one <b>arm</b> (control or a treatment), and the arms
+differ only in what you want to test.</p>
+<figure><img src="img/07_editor_top.png" alt="Survey editor: details, other-platform switch and arms"></figure>
+
+<div class="step"><div class="num">1</div><p><b>Arms (up to 4).</b> Name them, for example "Control" and "High anchor". Each respondent sees exactly one arm, and always the same one.</p></div>
+<div class="step"><div class="num">2</div><p><b>Questions.</b> Every arm has the same questions, but the wording, image and answer options can differ per arm.
+That difference is your treatment. Your instructor sets a maximum number of questions (shown next to <b>Questions</b>); short surveys get better answers.</p></div>
+<div class="keep"><div class="step"><div class="num">3</div><p><b>Copy from Control.</b> Each arm after the first has this link. It copies the first arm's text, options and image,
+so you only change the part that differs.</p></div>
+<figure><img src="img/08_editor_question.png" alt="A question with Control and High anchor versions"></figure></div>
+
+<div class="step"><div class="num">4</div><p><b>Images</b> (PNG or JPEG, up to 5 MB) are optional, per arm and question.</p></div>
+<div class="step"><div class="num">5</div><p><b>Warnings.</b> The page warns you if two arms are identical in every question, which means there's no treatment.</p></div>
+
+<table>
+    <tr><th>Question type</th><th>Respondents see</th><th>Results show</th></tr>
+    <tr><td>Multiple choice</td><td>buttons, pick one</td><td>bar chart by arm</td></tr>
+    <tr><td>Multiple answer</td><td>buttons, pick several</td><td>bar chart by arm</td></tr>
+    <tr><td>Numeric</td><td>a number box</td><td>histogram and mean, median, SD by arm</td></tr>
+    <tr><td>Slider</td><td>a slider with your min, max and step</td><td>histogram and statistics by arm</td></tr>
+    <tr><td>Short answer</td><td>a text box (140 characters)</td><td>the answers by arm, identical ones grouped</td></tr>
+</table>
+
+<p><b>Example.</b> To test anchoring: two arms, one numeric question. Control asks "How much would you pay for this mug?"
+The "High anchor" arm asks "Most students pay $25 for this mug. How much would you pay?"</p>
+
+<p><b>Saving.</b> After you create the survey, your edits save automatically: the bar at the top says when. If something's
+missing, it says what ("Not saved yet: Question 2 needs text"). <b>Discard all changes from this session</b> puts the survey
+back the way it was when you opened it in that tab. Teammates editing at the same time overwrite each other, so take turns.</p>
+
+<div class="keep"><p><b>Group members.</b> The bottom of the survey page lists your group and lets you invite more classmates.</p>
+<figure><img src="img/09_group_members.png" alt="Group Members card"></figure></div>
+
+<!-- 5 -->
+<h2>5. Running your survey on another platform</h2>
+<p>With your instructor's permission, your group can run its survey somewhere else, such as Google Forms. In that case
+<b>your group</b> randomizes the versions and emails them to classmates; this site won't run your survey.</p>
+<div class="step"><div class="num">1</div><p>Create your group's survey as usual (so the group and its members are registered), and give it a title.</p></div>
+<div class="step"><div class="num">2</div><p>Turn on <b>We're running our survey on another platform</b>. The arms and questions disappear and are no longer required.</p></div>
+<div class="keep"><div class="step"><div class="num">3</div><p>Optionally, describe how you're running it. Classmates see this note when they give you feedback.</p></div>
+<figure><img src="img/10_other_platform.png" alt="The other-platform switch turned on"></figure></div>
+<p>You keep your place in the presentation order, present in your turn and get peer feedback like every other group.
+There are no live results in class, so bring your own. Anything you'd already built here is kept: turning the switch
+off brings it back.</p>
+
+<!-- 6 -->
+<div class="keep"><h2>6. Previewing before class</h2>
+<p>Check your survey from both sides before it's locked. Nothing you do in a preview is saved.</p>
+<div class="keep"><div class="step"><div class="num">1</div><p><b>Preview survey</b> (top of the survey page) shows exactly what a respondent sees on their phone, for the arm you pick.
+Switch arms with the buttons at the top.</p></div>
+<figure class="mid"><img src="img/11_preview_survey.png" alt="Preview of the High anchor arm"></figure></div></div>
+<div class="keep"><div class="step"><div class="num">2</div><p><b>Preview dashboard</b> shows the charts and tables that will be projected in class, filled with made-up responses.
+Change the sample size, or click <b>New random sample</b> to see how results vary.</p></div>
+<figure><img src="img/12_preview_dashboard.png" alt="Dashboard preview with sample data"></figure></div>
+
+<!-- 7 -->
+<h2>7. Presentation order</h2>
+<p>Your lobby lists every group's survey in the order they run in class, with each group's members. Your group is
+highlighted, so you know when you present. Groups running their survey on another platform are marked
+<b>Other platform: no live results</b>; they still present in their turn. The order can change until your instructor
+locks surveys.</p>
+<figure><img src="img/16_presentation_order.png" alt="Presentation order card"></figure>
+
+<!-- 8 -->
+<h2>8. Class day</h2>
+<p>Bring a charged phone or laptop. Sign in before class starts so you're ready.</p>
+<div class="keep"><div class="step"><div class="num">1</div><p>In your lobby, click <b>Join</b> on the Live Session card. You'll see "Waiting for the next survey".</p></div>
+<figure class="mid"><img src="img/13_live_card.png" alt="Live Session card showing LIVE"></figure></div>
+<div class="keep"><div class="step"><div class="num">2</div><p>When the instructor starts a group's survey, it appears on your screen within a few seconds. Answer and click <b>Submit All Answers</b>.</p></div>
+<figure class="mid"><img src="img/14_live_question.png" alt="A live survey question on a phone"></figure></div>
+<div class="step"><div class="num">3</div><p>Wait for the next one. Keep the page open; there's no need to refresh.</p></div>
+
+<div class="keep"><p><b>Notes for feedback.</b> After you submit, a small link appears: <b>Add a note for your feedback (optional)</b>.
+Jot down your thoughts while they're fresh. Only you can see the note, and it becomes your draft comment for that group.</p>
+<figure class="mid"><img src="img/15_submitted_note.png" alt="Answer submitted, with a feedback note"></figure></div>
+
+<div class="tip"><strong>Your own group's survey:</strong> you may see "You designed this survey" instead of the questions; designers usually don't answer their own experiment.
+If you see "Your answer was not saved", tap <b>Submit</b> again.</div>
+
+<!-- 9 -->
+<h2>9. Peer feedback</h2>
+<p>Part of your grade is commenting on other groups' experiments: at least the groups you're assigned, marked <b>required</b>.
+Groups are assigned at random so every group gets about the same number of reviewers, and never your own.</p>
+<figure><img src="img/17_feedback.png" alt="Feedback for other groups card"></figure>
+<ul>
+    <li><b>You'll see your assigned groups as soon as surveys are locked</b>, before comments open. Pay close attention to their presentations in class.</li>
+    <li><b>View survey</b> shows all of a group's arms side by side, so you can compare what each arm saw. For a group that ran its survey on another platform, it shows their description instead.</li>
+    <li><b>Save draft</b> works at any time and is private. Notes you took in class appear here as drafts.</li>
+    <li><b>Send</b> works once your instructor opens comments. You can keep editing a sent comment until comments close.</li>
+    <li><b>Comment on another group</b> adds extra comments; you can remove extras, but not required ones.</li>
+    <li>The counter ("1 of 2 required sent") shows your progress.</li>
+</ul>
+<figure><img src="img/18_view_survey.png" alt="View survey: arms side by side"></figure>
+<p>Comments are <b>anonymous</b> to the groups: they see "Reviewer 1, Reviewer 2", while your instructor sees names for grading.
+Groups read their comments only after comments close. Good comments are specific: what works, and one concrete change to the design, wording or treatment.</p>
+
+<!-- 10 -->
+<h2>10. Downloading your data</h2>
+<p>After your survey runs, download its responses from your lobby (the number in the <b>Responses</b> column) or from the
+bottom of the survey page. Downloads keep working after surveys are locked.</p>
+<figure><img src="img/19_my_group_download.png" alt="My group row with the responses download"></figure>
+<p>The file is a CSV that opens in Excel, Google Sheets, R or Stata, with one row per respondent:</p>
+<pre>respondent_id,arm,Q1 Willingness to pay (numeric)
+R-7KQ2PX,Control,8
+R-M4TW9A,High anchor,20</pre>
+<p>Respondents appear only as random IDs, never by name. Compare the answers across arms: that difference is your
+treatment effect. The <b>Survey Config</b> download lists what each arm showed. Groups that ran their survey on another
+platform collect their own data there.</p>
+
+<!-- 11 -->
+<h2>11. Troubleshooting</h2>
+<table>
+    <tr><th style="width: 38%">Problem</th><th>What to do</th></tr>
+    <tr><td>Forgot your password</td><td>Ask your instructor to reset it. Then sign in with your ID and choose a new one.</td></tr>
+    <tr><td>"ID not found"</td><td>Check the ID. If it's right, email your instructor to be added to the roster.</td></tr>
+    <tr><td>It says "Welcome back" and asks for a password, but you never signed in</td><td>Email your instructor right away; they'll reset it.</td></tr>
+    <tr><td>Can't edit your survey</td><td>Surveys are locked (lock notice at the top), or your group submitted it early. Ask your instructor.</td></tr>
+    <tr><td>"Saving deletes responses" warning</td><td>Your survey already has answers. Download them before changing anything.</td></tr>
+    <tr><td>Survey doesn't appear in class</td><td>Wait a few seconds; the page checks every 3 seconds. If it still doesn't show, go back to the lobby and click <b>Join</b> again.</td></tr>
+    <tr><td>Can't accept an invite</td><td>You're already in a group. Leave it first, or ask the inviter to check.</td></tr>
+</table>
+
+</body>
+</html>

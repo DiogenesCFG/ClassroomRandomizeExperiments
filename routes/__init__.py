@@ -5,6 +5,9 @@ def register_blueprints(app):
     from routes.student import bp as student_bp
     from routes.host import bp as host_bp
     from routes.download import bp as download_bp
+    from routes.roster import bp as roster_bp
+    from routes.account import bp as account_bp
+    from routes.feedback import bp as feedback_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(classroom_bp)
@@ -12,3 +15,6 @@ def register_blueprints(app):
     app.register_blueprint(student_bp)
     app.register_blueprint(host_bp)
     app.register_blueprint(download_bp)
+    app.register_blueprint(roster_bp)
+    app.register_blueprint(account_bp)
+    app.register_blueprint(feedback_bp)

@@ -77,11 +77,15 @@ def _get_survey_with_arms_and_questions(db, survey_id):
     return dict(survey), [dict(a) for a in arms], questions_list
 
 
-def _build_assignment_payload(survey, arms, questions, student_id):
-    """Build the assignment payload for a specific student."""
+def _build_assignment_payload(survey, arms, questions, student_id, arm_position=None):
+    """Build the assignment payload for a specific student.
+
+    arm_position forces a specific arm (used by the builder's "Preview survey").
+    """
     num_arms = len(arms)
-    arm_index = assign_arm(student_id, survey['id'], num_arms)
-    arm = arms[arm_index]
+    if arm_position is None:
+        arm_position = assign_arm(student_id, survey['id'], num_arms)
+    arm = arms[arm_position]
 
     payload = {
         'survey_id': survey['id'],
@@ -128,6 +132,23 @@ def _get_aggregated_results(db, survey_id):
         'SELECT arm_id, question_id, answer_text, answer_index FROM response WHERE survey_id=?',
         (survey_id,)
     ).fetchall()
+
+    output = _aggregate_responses(survey, arms, questions, all_responses)
+
+    # Participant count scoped to classroom
+    classroom_id = survey['classroom_id']
+    participant_count = db.execute(
+        'SELECT COUNT(*) as cnt FROM participant WHERE classroom_id=?', (classroom_id,)
+    ).fetchone()['cnt']
+    output['participant_count'] = participant_count
+
+    return output
+
+
+def _aggregate_responses(survey, arms, questions, all_responses):
+    """Turn response rows (arm_id, question_id, answer_text, answer_index) into the
+    per-question chart/table payload the host dashboard renders."""
+    survey_id = survey['id']
 
     # Index responses by (arm_id, question_id)
     responses_by_key = {}
@@ -243,13 +264,6 @@ def _get_aggregated_results(db, survey_id):
 
             q_data['arms'].append(arm_data)
         output['questions'].append(q_data)
-
-    # Participant count scoped to classroom
-    classroom_id = survey['classroom_id']
-    participant_count = db.execute(
-        'SELECT COUNT(*) as cnt FROM participant WHERE classroom_id=?', (classroom_id,)
-    ).fetchone()['cnt']
-    output['participant_count'] = participant_count
 
     return output
 

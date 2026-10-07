@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+
+{% block title %}{{ classroom.name }} - Instructor{% endblock %}
+
+{% block content %}
+<!-- Header: classroom identity + the main action for class day -->
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+    <div>
+        <h1 class="h3 mb-1">{{ classroom.name }}</h1>
+        <p class="text-muted mb-0">
+            Code <strong>{{ classroom.code }}</strong>
+            {% if classroom.classroom_password_plain %}&middot; Student password <strong>{{ classroom.classroom_password_plain }}</strong>{% endif %}
+        </p>
+    </div>
+    <a href="{{ url_for('host.dashboard', code=classroom.code) }}" class="btn btn-success btn-lg">&#9654; Start live session</a>
+</div>
+
+{% if not roster_count %}
+<div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span><strong>Upload your roster</strong>: no student can sign in yet.</span>
+    <a href="{{ url_for('roster.index', code=classroom.code) }}" class="btn btn-warning btn-sm">Go to roster</a>
+</div>
+{% endif %}
+
+<div class="row g-3">
+    <!-- Class phase -->
+    <div class="col-lg-5">
+        {% set steps = ['Building', 'Locked', 'Feedback open', 'Feedback closed'] %}
+        <div class="card h-100" id="phase">
+            <div class="card-header"><strong>Class phase</strong></div>
+            <div class="card-body">
+                <ol class="list-unstyled mb-3">
+                    {% for s in steps %}
+                    <li class="{% if loop.index0 == phase %}fw-bold text-primary{% elif loop.index0 < phase %}text-muted{% endif %}">
+                        {% if loop.index0 < phase %}&#10003;{% elif loop.index0 == phase %}&#9654;{% else %}&#9675;{% endif %} {{ s }}
+                    </li>
+                    {% endfor %}
+                </ol>
+                {% if phase < 3 %}
+                {% set next_msgs = [
+                    'Lock all surveys and groups? Students will see which groups they must comment on.',
+                    'Open comments? Students can send feedback to other groups.',
+                    'Close comments? Students can no longer send or edit them, and groups will see the comments they received.'] %}
+                <form method="POST" action="{{ url_for('feedback.set_phase', code=classroom.code) }}"
+                      onsubmit="return confirm({{ next_msgs[phase]|tojson|forceescape }})">
+                    <input type="hidden" name="action" value="next">
+                    <button type="submit" class="btn btn-primary w-100 mb-3">Next step: {{ steps[phase + 1] }} &rarr;</button>
+                </form>
+                {% endif %}
+
+                {% for key, label, help in [
+                    ('surveys_locked', 'Lock survey edits & groups', 'Students can still preview and download their responses.'),
+                    ('feedback_open', 'Accept comments', 'Students can send and edit feedback.'),
+                    ('feedback_released', 'Show comments to groups', 'Groups see the (anonymous) comments they received.')] %}
+                <form method="POST" action="{{ url_for('feedback.set_phase', code=classroom.code) }}" class="form-check form-switch mb-1">
+                    <input type="hidden" name="action" value="{{ key }}">
+                    <input type="hidden" name="value" value="{{ 0 if classroom[key] else 1 }}">
+                    <input class="form-check-input" type="checkbox" id="sw-{{ key }}" {% if classroom[key] %}checked{% endif %}
+                           onchange="this.form.submit()">
+                    <label class="form-check-label" for="sw-{{ key }}">{{ label }}</label>
+                    <div class="form-text mt-0">{{ help }}</div>
+                </form>
+                {% endfor %}
+
+                {% if classroom.feedback_open and not classroom.surveys_locked %}
+                <div class="alert alert-warning small p-2 mt-2 mb-0">Comments are open while surveys and groups can still change. Lock them so feedback is about the final versions.</div>
+                {% endif %}
+                {% if classroom.feedback_open and classroom.feedback_released %}
+                <div class="alert alert-warning small p-2 mt-2 mb-0">Groups can already read comments while classmates are still writing.</div>
+                {% endif %}
+                {% if not classroom.surveys_locked and has_assignments %}
+                <div class="alert alert-secondary small p-2 mt-2 mb-0">Surveys are unlocked but reviewers were already assigned. Assignments and comments are kept; anyone who joins a group they were assigned to gets a different group.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Feedback -->
+    <div class="col-lg-7">
+        <div class="card h-100">
+            <div class="card-header"><strong>Peer feedback</strong></div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('feedback.set_phase', code=classroom.code) }}" class="d-flex align-items-center gap-2 mb-3">
+                    <input type="hidden" name="action" value="reviews_required">
+                    <label for="reviews_required" class="text-nowrap">Required comments per student</label>
+                    <input type="number" class="form-control form-control-sm" id="reviews_required" name="reviews_required"
+                           value="{{ classroom.reviews_required }}" min="0" max="20" style="width: 70px;">
+                    <button type="submit" class="btn btn-outline-primary btn-sm">Set</button>
+                </form>
+                {% if has_assignments %}
+                <p class="mb-1"><strong>{{ feedback_done }}</strong> of {{ feedback_students }} students sent all required comments.</p>
+                {% if feedback_students %}
+                <div class="progress mb-3" role="progressbar" aria-valuenow="{{ feedback_done }}" aria-valuemin="0" aria-valuemax="{{ feedback_students }}">
+                    <div class="progress-bar" style="width: {{ (100 * feedback_done / feedback_students)|round }}%"></div>
+                </div>
+                {% endif %}
+                <a href="{{ url_for('feedback.download_feedback', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">Comments CSV</a>
+                <a href="{{ url_for('feedback.download_feedback_summary', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">Summary CSV (for grading)</a>
+                {% else %}
+                <p class="text-muted mb-0">Reviewers are assigned automatically when you lock surveys and groups. Students then see which groups they'll comment on.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Roster -->
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-header"><strong>Roster</strong></div>
+            <div class="card-body">
+                <p class="mb-1"><strong>{{ roster_count }}</strong> students, <strong>{{ signed_up }}</strong> signed up</p>
+                <p class="text-muted small">Max groups per student: {{ classroom.max_groups_per_student or 'no limit' }} &middot; max members per group: {{ classroom.max_group_size or 'no limit' }}</p>
+                <a href="{{ url_for('roster.index', code=classroom.code) }}" class="btn btn-outline-primary btn-sm">Manage roster</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Surveys -->
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-header"><strong>Surveys</strong></div>
+            <div class="card-body">
+                <p class="mb-1"><strong>{{ surveys|length }}</strong> surveys{% set early = surveys|selectattr('early_open')|list %}{% if early %}, {{ early|length }} open early{% endif %}{% set outside = surveys|selectattr('external')|list %}{% if outside %}, {{ outside|length }} on another platform{% endif %}</p>
+                <form method="POST" action="{{ url_for('feedback.set_phase', code=classroom.code) }}" class="d-flex align-items-center gap-2 mb-2">
+                    <input type="hidden" name="action" value="max_questions">
+                    <label for="max_questions" class="small text-nowrap">Max questions per survey</label>
+                    <input type="number" class="form-control form-control-sm" id="max_questions" name="max_questions"
+                           value="{{ classroom.max_questions_per_survey or '' }}" min="1" placeholder="No limit" style="width: 80px;">
+                    <button type="submit" class="btn btn-outline-primary btn-sm">Set</button>
+                </form>
+                {% set over = surveys|selectattr('question_count', 'gt', classroom.max_questions_per_survey or 999)|list %}
+                {% if over %}
+                <p class="small text-warning-emphasis mb-2">&#9888; Over the limit: {% for s in over %}Group {{ s.group_number }} ({{ s.question_count }}){{ ', ' if not loop.last }}{% endfor %}. They'll have to remove questions before saving again.</p>
+                {% endif %}
+                <p class="text-muted small">Edit any survey, reorder groups, allow early deployment.</p>
+                <a href="{{ url_for('builder.index', code=classroom.code) }}" class="btn btn-outline-primary btn-sm">Manage surveys</a>
+                <a href="{{ url_for('host.image_gallery', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">Images</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Downloads -->
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-header"><strong>Data</strong></div>
+            <div class="card-body">
+                <p class="mb-1"><strong>{{ response_count }}</strong> survey submissions</p>
+                <a href="{{ url_for('download.download_everything', code=classroom.code) }}" class="btn btn-primary btn-sm mb-2">Download everything (.zip)</a>
+                <div class="dropdown">
+                    <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">Individual CSVs</button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="{{ url_for('download.download_all', code=classroom.code) }}">All Responses</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('download.download_surveys_config', code=classroom.code) }}">Survey Configs</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('download.download_designers', code=classroom.code) }}">Survey Designers</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('download.download_participation', code=classroom.code) }}">Survey Participation</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('download.download_participants', code=classroom.code) }}">Participants (roster key)</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('feedback.download_feedback', code=classroom.code) }}">Feedback comments</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('feedback.download_feedback_summary', code=classroom.code) }}">Feedback summary</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Danger zone, kept out of the way -->
+<details class="mt-4 mb-5">
+    <summary class="text-danger">Danger zone</summary>
+    <div class="d-flex gap-2 flex-wrap mt-2">
+        <form method="POST" action="{{ url_for('download.clear_responses', code=classroom.code) }}" onsubmit="return promptHostPassword(this, 'Delete ALL responses for this classroom? This cannot be undone.\n\nEnter host password to confirm:')">
+            <input type="hidden" name="host_password" value="">
+            <button type="submit" class="btn btn-outline-danger btn-sm">Clear all responses</button>
+        </form>
+        <form method="POST" action="{{ url_for('host.delete_classroom', code=classroom.code) }}" onsubmit="return promptHostPassword(this, 'Delete this entire classroom? All surveys, participants, responses, and uploaded images will be permanently removed.\n\nEnter host password to confirm:')">
+            <input type="hidden" name="host_password" value="">
+            <button type="submit" class="btn btn-danger btn-sm">Delete classroom</button>
+        </form>
+    </div>
+</details>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Host password prompt for destructive actions
+    function promptHostPassword(form, message) {
+        var pw = prompt(message);
+        if (pw === null) return false;
+        form.querySelector('input[name="host_password"]').value = pw;
+        return true;
+    }
+</script>
+{% endblock %}

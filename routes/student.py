@@ -4,7 +4,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, sessio
 
 from models.classroom import get_classroom_by_code
 from models.db import get_db
-from models.participant import login_or_create
+from routes.account import get_signed_in_student, ensure_participant_session
 
 bp = Blueprint('student', __name__, url_prefix='/c/<code>/student')
 
@@ -24,46 +24,14 @@ def _require_classroom_access(classroom):
     return True
 
 
-@bp.route('/', methods=['GET', 'POST'])
+@bp.route('/')
 def login(code):
+    """Entry point for the live session: sign in with the roster first if needed."""
     classroom = _get_classroom_or_404(code)
-
     if not _require_classroom_access(classroom):
         flash('Please join the classroom first.', 'danger')
         return redirect(url_for('classroom.join', code=code))
-
-    if request.method == 'POST':
-        name = request.form.get('name', '').strip()
-        student_id = request.form.get('student_id', '').strip()
-
-        if not name or not student_id:
-            flash('Please enter both your name and student ID.', 'danger')
-            return render_template('student/login.html', classroom=classroom)
-
-        participant = login_or_create(name, student_id, classroom['id'])
-        session['participant_id'] = participant['id']
-        session['student_id'] = participant['student_id']
-        session['student_name'] = participant['name']
-        session['classroom_id'] = classroom['id']
-        session['classroom_code'] = classroom['code']
-        return redirect(url_for('student.live_session', code=code))
-
-    # If already logged in for this classroom, go to session
-    if 'participant_id' in session and session.get('classroom_id') == classroom['id']:
-        return redirect(url_for('student.live_session', code=code))
-
-    return render_template('student/login.html', classroom=classroom)
-
-
-@bp.route('/logout', methods=['POST'])
-def logout(code):
-    classroom = _get_classroom_or_404(code)
-    session.pop('participant_id', None)
-    session.pop('student_id', None)
-    session.pop('student_name', None)
-    session.pop('classroom_id', None)
-    session.pop('classroom_code', None)
-    return redirect(url_for('student.login', code=code))
+    return redirect(url_for('student.live_session', code=code))
 
 
 @bp.route('/session')
@@ -73,8 +41,10 @@ def live_session(code):
     if not _require_classroom_access(classroom):
         return redirect(url_for('classroom.join', code=code))
 
-    if 'participant_id' not in session:
-        return redirect(url_for('student.login', code=code))
+    student = get_signed_in_student(classroom)
+    if not student:
+        return redirect(url_for('account.signin', code=code))
+    ensure_participant_session(classroom, student)
 
     return render_template('student/session.html',
                            participant_id=session['participant_id'],
@@ -158,11 +128,16 @@ def submit_answer_http(code):
 
     db = get_db()
     survey = db.execute(
-        'SELECT id FROM survey WHERE id=? AND classroom_id=?',
+        'SELECT * FROM survey WHERE id=? AND classroom_id=?',
         (survey_id, classroom['id']),
     ).fetchone()
     if not survey:
         return jsonify({'ok': False, 'error': 'survey_not_found'}), 404
+
+    # Only the survey running live, or one opened early (before its deadline), takes answers
+    from models.feedback import early_survey_is_open
+    if not survey['is_active'] and not early_survey_is_open(dict(survey)):
+        return jsonify({'ok': False, 'error': 'survey_closed'}), 409
 
     if _is_fully_answered(db, session['participant_id'], survey_id):
         return jsonify({'ok': True, 'status': 'already_answered'})

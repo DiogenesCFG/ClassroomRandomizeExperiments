@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+
+{% block title %}Roster - {{ classroom.name }}{% endblock %}
+
+{% block content %}
+{% set active = students|rejectattr('hidden')|list %}
+{% set hidden_students = students|selectattr('hidden')|list %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+        <h2 class="mb-0">Roster</h2>
+        <small class="text-muted">{{ classroom.name }} ({{ classroom.code }}) &middot;
+            {{ active|length }} students, {{ active|selectattr('registered_at')|list|length }} signed up</small>
+    </div>
+    <a href="{{ url_for('host.home', code=classroom.code) }}" class="btn btn-outline-secondary">Back to instructor home</a>
+</div>
+
+{% if last_import %}
+<div class="alert alert-success">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+        <div>
+            <strong>Roster saved:</strong> {{ last_import.added }} added{% if last_import.updated %}, {{ last_import.updated }} already on the roster{% endif %}{% if last_import.hidden %}, {{ last_import.hidden }} removed (not in the file){% endif %}{% if last_import.skipped %}, {{ last_import.skipped }} row(s) skipped{% endif %}.
+            <br><small>Columns used: ID = <strong>{{ last_import.id_col }}</strong>, name = <strong>{{ last_import.name_cols|join(' + ') }}</strong>.
+            Example: {{ last_import.example }}.</small>
+        </div>
+        <div class="d-flex gap-2">
+            {% if last_import.added %}
+            <form method="POST" action="{{ url_for('roster.undo_import', code=classroom.code) }}">
+                <button type="submit" class="btn btn-sm btn-outline-danger">Wrong columns? Undo and choose</button>
+            </form>
+            {% endif %}
+            <form method="POST" action="{{ url_for('roster.dismiss_import', code=classroom.code) }}">
+                <button type="submit" class="btn btn-sm btn-success">Looks right</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% elif not students %}
+<div class="alert alert-warning"><strong>Your roster is empty</strong>, so no student can sign in yet. Upload your class list below.</div>
+{% endif %}
+
+<div class="row g-3 mb-4">
+    <div class="col-lg-5">
+        <div class="card h-100">
+            <div class="card-header"><strong>Upload roster CSV</strong></div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('roster.upload', code=classroom.code) }}" enctype="multipart/form-data">
+                    <input type="file" class="form-control mb-2" name="roster_file" accept=".csv,text/csv" required>
+                    {% if students %}
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" name="hide_missing" value="1" id="hide_missing">
+                        <label class="form-check-label small" for="hide_missing">Also remove students who aren't in this file (dropped the class)</label>
+                    </div>
+                    {% endif %}
+                    <button type="submit" class="btn btn-primary btn-sm">Upload</button>
+                </form>
+                <p class="form-text mb-0 mt-2">Re-uploading is safe: new IDs are added and existing ones keep their passwords and groups. If the columns can't be recognized, you'll be asked to pick them.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header"><strong>Add one student</strong></div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('roster.add', code=classroom.code) }}">
+                    <input type="text" class="form-control form-control-sm mb-2" name="sis_id" placeholder="SIS User ID" required>
+                    <input type="text" class="form-control form-control-sm mb-2" name="full_name" placeholder="Last name, First name" required>
+                    <button type="submit" class="btn btn-outline-primary btn-sm">Add</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-3">
+        <div class="card mb-3">
+            <div class="card-header"><strong>Max members per group</strong></div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('roster.max_group_size', code=classroom.code) }}">
+                    <input type="number" class="form-control form-control-sm mb-2" name="max_group_size" min="1"
+                           value="{{ classroom.max_group_size or '' }}" placeholder="No limit">
+                    <button type="submit" class="btn btn-outline-primary btn-sm">Save</button>
+                    <div class="form-text">Leave empty for no limit. Full groups can't send or accept more invites.</div>
+                </form>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header"><strong>Max groups per student</strong></div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('roster.max_groups', code=classroom.code) }}">
+                    <input type="number" class="form-control form-control-sm mb-2" name="max_groups" min="1"
+                           value="{{ classroom.max_groups_per_student or '' }}" placeholder="No limit">
+                    <button type="submit" class="btn btn-outline-primary btn-sm">Save</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if active %}
+<input type="search" class="form-control mb-2" id="roster-filter" placeholder="Filter by name or ID">
+<div class="table-responsive">
+    <table class="table table-sm table-striped align-middle" id="roster-table">
+        <thead>
+            <tr><th>Name</th><th>SIS ID</th><th>Status</th><th>Group(s)</th><th class="text-end">Actions</th></tr>
+        </thead>
+        <tbody>
+            {% for s in active %}
+            <tr>
+                <td>{{ s.full_name }}</td>
+                <td><code>{{ s.sis_id }}</code></td>
+                <td>
+                    {% if s.registered_at %}
+                    <span class="badge text-bg-success">Signed up</span> <small class="text-muted">{{ s.registered_at }} UTC</small>
+                    {% else %}
+                    <span class="badge text-bg-secondary">Not signed up</span>
+                    {% endif %}
+                </td>
+                <td>{{ s.group_numbers or '' }}</td>
+                <td class="text-end text-nowrap">
+                    {% if s.registered_at %}
+                    <form method="POST" action="{{ url_for('roster.reset_password', code=classroom.code, student_id=s.id) }}" class="d-inline">
+                        <button type="submit" class="btn btn-sm btn-outline-warning">Reset password</button>
+                    </form>
+                    {% endif %}
+                    <form method="POST" action="{{ url_for('roster.hide', code=classroom.code, student_id=s.id) }}" class="d-inline"
+                          data-name="{{ s.full_name }}"
+                          onsubmit="return confirm('Remove ' + this.dataset.name + ' from the class? They won\'t be able to sign in. Their past answers stay in your downloads, and you can restore them later.')">
+                        <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="text-center text-muted my-5">
+    <p class="lead">No students yet. Upload your roster CSV above to get started.</p>
+</div>
+{% endif %}
+
+{% if hidden_students %}
+<details class="mt-4">
+    <summary class="text-muted">Removed students ({{ hidden_students|length }})</summary>
+    <table class="table table-sm mt-2 text-muted">
+        {% for s in hidden_students %}
+        <tr>
+            <td>{{ s.full_name }}</td>
+            <td><code>{{ s.sis_id }}</code></td>
+            <td class="text-end">
+                <form method="POST" action="{{ url_for('roster.unhide', code=classroom.code, student_id=s.id) }}" class="d-inline">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">Restore</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</details>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+    var filter = document.getElementById('roster-filter');
+    if (filter) {
+        filter.addEventListener('input', function() {
+            var q = filter.value.toLowerCase();
+            document.querySelectorAll('#roster-table tbody tr').forEach(function(tr) {
+                tr.style.display = tr.textContent.toLowerCase().indexOf(q) === -1 ? 'none' : '';
+            });
+        });
+    }
+</script>
+{% endblock %}

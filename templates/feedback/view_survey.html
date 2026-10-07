@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}Group {{ survey.group_number }}: {{ survey.title }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+    <div>
+        <span class="badge text-bg-secondary mb-1">Group {{ survey.group_number }}</span>
+        <h2 class="mb-0">{{ survey.title }}</h2>
+        {% if survey.external %}
+        <p class="text-muted small mb-0">This group ran its survey on another platform, so it isn't shown here.</p>
+        {% else %}
+        <p class="text-muted small mb-0">
+            {{ survey.arms|length }} arm{{ 's' if survey.arms|length != 1 }}: each respondent was randomly shown one of them.
+        </p>
+        {% endif %}
+    </div>
+    {% if not survey.external %}
+    <div class="dropdown">
+        <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">See it as a respondent</button>
+        <ul class="dropdown-menu dropdown-menu-end">
+            {% for arm in survey.arms %}
+            <li><a class="dropdown-item" target="_blank"
+                   href="{{ url_for('builder.preview_survey', code=classroom.code, survey_id=survey.id, arm=loop.index0) }}">{{ arm.label }}</a></li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+</div>
+
+{% if survey.external %}
+<div class="card mb-3">
+    <div class="card-header"><strong>How the group ran it</strong></div>
+    <div class="card-body" style="white-space: pre-wrap;">{{ survey.external_note or 'The group did not add a description. Use their presentation for your feedback.' }}</div>
+</div>
+{% endif %}
+
+{% set type_names = {'multiple_choice': 'Multiple choice', 'multiple_answer': 'Multiple answer', 'numeric': 'Number',
+                     'short_answer': 'Short answer', 'slider': 'Slider'} %}
+{% for q in survey.questions if not survey.external %}
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between">
+        <strong>Question {{ loop.index }}{% if q.label %}: {{ q.label }}{% endif %}</strong>
+        <span class="text-muted small">{{ type_names.get(q.question_type, q.question_type) }}
+            {% if q.question_type == 'slider' %}({{ q.slider_min|round(2) }} to {{ q.slider_max|round(2) }}, step {{ q.slider_step }}){% endif %}</span>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            {% for arm in survey.arms %}
+            {% set data = q.arms.get(arm.arm_index, {}) %}
+            <div class="col-md">
+                <div class="border-start border-3 ps-3 h-100">
+                    <div class="fw-bold mb-1">{{ arm.label }}</div>
+                    {% if data.image_filename %}
+                    <a href="/uploads/{{ data.image_filename }}" target="_blank">
+                        <img src="/uploads/{{ data.image_filename }}" alt="" class="img-fluid rounded mb-2" style="max-height: 180px;">
+                    </a>
+                    {% endif %}
+                    <div style="white-space: pre-wrap;">{{ data.question_text }}</div>
+                    {% if data.options %}
+                    <ul class="small mt-2 mb-0">
+                        {% for opt in data.options %}<li>{{ opt }}</li>{% endfor %}
+                    </ul>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+<a href="{{ url_for('classroom.lobby', code=classroom.code) }}#feedback" class="text-muted">Back to lobby</a>
+{% endblock %}

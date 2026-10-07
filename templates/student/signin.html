@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block title %}Sign in - {{ classroom.name }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-6 col-lg-4">
+        <h2 class="text-center mb-1">Sign in</h2>
+        <p class="text-center text-muted mb-4">{{ classroom.name }}</p>
+
+        {% if step == 'id' %}
+        <form method="POST">
+            <input type="hidden" name="step" value="id">
+            <div class="mb-4">
+                <label for="sis_id" class="form-label">Your SIS User ID</label>
+                <input type="text" class="form-control form-control-lg" id="sis_id" name="sis_id"
+                       inputmode="numeric" autocomplete="username" placeholder="e.g., 912345678" required autofocus>
+            </div>
+            <button type="submit" class="btn btn-primary btn-lg w-100">Continue</button>
+        </form>
+
+        {% elif step == 'confirm' %}
+        <div class="card shadow-sm text-center">
+            <div class="card-body p-4">
+                <p class="text-muted mb-1">This is your first time signing in.</p>
+                <h3 class="mb-4">Are you {{ student.first_name }}?</h3>
+                <form method="POST" class="d-grid gap-2">
+                    <input type="hidden" name="step" value="confirm">
+                    <button type="submit" name="answer" value="yes" class="btn btn-primary btn-lg">Yes, that's me</button>
+                    <button type="submit" name="answer" value="no" class="btn btn-outline-secondary">No</button>
+                </form>
+            </div>
+        </div>
+
+        {% elif step == 'create' %}
+        <p class="text-center">Welcome, <strong>{{ student.first_name }}</strong>! Choose a password for next time.</p>
+        <form method="POST">
+            <input type="hidden" name="step" value="create">
+            <input type="text" name="username" value="{{ student.sis_id }}" autocomplete="username" hidden>
+            <div class="mb-3">
+                <label for="password" class="form-label">New password</label>
+                <input type="password" class="form-control form-control-lg" id="password" name="password"
+                       autocomplete="new-password" minlength="{{ min_length }}" required autofocus>
+                <div class="valid-feedback">Long enough.</div>
+                <div class="invalid-feedback">At least {{ min_length }} characters.</div>
+                <div class="form-text" id="pw-length-hint">At least {{ min_length }} characters.</div>
+            </div>
+            <div class="mb-4">
+                <label for="password_confirm" class="form-label">Repeat password</label>
+                <input type="password" class="form-control form-control-lg" id="password_confirm" name="password_confirm"
+                       autocomplete="new-password" minlength="{{ min_length }}" required>
+                <div class="valid-feedback">Passwords match.</div>
+                <div class="invalid-feedback">Passwords don't match.</div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-lg w-100" id="create-pw-btn" disabled>Save and continue</button>
+        </form>
+        <script>
+            // Live feedback: length check on the first field, match check on the second
+            (function() {
+                var pw = document.getElementById('password');
+                var confirm = document.getElementById('password_confirm');
+                var btn = document.getElementById('create-pw-btn');
+                var hint = document.getElementById('pw-length-hint');
+                var minLength = {{ min_length }};
+                function check() {
+                    var longEnough = pw.value.length >= minLength;
+                    var matches = longEnough && confirm.value === pw.value;
+                    pw.classList.toggle('is-valid', longEnough);
+                    pw.classList.toggle('is-invalid', pw.value !== '' && !longEnough);
+                    hint.style.display = pw.value === '' ? '' : 'none';
+                    confirm.classList.toggle('is-valid', matches);
+                    confirm.classList.toggle('is-invalid', confirm.value !== '' && !matches);
+                    btn.disabled = !matches;
+                }
+                pw.addEventListener('input', check);
+                confirm.addEventListener('input', check);
+            })();
+        </script>
+
+        {% elif step == 'password' %}
+        <p class="text-center">Welcome back, <strong>{{ student.first_name }}</strong>!</p>
+        <form method="POST">
+            <input type="hidden" name="step" value="password">
+            <input type="text" name="username" value="{{ student.sis_id }}" autocomplete="username" hidden>
+            <div class="mb-4">
+                <label for="password" class="form-label">Password</label>
+                <input type="password" class="form-control form-control-lg" id="password" name="password"
+                       autocomplete="current-password" required autofocus>
+            </div>
+            <button type="submit" class="btn btn-primary btn-lg w-100">Sign in</button>
+        </form>
+        <p class="text-muted small text-center mt-3">
+            Forgot your password, or never signed in before? Ask your instructor to reset it.
+        </p>
+        {% endif %}
+
+        {% if step != 'id' %}
+        <form method="POST" class="text-center mt-3">
+            <input type="hidden" name="step" value="restart">
+            <button type="submit" class="btn btn-link btn-sm text-muted">Use a different ID</button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

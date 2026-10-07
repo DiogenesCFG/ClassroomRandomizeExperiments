@@ -8,14 +8,14 @@ def _hash_password(password):
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
 
 
-def create_classroom(code, name, host_password, classroom_password):
+def create_classroom(code, name, host_password, classroom_password, max_groups_per_student=None):
     """Create a new classroom. Returns the classroom dict."""
     db = get_db()
     cursor = db.execute(
-        'INSERT INTO classroom (code, name, host_password_hash, classroom_password_hash, classroom_password_plain) '
-        'VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO classroom (code, name, host_password_hash, classroom_password_hash, classroom_password_plain, '
+        'max_groups_per_student) VALUES (?, ?, ?, ?, ?, ?)',
         (code.upper().strip(), name.strip(), _hash_password(host_password),
-         _hash_password(classroom_password), classroom_password),
+         _hash_password(classroom_password), classroom_password, max_groups_per_student),
     )
     db.commit()
     row = db.execute('SELECT * FROM classroom WHERE id=?', (cursor.lastrowid,)).fetchone()
@@ -79,8 +79,43 @@ def delete_classroom(classroom_id):
     )
 
     # Delete classroom — cascades to survey, survey_arm, arm_question,
-    # arm_question_option, survey_question, participant, group_member
+    # arm_question_option, survey_question, participant, group_member,
+    # roster_student, team_invite
     db.execute('DELETE FROM classroom WHERE id=?', (classroom_id,))
     db.commit()
 
     return image_filenames
+
+
+def set_max_groups(classroom_id, max_groups):
+    """Set the per-student group limit (None = no limit)."""
+    db = get_db()
+    db.execute('UPDATE classroom SET max_groups_per_student=? WHERE id=?', (max_groups, classroom_id))
+    db.commit()
+
+
+def set_max_group_size(classroom_id, size):
+    """Set the members-per-group limit (None = no limit)."""
+    db = get_db()
+    db.execute('UPDATE classroom SET max_group_size=? WHERE id=?', (size, classroom_id))
+    db.commit()
+
+
+def parse_max_group_size(value):
+    """Parse a max-members form value. Returns (value_or_None, error_or_None)."""
+    value = (value or '').strip()
+    if not value:
+        return None, None
+    if not value.isdigit() or int(value) < 1:
+        return None, 'Max members per group must be a whole number of at least 1 (or empty for no limit).'
+    return int(value), None
+
+
+def parse_max_groups(value):
+    """Parse a max-groups form value. Returns (value_or_None, error_or_None)."""
+    value = (value or '').strip()
+    if not value:
+        return None, None
+    if not value.isdigit() or int(value) < 1:
+        return None, 'Max groups per student must be a whole number of at least 1 (or empty for no limit).'
+    return int(value), None

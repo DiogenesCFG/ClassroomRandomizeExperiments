@@ -186,6 +186,44 @@ def init_db():
         except sqlite3.OperationalError:
             pass  # Column already exists
 
+    # Migration: class roster, per-student group limit, survey edit lock, anonymized IDs
+    for table, col, col_def in (
+        ('classroom', 'max_groups_per_student', 'INTEGER DEFAULT NULL'),
+        ('classroom', 'max_group_size', 'INTEGER DEFAULT 5'),
+        ('classroom', 'surveys_locked', 'INTEGER NOT NULL DEFAULT 0'),
+        ('group_member', 'roster_student_id',
+         'INTEGER DEFAULT NULL REFERENCES roster_student(id) ON DELETE SET NULL'),
+        ('roster_student', 'anon_id', 'TEXT DEFAULT NULL'),
+        ('roster_student', 'tours_seen', "TEXT NOT NULL DEFAULT ''"),
+        ('classroom', 'feedback_open', 'INTEGER NOT NULL DEFAULT 0'),
+        ('classroom', 'feedback_released', 'INTEGER NOT NULL DEFAULT 0'),
+        ('classroom', 'reviews_required', 'INTEGER NOT NULL DEFAULT 2'),
+        ('classroom', 'max_questions_per_survey', 'INTEGER DEFAULT 3'),
+        ('survey', 'early_allowed', 'INTEGER NOT NULL DEFAULT 0'),
+        ('survey', 'early_open', 'INTEGER NOT NULL DEFAULT 0'),
+        ('survey', 'early_deadline_utc', 'TEXT DEFAULT NULL'),
+        ('survey', 'early_deadline_label', 'TEXT DEFAULT NULL'),
+        ('survey', 'external', 'INTEGER NOT NULL DEFAULT 0'),
+        ('survey', 'external_note', 'TEXT DEFAULT NULL'),
+    ):
+        try:
+            db.execute(f'ALTER TABLE {table} ADD COLUMN {col} {col_def}')
+            db.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+    try:
+        db.execute('ALTER TABLE survey ADD COLUMN went_live INTEGER NOT NULL DEFAULT 0')
+        # Surveys that already ran (active now or have answers) count as having gone live
+        db.execute('UPDATE survey SET went_live=1 WHERE is_active=1 OR id IN (SELECT DISTINCT survey_id FROM response)')
+        db.commit()
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    db.execute('CREATE INDEX IF NOT EXISTS idx_group_member_roster ON group_member(roster_student_id)')
+    db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_roster_student_anon ON roster_student(anon_id)')
+    db.commit()
+    from models.roster import backfill_anon_ids
+    backfill_anon_ids(db)
+
     # Migration: remove CHECK constraint on question_type to allow new types
     # (short_answer, multiple_answer). SQLite can't ALTER constraints, so we
     # recreate the tables if they still have the old CHECK.

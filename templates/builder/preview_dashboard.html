@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard Preview - Group {{ survey.group_number }}{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div class="small">
+        <strong>Dashboard preview</strong> with <strong>{{ n }}</strong> made-up respondents, so you can see how your
+        results will look in class. These are random sample answers, not real data, and nothing is saved.
+    </div>
+    <form method="GET" class="d-flex align-items-center gap-2">
+        <label for="n" class="small text-nowrap">Sample size</label>
+        <input type="number" id="n" name="n" value="{{ n }}" min="1" max="500" class="form-control form-control-sm" style="width: 90px;">
+        <button type="submit" class="btn btn-sm btn-primary">Apply</button>
+    </form>
+</div>
+
+<!-- Same markup and script as the host dashboard's results area -->
+<div id="no-survey-msg" class="text-center text-muted mt-5">
+    <div class="spinner-border text-primary" role="status"></div>
+</div>
+
+<div id="results-panel" style="display:none">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h3 id="result-title"></h3>
+            <span class="text-muted">Group #<span id="result-group"></span></span>
+        </div>
+        <div class="text-end">
+            <button class="btn btn-primary me-2" id="btn-refresh" data-label="New random sample">New random sample</button>
+            <span class="badge bg-success fs-6" id="response-count">0 responses</span>
+        </div>
+    </div>
+
+    <ul class="nav nav-tabs mb-3" id="question-tabs" role="tablist"></ul>
+    <div class="tab-content" id="question-tab-content"></div>
+
+    <div class="mt-4">
+        <div class="d-flex align-items-center gap-2 mb-2">
+            <h5 class="mb-0">Questions by Arm</h5>
+            <button class="btn btn-sm btn-outline-secondary" id="toggle-arms" onclick="var d=document.getElementById('arms-detail');var b=this;if(d.style.display==='none'){d.style.display='';b.textContent='Hide'}else{d.style.display='none';b.textContent='Show'}">Hide</button>
+        </div>
+        <div id="arms-detail" class="row"></div>
+    </div>
+</div>
+
+<div id="all-done-msg" style="display:none"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const CLASSROOM_ID = {{ classroom.id }};
+    const HOST_STATE_URL = "{{ state_url }}";
+    const HOST_ACTIVATE_URL = "";
+    const HOST_NEXT_URL = "";
+    const HOST_RESET_URL = "";
+</script>
+<script src="{{ url_for('static', filename='js/host.js') }}?v=20261007"></script>
+{% endblock %}

@@ -1,21 +1,78 @@
 {% extends "base.html" %}
 
 {% block title %}{% if mode == 'edit' %}Edit Survey{% else %}New Survey{% endif %}{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/driver.js@1.9.0/dist/driver.css">
+{% endblock %}
 
 {% block content %}
-<h2 class="mb-4">{% if mode == 'edit' %}Edit Survey{% else %}Create New Survey{% endif %}</h2>
+{% set read_only = mode == 'edit' and locked %}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+    <div>
+        <h2 class="mb-0">{% if read_only %}Survey{% elif mode == 'edit' %}Edit Survey{% else %}Create New Survey{% endif %}</h2>
+        {% if not read_only %}<a href="#" class="small text-muted" id="tour-replay" data-tour-replay>Show me around</a>{% endif %}
+    </div>
+    {% if mode == 'edit' and not external %}
+    <div class="d-flex gap-2 flex-wrap" id="preview-buttons">
+        <div class="dropdown">
+            <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">Preview survey</button>
+            <ul class="dropdown-menu" style="z-index: 1030;"><!-- above the sticky autosave bar (z-index 1020) -->
+                {% for arm in arms %}
+                <li><a class="dropdown-item" target="_blank"
+                       href="{{ url_for('builder.preview_survey', code=classroom.code, survey_id=survey_id, arm=loop.index0) }}">As a respondent in "{{ arm.label }}"</a></li>
+                {% endfor %}
+            </ul>
+        </div>
+        <a class="btn btn-outline-primary btn-sm" target="_blank"
+           href="{{ url_for('builder.preview_dashboard', code=classroom.code, survey_id=survey_id) }}">Preview dashboard</a>
+    </div>
+    {% endif %}
+</div>
 
-<form method="POST" id="survey-form" enctype="multipart/form-data">
+{% if mode == 'edit' %}
+{% if read_only and survey.early_open and not classroom.surveys_locked %}
+<div class="alert alert-info">&#128274; Your group submitted this survey for early answering (classmates can answer it until <strong>{{ survey.early_deadline_label }}</strong>). It's locked now; ask your instructor if you need to change something.</div>
+{% elif read_only %}
+<div class="alert alert-secondary">&#128274; Survey editing is locked by your instructor. You can still preview the survey and download its responses below.</div>
+{% elif response_count %}
+<div class="alert alert-danger">
+    This survey already has <strong>{{ response_count }}</strong> response{{ 's' if response_count != 1 }}.
+    Autosave is off, and saving changes will <strong>delete those responses</strong>. Download them first (bottom of the page).
+</div>
+{% else %}
+<div class="alert alert-light border d-flex justify-content-between align-items-center flex-wrap gap-2 sticky-top" id="autosave-bar" style="top: 0.5rem; z-index: 1020;">
+    <span class="small"><span id="autosave-status">Your edits save automatically.</span></span>
+    <button type="button" class="btn btn-sm btn-warning" id="discard-btn" style="display:none">Discard all changes from this session</button>
+</div>
+{% endif %}
+<div id="survey-warnings">
+    {% for w in warnings %}
+    <div class="alert alert-warning py-2 small mb-2">&#9888; {{ w }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<form method="POST" id="survey-form" enctype="multipart/form-data"
+      {% if classroom.max_questions_per_survey and not is_host %}data-max-questions="{{ classroom.max_questions_per_survey }}"{% endif %}
+      {% if mode == 'edit' and not read_only and not response_count %}data-autosave-url="{{ url_for('builder.autosave', code=classroom.code, survey_id=survey_id) }}" data-survey-id="{{ survey_id }}"{% endif %}>
+<fieldset {% if read_only %}disabled{% endif %}>
     <div class="card mb-4">
         <div class="card-header"><strong>Survey Details</strong></div>
         <div class="card-body">
             <div class="row g-3">
+                {% if is_host %}
                 <div class="col-md-3">
                     <label for="group_number" class="form-label">Group #</label>
                     <input type="number" class="form-control" id="group_number" name="group_number"
-                           value="{{ group_number }}" required min="1" max="99">
+                           value="{{ group_number }}" min="1" max="999"
+                           placeholder="{% if mode == 'new' %}Auto{% endif %}">
+                    <div class="form-text">Sets the order surveys run in class.</div>
                 </div>
-                <div class="col-md-9">
+                {% endif %}
+                <div class="{% if is_host %}col-md-9{% else %}col-12{% endif %}">
+                    {% if mode == 'edit' and not is_host %}
+                    <span class="badge text-bg-secondary mb-2">Group {{ group_number }}</span>
+                    {% endif %}
                     <label for="title" class="form-label">Survey Title</label>
                     <input type="text" class="form-control" id="title" name="title"
                            value="{{ title }}" required placeholder="e.g., Anchoring Effect on Price Estimates">
@@ -24,7 +81,24 @@
         </div>
     </div>
 
-    <div class="card mb-4">
+    <div class="card mb-4" id="external-card">
+        <div class="card-body">
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" role="switch" id="external" name="external" value="1" {% if external %}checked{% endif %}>
+                <label class="form-check-label fw-semibold" for="external">We're running our survey on another platform (e.g., Google Forms)</label>
+            </div>
+            <div class="form-text">Only if your instructor agreed. Your group randomizes the versions and emails them to classmates; this site won't run your survey.
+                You still present in your turn and get peer feedback, but there are no live results, so bring your own.</div>
+            <div id="external-fields" class="mt-3" {% if not external %}style="display:none"{% endif %}>
+                <label for="external_note" class="form-label">How you're running it (optional)</label>
+                <textarea class="form-control" id="external_note" name="external_note" rows="3" maxlength="1000"
+                          placeholder="e.g., Two Google Forms. Each half of the class gets one version by email; version B adds a $25 anchor.">{{ external_note or '' }}</textarea>
+            </div>
+        </div>
+    </div>
+
+    <fieldset id="in-app-design" {% if external %}disabled style="display:none"{% endif %}>
+    <div class="card mb-4" id="arms-card">
         <div class="card-header d-flex justify-content-between align-items-center">
             <strong>Arms (Treatment/Control Groups)</strong>
             <button type="button" class="btn btn-sm btn-outline-success" id="add-arm-btn">+ Add Arm</button>
@@ -45,7 +119,12 @@
 
     <div class="card mb-4">
         <div class="card-header d-flex justify-content-between align-items-center">
-            <strong>Questions</strong>
+            <div>
+                <strong>Questions</strong>
+                {% if classroom.max_questions_per_survey and not is_host %}
+                <small class="text-muted ms-1">up to {{ classroom.max_questions_per_survey }}; shorter surveys get better answers</small>
+                {% endif %}
+            </div>
             <button type="button" class="btn btn-sm btn-outline-success" id="add-question-btn">+ Add Question</button>
         </div>
         <div class="card-body" id="questions-container">
@@ -96,16 +175,21 @@
                     {% set ai = loop.index0 %}
                     {% set arm_data = q.arms[ai] if ai in q.arms else {'question_text': '', 'options': ['', '']} %}
                     <div class="question-arm-block border-start border-3 ps-3 mb-3" data-arm-index="{{ ai }}">
-                        <label class="form-label fw-bold arm-label-ref">{{ arm.label or 'Arm ' ~ (ai + 1) }}</label>
+                        <div class="d-flex justify-content-between align-items-baseline gap-2">
+                            <label class="form-label fw-bold arm-label-ref">{{ arm.label or 'Arm ' ~ (ai + 1) }}</label>
+                            <button type="button" class="btn btn-link btn-sm p-0 copy-from-first-btn"
+                                    {% if ai == 0 %}style="display:none"{% endif %}>Copy from <span class="first-arm-name">{{ arms[0].label or 'Arm 1' }}</span></button>
+                        </div>
                         <input type="text" class="form-control mb-1 arm-question-text"
                                name="questions[{{ q_idx }}][arms][{{ ai }}][question_text]"
                                value="{{ arm_data.question_text }}"
                                placeholder="Question text for {{ arm.label or 'this arm' }}" required>
                         <div class="arm-image-section mb-1">
                             {% if arm_data.image_filename %}
-                            <div class="d-flex align-items-center gap-2 mb-1">
+                            <div class="d-flex align-items-center gap-2 mb-1 existing-image-info">
                                 <small class="text-muted">Image: {{ arm_data.image_filename.split('_', 1)[1] if '_' in arm_data.image_filename else arm_data.image_filename }}</small>
                                 <a href="/uploads/{{ arm_data.image_filename }}" target="_blank" class="btn btn-sm btn-outline-secondary py-0">View</a>
+                                <button type="button" class="btn btn-sm btn-outline-danger py-0 remove-image-btn">Remove</button>
                             </div>
                             <input type="hidden" class="existing-image-input"
                                    name="questions[{{ q_idx }}][arms][{{ ai }}][existing_image]"
@@ -114,7 +198,7 @@
                             <input type="file" class="form-control form-control-sm arm-image-input"
                                    name="questions[{{ q_idx }}][arms][{{ ai }}][image]"
                                    accept=".png,.jpg,.jpeg">
-                            <small class="text-muted">Optional image (PNG or JPEG, max 2MB)</small>
+                            <small class="text-muted">Optional image (PNG or JPEG, max 5MB)</small>
                         </div>
                         <div class="question-options-section" {% if q.question_type not in ('multiple_choice', 'multiple_answer') %}style="display:none"{% endif %}>
                             <label class="form-label text-muted small">Answer Options:</label>
@@ -138,74 +222,179 @@
             {% endfor %}
         </div>
     </div>
+    </fieldset>
 
-    <div class="card mb-4">
-        <div class="card-header d-flex justify-content-between align-items-center">
-            <strong>Group Members</strong>
-            <button type="button" class="btn btn-sm btn-outline-success" id="add-member-btn">+ Add Member</button>
-        </div>
-        <div class="card-body" id="members-container">
-            {% for member in members %}
-            <div class="row g-2 mb-2 member-row">
-                <div class="col-md-5">
-                    <input type="text" class="form-control" name="members[{{ loop.index0 }}][name]"
-                           value="{{ member.name }}" placeholder="Student Name" required>
-                </div>
-                <div class="col-md-5">
-                    <input type="text" class="form-control" name="members[{{ loop.index0 }}][sis_code]"
-                           value="{{ member.sis_code }}" placeholder="SIS Code" required>
-                </div>
-                <div class="col-md-2">
-                    {% if members|length > 1 %}
-                    <button type="button" class="btn btn-outline-danger remove-member-btn">Remove</button>
-                    {% endif %}
-                </div>
+    {% if mode == 'new' and student %}
+    <div class="card mb-4" id="teammates-card">
+        <div class="card-header"><strong>Teammates</strong> <span class="text-muted small">(optional, you can also invite them later)</span></div>
+        <div class="card-body invite-picker" data-mode="multi">
+            <p class="text-muted small mb-2">You're added to this group automatically. Start typing a classmate's name to invite them; they'll accept the invite from their lobby.</p>
+            <div class="input-group">
+                <input type="text" class="form-control invite-search" list="classmate-list"
+                       placeholder="Classmate's name" autocomplete="off">
+                <button type="button" class="btn btn-outline-primary invite-add-btn">Add</button>
             </div>
-            {% endfor %}
+            <div class="invite-feedback text-danger small mt-1" style="display:none"></div>
+            <div class="invite-chips mt-2">
+                {% for c in classmates if c.id in invite_ids %}
+                <span class="badge rounded-pill text-bg-primary me-1 mb-1 p-2">{{ c.full_name }}
+                    <input type="hidden" name="invite_ids" value="{{ c.id }}">
+                    <button type="button" class="btn-close btn-close-white ms-1" style="font-size:0.6em" aria-label="Remove" onclick="this.parentElement.remove()"></button>
+                </span>
+                {% endfor %}
+            </div>
         </div>
     </div>
+    {% endif %}
 
-    <div class="card mb-4">
-        <div class="card-header"><strong>Survey Password</strong></div>
-        <div class="card-body">
-            {% if mode == 'new' %}
-            <p class="text-muted small">Choose a password for your group. You'll need this to edit or delete your survey later.</p>
-            <input type="password" class="form-control" name="password" placeholder="Choose a password" required>
-            {% elif is_host %}
-            <p class="text-muted small">You are editing as the host (no password needed).</p>
-            {% else %}
-            <p class="text-muted small">Enter your survey password to save changes.</p>
-            <input type="password" class="form-control" name="password" placeholder="Enter your survey password" required>
-            {% endif %}
-        </div>
-    </div>
-
+</fieldset>
     <div class="d-flex gap-2 mb-5">
-        <button type="submit" class="btn btn-primary btn-lg">
-            {% if mode == 'edit' %}Update Survey{% else %}Create Survey{% endif %}
+        {% if not read_only %}
+        <button type="submit" class="btn btn-primary btn-lg" id="save-btn"
+                {% if response_count %}onclick="return confirm('Saving deletes the {{ response_count }} response(s) this survey has collected. Continue?')"{% endif %}>
+            {% if mode == 'new' %}Create Survey{% elif response_count %}Save (deletes responses){% else %}Save now{% endif %}
         </button>
-        <a href="{{ url_for('builder.index', code=classroom.code) }}" class="btn btn-outline-secondary btn-lg">Cancel</a>
+        {% endif %}
+        <a href="{{ url_for('builder.index' if is_host else 'classroom.lobby', code=classroom.code) }}" class="btn btn-outline-secondary btn-lg">{% if mode == 'edit' %}Back{% else %}Cancel{% endif %}</a>
     </div>
 </form>
 
 {% if mode == 'edit' %}
+<div class="card mb-4" id="members-card">
+    <div class="card-header"><strong>Group Members</strong></div>
+    <div class="card-body">
+        <ul class="list-unstyled mb-2">
+            {% for m in members %}
+            <li>{{ m.name }}{% if student and m.roster_student_id == student.id %} <span class="text-muted">(you)</span>{% endif %}</li>
+            {% else %}
+            <li class="text-muted">No members yet.</li>
+            {% endfor %}
+            {% for inv in pending_invites %}
+            <li class="text-muted">{{ inv.full_name }} <span class="badge text-bg-light">invited, waiting to accept</span></li>
+            {% endfor %}
+        </ul>
+        {% set group_is_full = classroom.max_group_size and members|length >= classroom.max_group_size %}
+        {% if group_is_full and not groups_locked %}
+        <p class="small text-muted mb-0">Your group is full (at most {{ classroom.max_group_size }} members).</p>
+        {% elif not groups_locked and student and members|selectattr('roster_student_id', 'equalto', student.id)|list %}
+        <form method="POST" action="{{ url_for('account.invite', code=classroom.code, survey_id=survey_id) }}"
+              class="invite-picker" data-mode="single">
+            <input type="hidden" name="back" value="edit">
+            <input type="hidden" name="invitee_id" value="">
+            <div class="input-group">
+                <input type="text" class="form-control invite-search" list="classmate-list"
+                       placeholder="Invite a classmate by name" autocomplete="off">
+                <button type="submit" class="btn btn-outline-primary">Send invite</button>
+            </div>
+            <div class="invite-feedback text-danger small mt-1" style="display:none"></div>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
+{% if survey.early_allowed and not survey.early_open and not survey.external and not groups_locked and student
+      and members|selectattr('roster_student_id', 'equalto', student.id)|list %}
+<div class="card mb-4 border-info">
+    <div class="card-header"><strong>Deploy early</strong></div>
+    <div class="card-body">
+        <p class="small mb-2">Your instructor allowed your group to run this survey before class. When you submit it,
+            classmates can answer it from their lobby until the date you choose. It will still run in class for your presentation.</p>
+        {% if warnings %}<p class="small text-warning-emphasis mb-2">&#9888; Check the warnings at the top of the page first.</p>{% endif %}
+        <form method="POST" action="{{ url_for('feedback.submit_early', code=classroom.code, survey_id=survey_id) }}"
+              id="early-form" class="d-flex align-items-end gap-2 flex-wrap">
+            <div>
+                <label for="early-date" class="form-label small mb-0">Classmates should answer by</label>
+                <input type="date" id="early-date" class="form-control form-control-sm" required>
+            </div>
+            <input type="hidden" name="deadline_utc">
+            <input type="hidden" name="deadline_label">
+            <button type="submit" class="btn btn-info btn-sm">Submit survey for early answering</button>
+        </form>
+    </div>
+</div>
+<script>
+    document.getElementById('early-form').addEventListener('submit', function(e) {
+        var value = document.getElementById('early-date').value;  // yyyy-mm-dd
+        if (!value) { e.preventDefault(); return; }
+        var parts = value.split('-').map(Number);
+        // End of the chosen day in the group's own time zone
+        var end = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59);
+        if (end < new Date()) { e.preventDefault(); alert('Choose a date in the future.'); return; }
+        var label = end.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, '-');
+        if (!confirm('You are about to submit your survey. Classmates will be able to answer it until ' + label +
+                     '.\n\nOnce done, it cannot be modified without instructor approval. Are you sure you want to submit?')) {
+            e.preventDefault();
+            return;
+        }
+        this.deadline_utc.value = end.toISOString();
+        this.deadline_label.value = label;
+    });
+</script>
+{% endif %}
+{% endif %}
+
+<datalist id="classmate-list">
+    {% for c in classmates %}<option value="{{ c.full_name }}" data-id="{{ c.id }}"></option>{% endfor %}
+</datalist>
+
+{% if mode == 'edit' %}
 <div class="mt-4 mb-5">
     <h5>Download Data</h5>
+    <p class="text-muted small mb-2">{{ response_count }} response{{ 's' if response_count != 1 }} so far. Responses are anonymized: each respondent appears only as a random ID.</p>
     <div class="dropdown">
         <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown">
             Download
         </button>
         <ul class="dropdown-menu">
-            <li><a class="dropdown-item" href="{{ url_for('builder.download_responses', code=classroom.code, survey_id=survey_id) }}">All Responses</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('builder.download_responses', code=classroom.code, survey_id=survey_id, anonymized=1) }}">Responses (anonymized, one row per respondent)</a></li>
             <li><a class="dropdown-item" href="{{ url_for('builder.download_config', code=classroom.code, survey_id=survey_id) }}">Survey Config</a></li>
             <li><a class="dropdown-item" href="{{ url_for('builder.download_designers', code=classroom.code, survey_id=survey_id) }}">Survey Designers</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('builder.download_participation', code=classroom.code, survey_id=survey_id) }}">Survey Participation</a></li>
+            {% if is_host %}
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item" href="{{ url_for('builder.download_responses', code=classroom.code, survey_id=survey_id) }}">Responses with names (instructor only)</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('builder.download_participation', code=classroom.code, survey_id=survey_id) }}">Survey Participation (instructor only)</a></li>
+            {% endif %}
         </ul>
     </div>
+    {% if not locked %}
+    <form method="POST" action="{{ url_for('builder.delete', code=classroom.code, survey_id=survey_id) }}" class="mt-4"
+          onsubmit="return confirm('Delete this survey for your whole group? This also deletes any responses it has collected. This cannot be undone.')">
+        <button type="submit" class="btn btn-outline-danger btn-sm">Delete survey</button>
+    </form>
+    {% endif %}
 </div>
 {% endif %}
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/builder.js') }}?v=20260525"></script>
+<script src="{{ url_for('static', filename='js/builder.js') }}?v=20261007b"></script>
+<script src="https://cdn.jsdelivr.net/npm/driver.js@1.9.0/dist/driver.js.iife.js"></script>
+<script src="{{ url_for('static', filename='js/tour.js') }}?v=20261007"></script>
+<script>
+    // Survey page tour. `edit` steps are about things only the edit page has; a student who
+    // already saw the full tour while creating the survey gets just those the first time they edit.
+    window.pageTour = function(auto, shortTour) {
+        var firstArm = document.querySelector('#arms-container input');
+        var first = (firstArm && firstArm.value) || 'the first arm';
+        var steps = [
+            {title: {{ ('Let\'s build your experiment' if mode == 'new' else 'Your group\'s survey')|tojson }},
+             text: 'A one-minute tour of this page. You can close it any time and replay it with <b>Show me around</b>.'},
+            {element: '#title', title: 'Title', text: 'A short name for your experiment. Your group number (your place in the presentation order) is assigned automatically.'},
+            {element: '#external-card', title: 'Another platform?', text: 'Only if your instructor agreed to let you run your survey elsewhere (e.g. Google Forms). Otherwise leave this off.'},
+            {element: '#arms-card', title: 'Arms', text: 'Arms are the versions of your survey: usually a <b>control</b> and one or more <b>treatments</b>. Each classmate is randomly shown one arm, always the same one.'},
+            {element: '#questions-container .question-block', title: 'Questions', text: 'Pick the question type, then write the question <b>for each arm</b>. Keep the arms identical except for the one thing you are testing: that difference is your treatment.'},
+            {element: '#questions-container .question-arm-block + .question-arm-block .copy-from-first-btn', title: 'Copy from ' + first,
+             text: 'Copies the first arm\'s text, options and image into this arm, so you only change the part that differs.'},
+            {element: '#teammates-card', title: 'Teammates', text: 'Add your teammates now or later. They accept from their lobby, and then <b>every member can edit</b> this survey.'},
+            {element: '#autosave-bar', edit: true, title: 'Saving', text: 'Your edits save automatically. This bar tells you when, or what is missing if something can\'t be saved yet. Teammates editing at the same time overwrite each other, so take turns.'},
+            {element: '#preview-buttons', edit: true, title: 'Preview', text: '<b>Preview survey</b> shows exactly what a classmate sees in each arm. <b>Preview dashboard</b> shows how your results will look in class, with made-up answers.'},
+            {element: '#members-card', edit: true, title: 'Group members', text: 'Everyone in your group. Any member can edit the survey and download its responses; invite more classmates here.'},
+            {element: '#save-btn', title: {{ ('Create it' if mode == 'new' else 'Save')|tojson }},
+             text: {{ ('Click <b>Create Survey</b> when the form is filled in. You can keep editing afterwards.' if mode == 'new' else 'Autosave usually has it covered, but you can also save right away.')|tojson }}}
+        ];
+        if (shortTour) steps = steps.filter(function(s) { return s.edit; });
+        startTour(steps, {seenUrl: auto ? {{ url_for('account.mark_tour_seen', code=classroom.code, name='builder' if mode == 'new' else 'builder_edit')|tojson }} : null});
+    };
+    {% if tour_auto %}window.addEventListener('load', function() { window.pageTour(true, {{ tour_short|tojson }}); });{% endif %}
+</script>
 {% endblock %}

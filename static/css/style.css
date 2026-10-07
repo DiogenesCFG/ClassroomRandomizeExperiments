@@ -1,6 +1,26 @@
-/* Light mode: pale warm background */
+/* Light mode: soft warm tones instead of bright white. Bootstrap draws cards, menus,
+   inputs, tables and list groups with --bs-body-bg, so those become a warm off-white;
+   the page behind them is a shade darker so cards still stand out. */
+[data-bs-theme="light"] {
+    --bs-body-bg: #fbf7ef;
+    --bs-body-bg-rgb: 251, 247, 239;
+    --bs-secondary-bg: #ece5d8;
+    --bs-secondary-bg-rgb: 236, 229, 216;
+    --bs-tertiary-bg: #f4eee3;
+    --bs-tertiary-bg-rgb: 244, 238, 227;
+    --bs-light: #f1ebdf;
+    --bs-light-rgb: 241, 235, 223;
+    --bs-light-bg-subtle: #f6f1e7;
+    --bs-light-border-subtle: #e4dccc;
+    --bs-border-color: #e2dacb;
+}
 [data-bs-theme="light"] body {
-    background-color: #f5f3ef;
+    background-color: #f1ebe0;
+}
+
+/* Theme switch in the navbar */
+#theme-toggle {
+    line-height: 1;
 }
 
 /* Dark mode: handled by Bootstrap, tweak active survey color */
@@ -69,4 +89,24 @@
     width: 100%;
     max-width: 800px;
     margin: 0 auto;
+}
+
+/* First-visit tours (Driver.js popovers follow the light/dark theme) */
+.driver-popover.app-tour {
+    max-width: 340px;
+    font-family: inherit;
+    background-color: var(--bs-body-bg);
+    color: var(--bs-body-color);
+}
+.driver-popover.app-tour .driver-popover-title { font-size: 1.05rem; }
+.driver-popover.app-tour .driver-popover-description { font-size: 0.95rem; color: var(--bs-body-color); }
+.driver-popover.app-tour .driver-popover-progress-text { color: var(--bs-secondary-color); }
+.driver-popover.app-tour .driver-popover-close-btn { color: var(--bs-secondary-color); }
+.app-tour .driver-popover-arrow-side-left { border-left-color: var(--bs-body-bg); }
+.app-tour .driver-popover-arrow-side-right { border-right-color: var(--bs-body-bg); }
+.app-tour .driver-popover-arrow-side-top { border-top-color: var(--bs-body-bg); }
+.app-tour .driver-popover-arrow-side-bottom { border-bottom-color: var(--bs-body-bg); }
+[data-bs-theme="light"] #theme-toggle .theme-icon-light,
+[data-bs-theme="dark"] #theme-toggle .theme-icon-dark {
+    display: none;
 }

@@ -1,34 +1,356 @@
 {% extends "base.html" %}
 {% block title %}{{ classroom.name }}{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/driver.js@1.9.0/dist/driver.css">
+{% endblock %}
 
 {% block content %}
-<div class="text-center mt-5">
-    <h1 class="mb-2">{{ classroom.name }}</h1>
-    <p class="lead text-muted mb-5">Code: <strong>{{ classroom.code }}</strong></p>
-
-    <div class="row justify-content-center g-4">
-        <div class="col-md-4">
-            <div class="card h-100 shadow-sm">
-                <div class="card-body d-flex flex-column">
-                    <h3 class="card-title">Build a Survey</h3>
-                    <p class="card-text flex-grow-1">Create or edit your group's experiment.</p>
-                    <a href="{{ url_for('builder.index', code=classroom.code) }}" class="btn btn-primary btn-lg mt-3">Go to Builder</a>
-                </div>
-            </div>
+<div class="mx-auto" style="max-width: 900px;">
+    <div class="d-flex justify-content-between align-items-start mt-3 mb-4">
+        <div>
+            <h1 class="h3 mb-1">Hi, {{ student.first_name }}!</h1>
+            <p class="text-muted mb-0">{{ classroom.name }} &middot; {{ classroom.code }}</p>
         </div>
-        <div class="col-md-4">
-            <div class="card h-100 shadow-sm">
-                <div class="card-body d-flex flex-column">
-                    <h3 class="card-title">Join Live Session</h3>
-                    <p class="card-text flex-grow-1">Participate in live experiments.</p>
-                    <a href="{{ url_for('student.login', code=classroom.code) }}" class="btn btn-success btn-lg mt-3">Join Session</a>
-                </div>
-            </div>
+        <div class="d-flex align-items-center">
+            <a href="#" class="btn btn-link btn-sm text-muted" id="tour-replay" data-tour-replay>Show me around</a>
+            <form method="POST" action="{{ url_for('account.signout', code=classroom.code) }}">
+                <button type="submit" class="btn btn-link btn-sm text-muted">Sign out</button>
+            </form>
         </div>
     </div>
 
-    <div class="mt-4">
-        <a href="{{ url_for('main.index') }}" class="text-muted">Back to home</a>
+    {% if classroom.surveys_locked %}
+    <div class="alert alert-secondary">
+        &#128274; Survey editing and group changes are locked by your instructor. You can still preview your survey and download its responses.
     </div>
+    {% endif %}
+
+    <!-- Live session: highlighted when the host has a survey running -->
+    <div id="live-card" class="card mb-4 shadow-sm {% if live %}border-success{% endif %}">
+        <div class="card-body d-flex justify-content-between align-items-center gap-3">
+            <div>
+                <h2 class="h5 mb-1">
+                    <span id="live-dot" class="badge rounded-pill text-bg-success me-1" {% if not live %}style="display:none"{% endif %}>LIVE</span>
+                    Live Session
+                </h2>
+                <p class="text-muted small mb-0" id="live-text">
+                    {% if live %}A survey is running now. Join to answer it.{% else %}No survey is running right now. You can join and wait.{% endif %}
+                </p>
+            </div>
+            <a href="{{ url_for('student.live_session', code=classroom.code) }}"
+               id="live-btn" class="btn {% if live %}btn-success{% else %}btn-outline-success{% endif %} btn-lg text-nowrap">Join</a>
+        </div>
+    </div>
+
+    <!-- Pending invites -->
+    {% if invites %}
+    <div class="card mb-4 border-primary" id="invites-card">
+        <div class="card-header"><strong>Group invites</strong></div>
+        <ul class="list-group list-group-flush">
+            {% for inv in invites %}
+            <li class="list-group-item">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div>
+                        <strong>Group {{ inv.group_number }}:</strong> {{ inv.title }}
+                        {% if inv.invited_by_name %}<br><small class="text-muted">Invited by {{ inv.invited_by_name }}</small>{% endif %}
+                    </div>
+                    <div class="d-flex gap-2">
+                        <form method="POST" action="{{ url_for('account.respond_invite', code=classroom.code, invite_id=inv.id, action='accept') }}">
+                            <button type="submit" class="btn btn-primary btn-sm" {% if at_limit or classroom.surveys_locked or (classroom.max_group_size and inv.member_count >= classroom.max_group_size) %}disabled{% endif %}>Accept</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('account.respond_invite', code=classroom.code, invite_id=inv.id, action='decline') }}">
+                            <button type="submit" class="btn btn-outline-secondary btn-sm">Decline</button>
+                        </form>
+                    </div>
+                </div>
+                {% if classroom.max_group_size and inv.member_count >= classroom.max_group_size %}
+                <small class="text-danger">You can't accept this: that group is already full ({{ classroom.max_group_size }} members).</small>
+                {% elif at_limit %}
+                <small class="text-danger">You can't accept this: you're already in the maximum number of groups ({{ classroom.max_groups_per_student }}). Leave a group first if you want to join this one.</small>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    <!-- Surveys opened early: answerable any time before their deadline -->
+    {% if open_surveys %}
+    <div class="card mb-4 border-success" id="open-surveys-card">
+        <div class="card-header"><strong>Open surveys</strong> <span class="text-muted small">answer these before their deadline</span></div>
+        <ul class="list-group list-group-flush">
+            {% for s in open_surveys %}
+            <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <strong>Group {{ s.group_number }}:</strong> {{ s.title }}
+                    <br><small class="text-muted">Answer by {{ s.early_deadline_label }}</small>
+                </div>
+                {% if s.answered %}
+                <span class="badge text-bg-success">&#10003; Answered</span>
+                {% elif s.open_now %}
+                <a href="{{ url_for('feedback.answer_open_survey', code=classroom.code, survey_id=s.id) }}" class="btn btn-success btn-sm">Answer now</a>
+                {% else %}
+                <span class="badge text-bg-secondary">Closed</span>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    <!-- My groups -->
+    <div class="card mb-4" id="my-group-card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <strong>My group{% if classroom.max_groups_per_student != 1 %}s{% endif %}</strong>
+            {% if groups and not at_limit and not classroom.surveys_locked %}
+            <a href="{{ url_for('builder.new', code=classroom.code) }}" class="btn btn-sm btn-outline-primary">+ New survey</a>
+            {% endif %}
+        </div>
+        {% if groups %}
+        <div class="table-responsive" id="my-group-table">
+            <table class="table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Group</th><th>Survey</th><th>Members</th><th>Status</th><th>Responses</th><th class="text-end"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for g in groups %}
+                    <tr>
+                        <td class="fw-bold">{{ g.group_number }}</td>
+                        <td>{{ g.title }}</td>
+                        <td>
+                            <span class="text-decoration-underline" style="text-decoration-style: dotted !important; cursor: help;"
+                                  title="{{ g.member_names }}" tabindex="0"
+                                  onclick="this.nextElementSibling.classList.toggle('d-none')">{{ g.member_count }}</span>
+                            <small class="d-none d-block text-muted">{{ g.member_names }}</small>
+                        </td>
+                        <td>
+                            {% if g.external %}
+                            <span class="badge text-bg-secondary" title="Your group sends its survey out itself; it won't run on this site.">Other platform</span>
+                            {% elif g.early_open %}
+                            <span class="badge text-bg-info">Open early &middot; until {{ g.early_deadline_label }}</span>
+                            {% elif g.warnings %}
+                            <span class="badge text-bg-warning" title="{{ g.warnings|join(' ') }}">{{ g.warnings|length }} warning{{ 's' if g.warnings|length != 1 }}</span>
+                            {% else %}
+                            <span class="badge text-bg-success">Looks good</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if g.external %}
+                            <span class="text-muted">&mdash;</span>
+                            {% elif g.responses %}
+                            <a href="{{ url_for('builder.download_responses', code=classroom.code, survey_id=g.id) }}"
+                               title="Download anonymized responses (CSV)">{{ g.responses }} &darr; CSV</a>
+                            {% else %}
+                            <span class="text-muted">0</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end text-nowrap">
+                            <a href="{{ url_for('builder.edit', code=classroom.code, survey_id=g.id) }}" class="btn btn-primary btn-sm">
+                                {% if classroom.surveys_locked %}Open{% else %}Edit{% endif %}</a>
+                            {% if not g.external %}
+                            <a href="{{ url_for('builder.preview_survey', code=classroom.code, survey_id=g.id) }}" class="btn btn-outline-secondary btn-sm">Preview</a>
+                            {% endif %}
+                            {% if not classroom.surveys_locked %}
+                            <form method="POST" action="{{ url_for('account.leave', code=classroom.code, survey_id=g.id) }}" class="d-inline"
+                                  onsubmit="return confirm('Leave Group {{ g.group_number }}? You will no longer be able to edit this survey unless someone invites you back.')">
+                                <button type="submit" class="btn btn-outline-danger btn-sm" {% if g.member_count <= 1 %}disabled title="You're the only member. Invite someone first, or delete the survey."{% endif %}>Leave</button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% for w in g.warnings %}
+                    <tr class="table-warning"><td></td><td colspan="5" class="small">&#9888; {{ w }}</td></tr>
+                    {% endfor %}
+                    {% if classroom.feedback_released %}
+                    <tr>
+                        <td></td>
+                        <td colspan="5">
+                            <details {% if g.received %}open{% endif %}>
+                                <summary class="small fw-semibold">Feedback received ({{ g.received|length }})</summary>
+                                {% for c in g.received %}
+                                <div class="border-start border-3 ps-2 my-2 small">
+                                    <div class="text-muted">{{ c.reviewer }}</div>
+                                    <div style="white-space: pre-wrap;">{{ c.body }}</div>
+                                </div>
+                                {% else %}
+                                <div class="small text-muted my-1">No comments yet.</div>
+                                {% endfor %}
+                            </details>
+                        </td>
+                    </tr>
+                    {% endif %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="card-body text-center py-4">
+            <p class="mb-3">You're not in a group yet.</p>
+            {% if classroom.surveys_locked %}
+            <p class="text-muted small mb-0">Survey creation is closed.</p>
+            {% elif not at_limit %}
+            <a href="{{ url_for('builder.new', code=classroom.code) }}" class="btn btn-primary btn-lg" id="create-survey-btn">Create your group's survey</a>
+            <p class="text-muted small mt-3 mb-0">Only one person per group needs to do this. Teammates can wait for an invite to show up here.</p>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Every group's survey in the order they run in class -->
+    {% if survey_order %}
+    <div class="card mb-4" id="order-card">
+        <div class="card-header"><strong>Presentation order</strong></div>
+        <div class="card-body pb-0">
+            <p class="small text-muted mb-2">Surveys run in class in this order, and each group presents its own.
+                {% if not classroom.surveys_locked %}The order can still change until your instructor locks surveys.{% endif %}</p>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead><tr><th class="ps-3">#</th><th>Survey</th><th>Group members</th></tr></thead>
+                <tbody>
+                    {% set mine = groups|map(attribute='id')|list %}
+                    {% for s in survey_order %}
+                    <tr class="{% if s.id in mine %}table-primary{% endif %}">
+                        <td class="ps-3 fw-bold">{{ s.group_number }}</td>
+                        <td>{{ s.title }}{% if s.id in mine %} <span class="badge text-bg-primary">your group</span>{% endif %}
+                            {% if s.external %}<br><small class="text-muted">Other platform: no live results</small>{% endif %}</td>
+                        <td><small>{{ s.member_names or '' }}</small></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Peer feedback (a stand-in until surveys are locked, unless a survey already ran early) -->
+    {% if not feedback_started and not feedback_cards and not can_add_feedback %}
+    <div class="card mb-4" id="feedback">
+        <div class="card-header"><strong>Feedback for other groups</strong></div>
+        <div class="card-body">
+            <p class="small text-muted mb-0">Once your instructor locks the surveys, you'll be assigned the groups you'll comment on, and they'll appear here. Nothing to do yet.</p>
+        </div>
+    </div>
+    {% else %}
+    {% set closed = not classroom.feedback_open %}
+    <div class="card mb-4 {% if classroom.feedback_open and required_sent < required_total %}border-primary{% endif %}" id="feedback">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <strong>Feedback for other groups</strong>
+            {% if required_total %}
+            <span class="badge {% if required_sent >= required_total %}text-bg-success{% else %}text-bg-primary{% endif %}">
+                {{ required_sent }} of {{ required_total }} required sent</span>
+            {% endif %}
+        </div>
+        <div class="card-body">
+            {% if not feedback_started %}
+            <p class="small mb-3">Once your instructor locks the surveys, you'll be assigned the groups you'll comment on. Meanwhile you can start private drafts on surveys that already ran early.</p>
+            {% elif not classroom.feedback_open and not classroom.feedback_released %}
+            <p class="small mb-3">Comments aren't open yet. <strong>These are the groups you'll comment on</strong>, so pay close attention to their surveys when they run. You can save private drafts once a survey has run.</p>
+            {% elif classroom.feedback_open %}
+            <p class="small mb-3">Write at least one comment for each required group. Comments are <strong>anonymous</strong> to the groups, and they'll see them after feedback closes. You can edit sent comments until then.</p>
+            {% else %}
+            <p class="small mb-3 text-muted">Feedback is closed.</p>
+            {% endif %}
+
+            {% for c in feedback_cards %}
+            <div class="border rounded p-3 mb-3 {% if c.required and not c.sent_at and classroom.feedback_open %}border-primary{% endif %}">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                    <div>
+                        <strong>Group {{ c.group_number }}:</strong> {{ c.title }}
+                        {% if c.required %}<span class="badge text-bg-light border">required</span>{% else %}<span class="badge text-bg-light border">extra</span>{% endif %}
+                        {% if c.sent_at %}<span class="badge text-bg-success">&#10003; sent</span>
+                        {% elif c.body %}<span class="badge text-bg-secondary">draft</span>{% endif %}
+                    </div>
+                    {% if c.open %}
+                    <a href="{{ url_for('feedback.view_survey', code=classroom.code, survey_id=c.survey_id) }}" target="_blank" class="btn btn-outline-secondary btn-sm">View survey</a>
+                    {% endif %}
+                </div>
+                {% if not c.open %}
+                <p class="small text-muted mb-0">You can view this survey and comment on it once it runs in class.</p>
+                {% else %}
+                <form method="POST" action="{{ url_for('feedback.save_comment', code=classroom.code, survey_id=c.survey_id) }}">
+                    <textarea class="form-control mb-2" name="body" rows="3" maxlength="3000"
+                              placeholder="What worked? What could be improved: the design, the treatment, the questions, the wording?"
+                              {% if closed and (c.sent_at or classroom.feedback_released) %}disabled{% endif %}>{{ c.body or '' }}</textarea>
+                    {% if not (closed and (c.sent_at or classroom.feedback_released)) %}
+                    <div class="d-flex gap-2 flex-wrap">
+                        {% if classroom.feedback_open %}
+                        <button type="submit" name="action" value="send" class="btn btn-primary btn-sm">{% if c.sent_at %}Update{% else %}Send{% endif %}</button>
+                        {% endif %}
+                        {% if not c.sent_at %}
+                        <button type="submit" name="action" value="draft" class="btn btn-outline-secondary btn-sm">Save draft</button>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </form>
+                {% endif %}
+                {% if not c.required and not (c.sent_at and closed) %}
+                <form method="POST" action="{{ url_for('feedback.delete_comment', code=classroom.code, survey_id=c.survey_id) }}" class="mt-2"
+                      onsubmit="return confirm('Remove your comment on Group {{ c.group_number }}?')">
+                    <button type="submit" class="btn btn-link btn-sm text-danger p-0">Remove</button>
+                </form>
+                {% endif %}
+            </div>
+            {% endfor %}
+
+            {% if can_add_feedback and not (closed and classroom.feedback_released) %}
+            <form method="POST" action="{{ url_for('feedback.add_extra', code=classroom.code) }}" class="d-flex gap-2 align-items-center flex-wrap">
+                <select name="survey_id" class="form-select form-select-sm" style="max-width: 320px;" required>
+                    <option value="">Comment on another group&hellip;</option>
+                    {% for s in can_add_feedback %}<option value="{{ s.id }}">Group {{ s.group_number }}: {{ s.title }}</option>{% endfor %}
+                </select>
+                <button type="submit" class="btn btn-outline-primary btn-sm">+ Add</button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/driver.js@1.9.0/dist/driver.js.iife.js"></script>
+<script src="{{ url_for('static', filename='js/tour.js') }}?v=20261007"></script>
+<script>
+    // First-visit tour of the lobby (steps for sections not on the page are skipped)
+    window.pageTour = function(auto) {
+        startTour([
+            {title: 'Welcome, {{ student.first_name|e }}!', text: 'This is your lobby: everything for the class experiments starts here. Here is a 30-second tour.'},
+            {element: '#live-card', title: 'Class day', text: 'When your instructor runs the surveys in class, click <b>Join</b> here. Each survey appears on your screen as it starts.'},
+            {element: '#invites-card', title: 'Group invites', text: 'When a classmate adds you to their group, the invite shows up here. Accept it and you can edit your group\'s survey too.'},
+            {element: '#open-surveys-card', title: 'Open surveys', text: 'Some groups run their survey before class. Answer these before their deadline.'},
+            {element: '#create-survey-btn', title: 'Not in a group yet?', text: 'Only <b>one person per group</b> clicks here to create the survey and invite the others. Everyone else waits for an invite above.'},
+            {element: '#my-group-table', title: 'Your group', text: 'Open your survey to edit it (any member can), preview it, and later download its responses.'},
+            {element: '#order-card', title: 'Presentation order', text: 'Groups present in class in this order. Yours is highlighted, so you know when it is your turn.'},
+            {element: '#feedback', title: 'Feedback for other groups', text: 'The groups you must comment on appear here once surveys are locked.'},
+            {element: '#tour-replay', title: 'That\'s it', text: 'You can replay this tour any time from here.'}
+        ], {seenUrl: auto ? {{ url_for('account.mark_tour_seen', code=classroom.code, name='lobby')|tojson }} : null});
+    };
+    {% if tour_auto %}window.addEventListener('load', function() { window.pageTour(true); });{% endif %}
+</script>
+<script>
+    // Light poll so the Live Session card lights up when the host starts a survey
+    (function() {
+        var url = "{{ url_for('account.live', code=classroom.code) }}";
+        function check() {
+            fetch(url, { credentials: 'same-origin' })
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (!d.ok) return;
+                    document.getElementById('live-card').classList.toggle('border-success', d.live);
+                    document.getElementById('live-dot').style.display = d.live ? '' : 'none';
+                    var btn = document.getElementById('live-btn');
+                    btn.classList.toggle('btn-success', d.live);
+                    btn.classList.toggle('btn-outline-success', !d.live);
+                    document.getElementById('live-text').textContent = d.live
+                        ? 'A survey is running now. Join to answer it.'
+                        : 'No survey is running right now. You can join and wait.';
+                })
+                .catch(function() {});
+        }
+        setInterval(check, 5000);
+    })();
+</script>
 {% endblock %}

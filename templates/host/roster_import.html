@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}Import Roster - {{ classroom.name }}{% endblock %}
+
+{% macro col_select(name, selected, allow_none=False) %}
+<select class="form-select form-select-sm" name="{{ name }}" onchange="this.form.querySelector('[name=action]').value='preview'; this.form.submit()">
+    {% if allow_none or selected is none %}<option value="" {% if selected is none %}selected{% endif %}>(none)</option>{% endif %}
+    {% for h in headers %}
+    <option value="{{ loop.index0 }}" {% if selected == loop.index0 %}selected{% endif %}>{{ h or ('Column ' ~ loop.index) }}</option>
+    {% endfor %}
+</select>
+{% endmacro %}
+
+{% block content %}
+<h2 class="mb-1">Check your roster</h2>
+<p class="text-muted">We guessed which columns hold the student ID and name. Fix anything that looks wrong, then save.</p>
+
+<form method="POST" action="{{ url_for('roster.import_roster', code=classroom.code) }}">
+    <textarea name="csv_text" hidden>{{ csv_text }}</textarea>
+    <input type="hidden" name="action" value="save">
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label small">Student ID column</label>
+                    {{ col_select('id_col', mapping.id_col) }}
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small">Names are in</label>
+                    <select class="form-select form-select-sm" name="name_mode" onchange="this.form.querySelector('[name=action]').value='preview'; this.form.submit()">
+                        <option value="full" {% if mapping.name_mode == 'full' %}selected{% endif %}>One column ("Last, First")</option>
+                        <option value="split" {% if mapping.name_mode == 'split' %}selected{% endif %}>Separate first / last columns</option>
+                    </select>
+                </div>
+                {% if mapping.name_mode == 'full' %}
+                <div class="col-md-3">
+                    <label class="form-label small">Name column</label>
+                    {{ col_select('full_col', mapping.full_col) }}
+                </div>
+                {% else %}
+                <div class="col-md-3">
+                    <label class="form-label small">First name column</label>
+                    {{ col_select('first_col', mapping.first_col, True) }}
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small">Last name column</label>
+                    {{ col_select('last_col', mapping.last_col, True) }}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {% if ready %}
+    <p><strong>{{ students|length }} students</strong> found{% if skipped %}, {{ skipped|length }} row(s) skipped{% endif %}.
+       This is what students will see when they confirm who they are.</p>
+    <div class="table-responsive" style="max-height: 420px;">
+        <table class="table table-sm table-striped">
+            <thead class="sticky-top"><tr><th>SIS ID</th><th>Full name (in your exports)</th><th>Shown to student as</th></tr></thead>
+            <tbody>
+                {% for s in students %}
+                <tr><td><code>{{ s.sis_id }}</code></td><td>{{ s.full_name }}</td><td>"Are you {{ s.first_name }}?"</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if skipped %}
+    <details class="mb-3">
+        <summary class="text-muted small">Skipped rows</summary>
+        <ul class="small text-muted">
+            {% for n, reason in skipped %}<li>Row {{ n }}: {{ reason }}</li>{% endfor %}
+        </ul>
+    </details>
+    {% endif %}
+
+    {% if existing_count %}
+    <div class="form-check mb-3">
+        <input class="form-check-input" type="checkbox" name="hide_missing" value="1" id="hide_missing" {% if hide_missing %}checked{% endif %}>
+        <label class="form-check-label" for="hide_missing">
+            Also remove students who are on the current roster but not in this file (e.g. dropped the class).
+            They can be restored later and their past answers are kept.
+        </label>
+    </div>
+    {% endif %}
+
+    <button type="submit" class="btn btn-primary btn-lg" {% if not students %}disabled{% endif %}>Save {{ students|length }} students</button>
+    {% else %}
+    <div class="alert alert-warning">Choose the ID and name columns above to see a preview.</div>
+    {% endif %}
+    <a href="{{ url_for('roster.index', code=classroom.code) }}" class="btn btn-outline-secondary btn-lg">Cancel</a>
+</form>
+{% endblock %}

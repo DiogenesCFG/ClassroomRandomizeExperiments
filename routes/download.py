@@ -12,6 +12,7 @@ from models.db import get_db
 from models.download import (
     export_all_responses_csv, export_surveys_config_csv, export_participants_csv,
     export_survey_designers_csv, export_survey_participation_csv,
+    export_feedback_csv, export_feedback_summary_csv,
 )
 
 bp = Blueprint('download', __name__, url_prefix='/c/<code>/download')
@@ -106,6 +107,8 @@ def download_everything(code):
         zf.writestr('participants.csv', export_participants_csv(cid))
         zf.writestr('survey_designers.csv', export_survey_designers_csv(cid))
         zf.writestr('survey_participation.csv', export_survey_participation_csv(cid))
+        zf.writestr('feedback.csv', export_feedback_csv(classroom))
+        zf.writestr('feedback_summary.csv', export_feedback_summary_csv(classroom))
 
         index = io.StringIO()
         writer = csv.writer(index)
@@ -140,7 +143,7 @@ def clear_responses(code):
     password = request.form.get('host_password', '').strip()
     if not check_host_password(classroom['id'], password):
         flash('Incorrect host password.', 'danger')
-        return redirect(url_for('host.dashboard', code=code))
+        return redirect(url_for('host.home', code=code))
 
     db = get_db()
     db.execute(
@@ -148,4 +151,4 @@ def clear_responses(code):
         (classroom['id'],)
     )
     db.commit()
-    return redirect(url_for('host.dashboard', code=code))
+    return redirect(url_for('host.home', code=code))

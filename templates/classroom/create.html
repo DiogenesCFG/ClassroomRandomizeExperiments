@@ -5,7 +5,7 @@
 <div class="row justify-content-center mt-5">
     <div class="col-md-6 col-lg-4">
         <h2 class="text-center mb-4">Create a Classroom</h2>
-        <form method="POST">
+        <form method="POST" enctype="multipart/form-data">
             <div class="mb-3">
                 <label for="code" class="form-label">Classroom Code</label>
                 <input type="text" class="form-control form-control-lg" id="code" name="code"
@@ -28,6 +28,8 @@
                 <label for="host_password_confirm" class="form-label">Confirm Host Password</label>
                 <input type="password" class="form-control form-control-lg" id="host_password_confirm" name="host_password_confirm"
                        placeholder="Re-enter host password" required>
+                <div class="valid-feedback">Passwords match.</div>
+                <div class="invalid-feedback">Passwords don't match.</div>
             </div>
             <div class="mb-3">
                 <label for="classroom_password" class="form-label">Classroom Password</label>
@@ -39,12 +41,55 @@
                 <label for="classroom_password_confirm" class="form-label">Confirm Classroom Password</label>
                 <input type="password" class="form-control form-control-lg" id="classroom_password_confirm" name="classroom_password_confirm"
                        placeholder="Re-enter classroom password" required>
+                <div class="valid-feedback">Passwords match.</div>
+                <div class="invalid-feedback">Passwords don't match.</div>
             </div>
-            <button type="submit" class="btn btn-primary btn-lg w-100">Create Classroom</button>
+            <div class="mb-3">
+                <label for="max_groups" class="form-label">Max groups per student</label>
+                <input type="number" class="form-control form-control-lg" id="max_groups" name="max_groups"
+                       value="{{ max_groups }}" min="1" placeholder="No limit">
+                <div class="form-text">Leave empty for no limit. You can change this later.</div>
+            </div>
+            <div class="mb-4">
+                <label for="roster_file" class="form-label">Class roster (CSV)</label>
+                <input type="file" class="form-control" id="roster_file" name="roster_file" accept=".csv,text/csv">
+                <div class="form-text">A Canvas gradebook export works as-is. Any CSV with a student ID column and name column(s) works too. You'll check the columns before anything is saved, and you can also upload it later.</div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-lg w-100" id="create-btn" disabled>Create Classroom</button>
+            <div class="form-text text-center" id="create-hint">Fill in both passwords and confirm them to continue.</div>
         </form>
         <div class="text-center mt-3">
             <a href="{{ url_for('main.index') }}" class="text-muted">Back to home</a>
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Live check that each password matches its confirmation; the button stays disabled until both do
+    (function() {
+        var pairs = [['host_password', 'host_password_confirm'], ['classroom_password', 'classroom_password_confirm']];
+        var btn = document.getElementById('create-btn');
+        var hint = document.getElementById('create-hint');
+        function check() {
+            var allOk = true;
+            pairs.forEach(function(pair) {
+                var pw = document.getElementById(pair[0]);
+                var confirm = document.getElementById(pair[1]);
+                var ok = pw.value !== '' && pw.value === confirm.value;
+                confirm.classList.toggle('is-valid', ok);
+                confirm.classList.toggle('is-invalid', confirm.value !== '' && !ok);
+                if (!ok) allOk = false;
+            });
+            btn.disabled = !allOk;
+            hint.style.display = allOk ? 'none' : '';
+        }
+        pairs.forEach(function(pair) {
+            document.getElementById(pair[0]).addEventListener('input', check);
+            document.getElementById(pair[1]).addEventListener('input', check);
+        });
+        check();
+    })();
+</script>
 {% endblock %}
