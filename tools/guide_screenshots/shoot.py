@@ -26,7 +26,7 @@ def login_host():
     return s.cookies.get('session')
 
 
-COOKIES = {'host': login_host(), 'sofia': login_student(1), 'noah': login_student(4), 'mateo': login_student(7)}
+COOKIES = {'host': login_host(), 'sofia': login_student(1), 'noah': login_student(4), 'mateo': login_student(7), 'henry': login_student(18)}
 
 DESK = (1280, 900, False)
 PHONE = (390, 844, True)
@@ -58,6 +58,7 @@ SHOTS = [
     ('27_lobby_followups', 'mateo', '/c/ECON101/lobby', DESK, '', ['#followups-card'], 1.2),
     ('28_flow_chart', 'sofia', '/c/ECON101/builder/1/flow', DESK, '', ['body > .container'], 3.5),
     ('12_preview_dashboard', 'sofia', '/c/ECON101/builder/1/preview-dashboard?n=40&seed=7', DESK, "Object.values(Chart.instances).forEach(function(c){c.options.animation=false;c.resize();c.update('none');});", ['body > .container'], 3.0),
+    ('29_group_finder', 'henry', '/c/ECON101/lobby', DESK, '', ['#finder-card'], 1.2),
     # Instructor guide
     ('i01_home', 'host', '/c/ECON101/host/home', DESK, '', ['body > .container'], 1.2),
     ('i02_surveys', 'host', '/c/ECON101/builder/', DESK, '', ['body > .container'], 1.2),
@@ -66,6 +67,9 @@ SHOTS = [
      ['#roster-filters', '#roster-table'], 1.2),
     ('i04_live_dashboard', 'host', '/c/ECON101/host/dashboard', DESK, '', ['body > .container'], 1.5),
     ('i05_demo_dashboard', 'host', '/c/ECON101/host/demo?survey=1&n=40&seed=3', DESK, "Object.values(Chart.instances).forEach(function(c){c.options.animation=false;c.resize();c.update('none');});", ['body > .container'], 3.0),
+    ('hover_roster', 'host', '/c/ECON101/host/roster/', DESK,
+     "var e=document.querySelectorAll('#roster-table [data-bs-toggle=tooltip]')[0]; e.scrollIntoView({block:'center'}); e.dispatchEvent(new MouseEvent('mouseover',{bubbles:true}));",
+     ['#roster-table tbody tr:nth-child(1)', '.tooltip'], 1.2),
     ('i06_approve', 'host', '/c/ECON101/survey/2/view', DESK, '', ['#reminders'], 1.2),
 ]
 

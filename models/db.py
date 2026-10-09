@@ -233,6 +233,8 @@ def init_db():
         ('survey', 'reminder_plan', 'TEXT DEFAULT NULL'),
         ('survey', 'reminders_approved', 'TEXT DEFAULT NULL'),
         ('classroom', 'reminders_until', 'TEXT DEFAULT NULL'),
+        ('roster_student', 'seeking_group', 'INTEGER NOT NULL DEFAULT 0'),
+        ('roster_student', 'seeking_note', 'TEXT DEFAULT NULL'),
     ):
         try:
             db.execute(f'ALTER TABLE {table} ADD COLUMN {col} {col_def}')

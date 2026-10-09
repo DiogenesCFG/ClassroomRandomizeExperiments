@@ -220,6 +220,23 @@ def invite(code, survey_id):
     return _back_to(survey_id, code)
 
 
+@bp.route('/group-finder', methods=['POST'])
+def group_finder(code):
+    """Opt in to (or out of) the group finder, where classmates without a group can find each other."""
+    classroom = _get_roster_classroom(code)
+    student, denied = _require_student(classroom)
+    if denied:
+        return denied
+    if classroom['surveys_locked']:
+        flash('Groups are locked by your instructor.', 'danger')
+    else:
+        listed = request.form.get('listed') == '1'
+        roster_model.set_seeking(student['id'], listed, request.form.get('note', ''))
+        flash('You are listed in the group finder: classmates without a group can see you and invite you.' if listed
+              else 'You are no longer listed in the group finder.', 'success')
+    return redirect(url_for('classroom.lobby', code=code) + '#finder-card')
+
+
 @bp.route('/team/<int:survey_id>/leave', methods=['POST'])
 def leave(code, survey_id):
     classroom = _get_roster_classroom(code)

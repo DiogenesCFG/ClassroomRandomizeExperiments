@@ -231,6 +231,57 @@
         {% endif %}
     </div>
 
+    <!-- Group finder (opt-in): classmates without a group find each other -->
+    {% if show_finder %}
+    <div class="card mb-4" id="finder-card">
+        <div class="card-header"><strong>Group finder</strong>
+            <span class="text-muted small">{% if groups %}find teammates for your group{% else %}for classmates who don't have a group yet{% endif %}</span></div>
+        <div class="card-body">
+            {% if not groups %}
+            <form method="POST" action="{{ url_for('account.group_finder', code=classroom.code) }}" class="mb-3">
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" role="switch" id="finder-listed" name="listed" value="1"
+                           {% if student.seeking_group %}checked{% endif %} onchange="this.form.submit()">
+                    <label class="form-check-label" for="finder-listed">List me in the group finder</label>
+                </div>
+                <div class="input-group input-group-sm">
+                    <input type="text" class="form-control" name="note" maxlength="200" value="{{ student.seeking_note or '' }}"
+                           placeholder="Optional note, e.g. interested in pricing or framing experiments">
+                    <button type="submit" class="btn btn-outline-primary">Save note</button>
+                </div>
+                <div class="form-text">Only classmates without a group see this list. You leave it automatically once you join a group or get an invite.
+                    Turning it off removes you right away.</div>
+            </form>
+            {% endif %}
+            {% if finder %}
+            <p class="small mb-2">Classmates looking for a group:</p>
+            <ul class="list-group">
+                {% for f in finder %}
+                <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div><strong>{{ f.full_name }}</strong>{% if f.seeking_note %}<br><small class="text-muted">{{ f.seeking_note }}</small>{% endif %}</div>
+                    {% if open_group %}
+                    <form method="POST" action="{{ url_for('account.invite', code=classroom.code, survey_id=open_group.id) }}">
+                        <input type="hidden" name="invitee_id" value="{{ f.id }}">
+                        <button type="submit" class="btn btn-sm btn-outline-primary">Invite to Group {{ open_group.group_number }}</button>
+                    </form>
+                    {% elif not groups and not at_limit %}
+                    <form method="POST" action="{{ url_for('builder.new', code=classroom.code) }}"
+                          onsubmit="return confirm('Create a new group and invite ' + this.dataset.name + '? You can invite more classmates afterwards.')"
+                          data-name="{{ f.full_name }}">
+                        <input type="hidden" name="invite_ids" value="{{ f.id }}">
+                        <button type="submit" class="btn btn-sm btn-outline-primary">Start a group with them</button>
+                    </form>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="small text-muted mb-0">Nobody else is listed right now.{% if not groups %} List yourself above so others can find you.{% endif %}</p>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Every group's survey in the order they run in class -->
     {% if survey_order %}
     <div class="card mb-4" id="order-card">

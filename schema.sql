@@ -159,6 +159,8 @@ CREATE TABLE IF NOT EXISTS roster_student (
     added_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_roster_student_unique ON roster_student(classroom_id, sis_id);
+-- Group finder (opt-in): roster_student.seeking_group = 1 lists the student for classmates without a group
+-- (columns seeking_group, seeking_note are added by the migrations in models/db.py)
 
 CREATE TABLE IF NOT EXISTS team_invite (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,

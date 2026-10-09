@@ -115,4 +115,8 @@ for i in (3, 7, 8, 10, 12):
         {'question_id': a['questions'][1]['question_id'], 'answer_text': 'Sometimes', 'answer_index': 1, 'seconds': 3.1}]})
     print('student', i, 'arm', a['arm_label'])
 host.post('/c/ECON101/host/reset')
+
+# Three students without a group list themselves in the group finder
+for i, note in ((18, 'Happy to do the data analysis'), (19, 'Interested in pricing or framing experiments'), (20, '')):
+    S[i].post('/c/ECON101/group-finder', data={'listed': '1', 'note': note})
 print('done')

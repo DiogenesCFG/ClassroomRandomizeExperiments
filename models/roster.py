@@ -401,6 +401,27 @@ def delete_invite(invite_id):
     db.commit()
 
 
+def set_seeking(roster_student_id, seeking, note):
+    """Group finder: list (or unlist) a student, with an optional short note."""
+    db = get_db()
+    db.execute('UPDATE roster_student SET seeking_group=?, seeking_note=? WHERE id=?',
+               (1 if seeking else 0, (note or '').strip()[:200] or None, roster_student_id))
+    db.commit()
+
+
+def group_finder(classroom_id, exclude_id=None):
+    """Students who opted in to the group finder and still have no group and no pending invite."""
+    rows = get_db().execute('''
+        SELECT rs.id, rs.full_name, rs.seeking_note FROM roster_student rs
+        WHERE rs.classroom_id = ? AND rs.hidden = 0 AND rs.seeking_group = 1 AND rs.id != ?
+          AND rs.password_hash IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM group_member gm WHERE gm.roster_student_id = rs.id)
+          AND NOT EXISTS (SELECT 1 FROM team_invite ti WHERE ti.roster_student_id = rs.id)
+        ORDER BY rs.full_name COLLATE NOCASE
+    ''', (classroom_id, exclude_id or 0)).fetchall()
+    return [dict(r) for r in rows]
+
+
 def classmates(classroom_id, exclude_id=None):
     """Visible roster students (id + name only) for the invite picker."""
     rows = get_db().execute(

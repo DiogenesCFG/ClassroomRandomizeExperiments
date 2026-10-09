@@ -110,6 +110,7 @@
             <option value="no">Not in a group</option>
             <option value="invited">Has a pending invite</option>
             <option value="none">No group and no pending invite</option>
+            <option value="finder">Listed in the group finder</option>
             <option value="alone">Alone in their group</option>
         </select>
         <span class="small">Group size</span>
@@ -133,7 +134,8 @@
         <tbody>
             {% for s in active %}
             <tr data-signed="{{ 'yes' if s.registered_at else 'no' }}" data-groups="{{ s.group_count }}"
-                data-size="{{ s.group_size or 0 }}" data-invites="{{ s.invite_count }}">
+                data-size="{{ s.group_size or 0 }}" data-invites="{{ s.invite_count }}"
+                data-finder="{{ '1' if s.seeking_group and not s.group_count and not s.invite_count else '0' }}">
                 <td>{{ s.full_name }}</td>
                 <td><code>{{ s.sis_id }}</code></td>
                 <td>
@@ -142,6 +144,8 @@
                     {% else %}
                     <span class="badge text-bg-secondary">Not signed up</span>
                     {% endif %}
+                    {% if s.seeking_group and not s.group_count and not s.invite_count %}<span class="badge text-bg-warning" tabindex="0" role="button" data-bs-toggle="tooltip"
+                        title="Listed in the group finder{% if s.seeking_note %}: {{ s.seeking_note }}{% endif %}">Looking for a group</span>{% endif %}
                 </td>
                 <td>
                     {% for sid in member_of.get(s.id, []) %}{% set g = groups[sid] %}
@@ -222,7 +226,8 @@
                     && (!signup || d.signed === signup)
                     && (!group || (group === 'yes' && groups > 0) || (group === 'no' && groups === 0)
                         || (group === 'invited' && parseInt(d.invites, 10) > 0) || (group === 'alone' && groups > 0 && size === 1)
-                        || (group === 'none' && groups === 0 && parseInt(d.invites, 10) === 0))
+                        || (group === 'none' && groups === 0 && parseInt(d.invites, 10) === 0)
+                        || (group === 'finder' && d.finder === '1'))
                     && (!op || isNaN(n) || (groups > 0 && ((op === 'lt' && size < n) || (op === 'eq' && size === n) || (op === 'gt' && size > n))));
                 tr.style.display = ok ? '' : 'none';
                 if (ok) shown++;
