@@ -17,7 +17,7 @@
     <div class="d-flex gap-2 flex-wrap" id="preview-buttons">
         <div class="dropdown">
             <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">Preview survey</button>
-            <ul class="dropdown-menu" style="z-index: 1030;"><!-- above the sticky autosave bar (z-index 1020) -->
+            <ul class="dropdown-menu" style="z-index: 1030;"><!-- above the sticky top bar and autosave bar -->
                 {% for arm in arms %}
                 <li><a class="dropdown-item" target="_blank"
                        href="{{ url_for('builder.preview_survey', code=classroom.code, survey_id=survey_id, arm=loop.index0) }}">As a respondent in "{{ arm.label }}"{% if survey.part2_from is not none %}, part 1{% endif %}</a></li>
@@ -52,7 +52,7 @@
     Autosave is off, and saving changes will <strong>delete those responses</strong>. Download them first (bottom of the page).
 </div>
 {% else %}
-<div class="alert alert-light border d-flex justify-content-between align-items-center flex-wrap gap-2 sticky-top" id="autosave-bar" style="top: 0.5rem; z-index: 1020;">
+<div class="alert alert-light border d-flex justify-content-between align-items-center flex-wrap gap-2 sticky-top" id="autosave-bar" style="top: calc(var(--nav-h, 56px) + 0.5rem); z-index: 1010;">
     <span class="small"><span id="autosave-status">Your edits save automatically.</span></span>
     <button type="button" class="btn btn-sm btn-warning" id="discard-btn" style="display:none">Discard all changes from this session</button>
 </div>
@@ -71,7 +71,7 @@
         <span class="collapse-toggle d-inline-flex align-items-center gap-2" role="button" tabindex="0" data-collapse-key="members" aria-expanded="true">
             <span class="collapse-chevron">&#9662;</span><strong>Group Members</strong>
         </span>
-        <span class="small text-muted">{{ members|map(attribute='name')|join(' · ') }}{% if pending_invites %} · {{ pending_invites|length }} invited{% endif %}</span>
+        <span class="small text-muted">{{ members|map(attribute='name')|join(' · ') }}{% if pending_invites %} · {{ pending_invites|length }} invited{% endif %}{% if join_requests %} · <strong>{{ join_requests|length }} asked to join</strong>{% endif %}</span>
     </div>
     <div class="card-body collapse-body">
         <ul class="list-unstyled mb-2">
@@ -82,6 +82,18 @@
             {% endfor %}
             {% for inv in pending_invites %}
             <li class="text-muted">{{ inv.full_name }} <span class="badge text-bg-light">invited, waiting to accept</span></li>
+            {% endfor %}
+            {% for jr in join_requests %}
+            <li class="d-flex align-items-center gap-2 flex-wrap mt-1">
+                {% if jr.from_group %}Group {{ jr.from_group.number }} ({{ jr.from_group.members|join('; ') }}) <span class="badge text-bg-info">wants to merge in; their survey would be deleted</span>
+                {% else %}{{ jr.full_name }} <span class="badge text-bg-info">asked to join</span>{% endif %}
+                {% if student and members|selectattr('roster_student_id', 'equalto', student.id)|list and not groups_locked %}
+                <form method="POST" action="{{ url_for('account.respond_request', code=classroom.code, request_id=jr.id, action='accept') }}" class="d-inline">
+                    <input type="hidden" name="back" value="edit"><button type="submit" class="btn btn-sm btn-primary py-0">Accept</button></form>
+                <form method="POST" action="{{ url_for('account.respond_request', code=classroom.code, request_id=jr.id, action='decline') }}" class="d-inline">
+                    <input type="hidden" name="back" value="edit"><button type="submit" class="btn btn-sm btn-outline-secondary py-0">Decline</button></form>
+                {% endif %}
+            </li>
             {% endfor %}
         </ul>
         {% set group_is_full = classroom.max_group_size and members|length >= classroom.max_group_size %}

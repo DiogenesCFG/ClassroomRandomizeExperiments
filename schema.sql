@@ -159,8 +159,18 @@ CREATE TABLE IF NOT EXISTS roster_student (
     added_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_roster_student_unique ON roster_student(classroom_id, sis_id);
--- Group finder (opt-in): roster_student.seeking_group = 1 lists the student for classmates without a group
--- (columns seeking_group, seeking_note are added by the migrations in models/db.py)
+-- Group finder (opt-in): roster_student.seeking_group = 1 lists the student for classmates without a group, and
+-- survey.seeking_members = 1 lists a group with room (columns added by the migrations in models/db.py).
+-- A student without a group can ask to join a listed group; any member accepts or declines.
+CREATE TABLE IF NOT EXISTS join_request (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    survey_id         INTEGER NOT NULL REFERENCES survey(id) ON DELETE CASCADE,
+    roster_student_id INTEGER NOT NULL REFERENCES roster_student(id) ON DELETE CASCADE,  -- who asked
+    note              TEXT DEFAULT NULL,
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    from_survey_id    INTEGER DEFAULT NULL REFERENCES survey(id) ON DELETE CASCADE      -- a merge: this whole group asks to join
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_join_request_unique ON join_request(survey_id, roster_student_id);
 
 CREATE TABLE IF NOT EXISTS team_invite (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,

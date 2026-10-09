@@ -29,6 +29,7 @@
             <option value="unfinished">Not finished</option>
             <option value="finished">Finished</option>
             <option value="invites">Has pending invites</option>
+            <option value="seeking">Looking for members</option>
             <option value="approve">Waiting for your approval</option>
             <option value="twopart">Two-part</option>
             <option value="external">Other platform</option>
@@ -53,7 +54,7 @@
         <tbody>
             {% for s in surveys %}
             <tr data-members="{{ s.member_count }}" data-invites="{{ s.invite_count }}"
-                data-status="{{ 'external' if s.external else ('unfinished' if s.todo else 'finished') }}{% if s.two_part %} twopart{% endif %}{% if s.reminder_approval in ('pending', 'changed') %} approve{% endif %}">
+                data-status="{{ 'external' if s.external else ('unfinished' if s.todo else 'finished') }}{% if s.two_part %} twopart{% endif %}{% if s.reminder_approval in ('pending', 'changed') %} approve{% endif %}{% if s.seeking_members %} seeking{% endif %}">
                 <td>{{ s.group_number }}</td>
                 <td>{{ s.title }}{% if s.external %}<br><span class="badge text-bg-secondary" title="{{ s.external_note or '' }}">Other platform</span>{% elif s.todo %}<br><span class="badge text-bg-warning" title="{{ s.todo|join(' ') }}">Not finished</span>{% endif %}
                     {% if s.two_part and not s.external %}<span class="badge text-bg-dark">Two-part</span>{% endif %}
@@ -66,6 +67,9 @@
                 <td><strong>{{ s.member_count }}</strong>{% if s.member_count == 1 %} <span class="badge text-bg-warning">alone</span>{% elif classroom.max_group_size and s.member_count >= classroom.max_group_size %} <span class="badge text-bg-secondary">full</span>{% endif %}
                     {% if s.invite_count %}<span class="badge text-bg-info" tabindex="0" role="button" data-bs-toggle="tooltip"
                           title="Invited, waiting to accept:&#10;{{ (s.invite_names or '').split('; ')|join('&#10;') }}">+{{ s.invite_count }} invited</span>{% endif %}
+                    {% if s.request_names %}<span class="badge text-bg-warning" tabindex="0" role="button" data-bs-toggle="tooltip"
+                          title="Asked to join:&#10;{{ s.request_names.split('; ')|join('&#10;') }}">{{ s.request_names.split('; ')|length }} asked to join</span>{% endif %}
+                    {% if s.seeking_members and not s.external %}<span class="badge text-bg-success" {% if s.seeking_note %}tabindex="0" role="button" data-bs-toggle="tooltip" title="{{ s.seeking_note }}"{% endif %}>Looking for members</span>{% endif %}
                     <br><small>{{ s.member_names or '' }}</small></td>
                 <td>
                     {% set early_url = url_for('feedback.host_early', code=classroom.code, survey_id=s.id) %}

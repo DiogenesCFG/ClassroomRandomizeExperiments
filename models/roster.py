@@ -231,7 +231,11 @@ def teams_overview(classroom_id):
                         'ORDER BY rs.full_name COLLATE NOCASE', (classroom_id,)):
         groups[r['survey_id']]['invited'].append(r['full_name'])
         invited_to.setdefault(r['roster_student_id'], []).append({'survey_id': r['survey_id'], 'inviter': r['inviter']})
-    return {'groups': groups, 'member_of': member_of, 'invited_to': invited_to}
+    requested = {}
+    for r in db.execute('SELECT jr.survey_id, jr.roster_student_id FROM join_request jr JOIN survey s ON jr.survey_id = s.id '
+                        'WHERE s.classroom_id=?', (classroom_id,)):
+        requested[r['roster_student_id']] = r['survey_id']
+    return {'groups': groups, 'member_of': member_of, 'invited_to': invited_to, 'requested': requested}
 
 
 def get_student(classroom_id, roster_student_id):
@@ -410,16 +414,136 @@ def set_seeking(roster_student_id, seeking, note):
 
 
 def group_finder(classroom_id, exclude_id=None):
-    """Students who opted in to the group finder and still have no group and no pending invite."""
+    """Students who opted in to the group finder and still have no group, no pending invite and no
+    pending request to join a group."""
     rows = get_db().execute('''
         SELECT rs.id, rs.full_name, rs.seeking_note FROM roster_student rs
         WHERE rs.classroom_id = ? AND rs.hidden = 0 AND rs.seeking_group = 1 AND rs.id != ?
           AND rs.password_hash IS NOT NULL
           AND NOT EXISTS (SELECT 1 FROM group_member gm WHERE gm.roster_student_id = rs.id)
           AND NOT EXISTS (SELECT 1 FROM team_invite ti WHERE ti.roster_student_id = rs.id)
+          AND NOT EXISTS (SELECT 1 FROM join_request jr WHERE jr.roster_student_id = rs.id)
         ORDER BY rs.full_name COLLATE NOCASE
     ''', (classroom_id, exclude_id or 0)).fetchall()
     return [dict(r) for r in rows]
+
+
+# --- Groups looking for members, and requests to join them ---
+
+def set_group_seeking(survey_id, seeking, note):
+    db = get_db()
+    db.execute('UPDATE survey SET seeking_members=?, seeking_note=? WHERE id=?',
+               (1 if seeking else 0, (note or '').strip()[:200] or None, survey_id))
+    db.commit()
+
+
+def groups_seeking(classroom):
+    """Listed groups that still have room: number, title, note, member names, open spots."""
+    db = get_db()
+    limit = classroom.get('max_group_size')
+    out = []
+    for s in db.execute('SELECT id, group_number, title, seeking_note FROM survey WHERE classroom_id=? AND seeking_members=1 '
+                        'ORDER BY group_number', (classroom['id'],)).fetchall():
+        members = [r['name'] for r in db.execute('SELECT name FROM group_member WHERE survey_id=? ORDER BY name COLLATE NOCASE',
+                                                  (s['id'],))]
+        if limit and len(members) >= limit:
+            continue
+        out.append({'id': s['id'], 'group_number': s['group_number'], 'title': s['title'], 'note': s['seeking_note'],
+                    'members': members, 'spots': (limit - len(members)) if limit else None})
+    return out
+
+
+def request_join(classroom, survey_id, student, note=''):
+    """A student without a group asks to join a listed group. Returns an error message or None."""
+    db = get_db()
+    survey = db.execute('SELECT * FROM survey WHERE id=? AND classroom_id=?', (survey_id, classroom['id'])).fetchone()
+    if not survey or not survey['seeking_members']:
+        return 'That group is not looking for members right now.'
+    if at_group_limit(classroom, student['id']):
+        return "You're already in a group. Leave it first if you want to join another one."
+    if group_full(classroom, survey_id):
+        return 'That group is already full.'
+    if db.execute('SELECT 1 FROM join_request WHERE roster_student_id=? AND from_survey_id IS NULL', (student['id'],)).fetchone():
+        return 'You already asked to join a group. Withdraw that request first.'
+    db.execute('INSERT INTO join_request (survey_id, roster_student_id, note) VALUES (?, ?, ?)',
+               (survey_id, student['id'], (note or '').strip()[:200] or None))
+    db.commit()
+    return None
+
+
+def get_join_request(request_id):
+    row = get_db().execute('SELECT * FROM join_request WHERE id=?', (request_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def delete_join_request(request_id):
+    db = get_db()
+    db.execute('DELETE FROM join_request WHERE id=?', (request_id,))
+    db.commit()
+
+
+def my_join_request(roster_student_id):
+    row = get_db().execute('SELECT jr.*, s.group_number, s.title FROM join_request jr JOIN survey s ON jr.survey_id = s.id '
+                           'WHERE jr.roster_student_id=? AND jr.from_survey_id IS NULL', (roster_student_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def join_requests_for_survey(survey_id):
+    """Requests to join this group: single students, and whole groups proposing to merge in
+    (from_survey_id set; with that group's number, title and members)."""
+    db = get_db()
+    out = []
+    for r in db.execute('SELECT jr.id, jr.note, jr.created_at, jr.from_survey_id, rs.full_name FROM join_request jr '
+                        'JOIN roster_student rs ON jr.roster_student_id = rs.id WHERE jr.survey_id=? '
+                        'ORDER BY jr.created_at', (survey_id,)).fetchall():
+        req = dict(r)
+        if req['from_survey_id']:
+            g = db.execute('SELECT group_number, title FROM survey WHERE id=?', (req['from_survey_id'],)).fetchone()
+            req['from_group'] = {'number': g['group_number'], 'title': g['title'],
+                                 'members': [m['name'] for m in db.execute(
+                                     'SELECT name FROM group_member WHERE survey_id=? ORDER BY name COLLATE NOCASE',
+                                     (req['from_survey_id'],))]}
+        out.append(req)
+    return out
+
+
+# --- Merging two small groups ---
+
+def propose_merge(classroom, from_survey_id, to_survey_id, proposer, note=''):
+    """A member of a group asks for their whole group to join another listed group. Returns an error or None."""
+    db = get_db()
+    target = db.execute('SELECT * FROM survey WHERE id=? AND classroom_id=?', (to_survey_id, classroom['id'])).fetchone()
+    if not target or not target['seeking_members'] or to_survey_id == from_survey_id:
+        return 'That group is not looking for members right now.'
+    limit = classroom.get('max_group_size')
+    together = member_count(from_survey_id) + member_count(to_survey_id)
+    if limit and together > limit:
+        return f'Together you would be {together} members, more than the {limit} allowed.'
+    if db.execute('SELECT 1 FROM response WHERE survey_id=?', (from_survey_id,)).fetchone():
+        return 'Your survey already has responses, so your group can\'t merge into another one. Ask your instructor.'
+    if db.execute('SELECT 1 FROM join_request WHERE from_survey_id=?', (from_survey_id,)).fetchone():
+        return 'Your group already proposed a merge. Withdraw it first.'
+    db.execute('INSERT INTO join_request (survey_id, roster_student_id, note, from_survey_id) VALUES (?, ?, ?, ?)',
+               (to_survey_id, proposer['id'], (note or '').strip()[:200] or None, from_survey_id))
+    db.commit()
+    return None
+
+
+def outgoing_merge(from_survey_id):
+    row = get_db().execute('SELECT jr.*, s.group_number, s.title FROM join_request jr JOIN survey s ON jr.survey_id = s.id '
+                           'WHERE jr.from_survey_id=?', (from_survey_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def after_join(classroom, survey_id, roster_student_id):
+    """Someone joined a group: their own join requests are void, and a group that is now full stops
+    being listed and drops its remaining requests (so those students can ask elsewhere)."""
+    db = get_db()
+    db.execute('DELETE FROM join_request WHERE roster_student_id=?', (roster_student_id,))
+    if group_full(classroom, survey_id):
+        db.execute('DELETE FROM join_request WHERE survey_id=?', (survey_id,))
+        db.execute('UPDATE survey SET seeking_members=0 WHERE id=?', (survey_id,))
+    db.commit()
 
 
 def classmates(classroom_id, exclude_id=None):

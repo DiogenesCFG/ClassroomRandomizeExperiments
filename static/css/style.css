@@ -127,6 +127,9 @@
 }
 .info-tip { cursor: help; font-size: 0.95em; margin-left: 0.15rem; }
 .info-tip:hover, .info-tip:focus { color: var(--bs-primary) !important; }
+/* The top bar is sticky: in-page links (#finder-card, #q-3...) land below it */
+html { scroll-padding-top: calc(var(--nav-h, 56px) + 12px); }
+
 /* Hover boxes (data-bs-toggle="tooltip") keep their line breaks */
 .tooltip-inner { white-space: pre-line; text-align: left; max-width: 320px; }
 

@@ -235,6 +235,9 @@ def init_db():
         ('classroom', 'reminders_until', 'TEXT DEFAULT NULL'),
         ('roster_student', 'seeking_group', 'INTEGER NOT NULL DEFAULT 0'),
         ('roster_student', 'seeking_note', 'TEXT DEFAULT NULL'),
+        ('survey', 'seeking_members', 'INTEGER NOT NULL DEFAULT 0'),
+        ('survey', 'seeking_note', 'TEXT DEFAULT NULL'),
+        ('join_request', 'from_survey_id', 'INTEGER DEFAULT NULL REFERENCES survey(id) ON DELETE CASCADE'),
     ):
         try:
             db.execute(f'ALTER TABLE {table} ADD COLUMN {col} {col_def}')

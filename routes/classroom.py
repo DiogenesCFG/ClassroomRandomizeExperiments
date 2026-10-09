@@ -145,6 +145,11 @@ def lobby(code):
     return render_template('classroom/lobby.html', classroom=classroom, student=student,
                            show_finder=show_finder, open_group=open_group,
                            finder=roster_model.group_finder(classroom['id'], exclude_id=student['id']) if show_finder else [],
+                           groups_seeking=[g for g in roster_model.groups_seeking(classroom)
+                                           if not open_group or g['id'] != open_group['id']] if show_finder else [],
+                           outgoing_merge=roster_model.outgoing_merge(open_group['id']) if open_group else None,
+                           my_request=roster_model.my_join_request(student['id']) if not groups else None,
+                           join_requests=roster_model.join_requests_for_survey(open_group['id']) if open_group else [],
                            followups=followups_for_student(classroom, student, session.get('participant_id')),
                            groups=groups, at_limit=at_limit,
                            invites=roster_model.pending_invites_for_student(student['id']),

@@ -24,11 +24,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Classroom Experiments{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="{{ url_for('static', filename='css/style.css') }}?v=20261017" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}?v=20261018" rel="stylesheet">
     {% block head %}{% endblock %}
 </head>
 <body>
-    <nav class="navbar navbar-dark bg-dark mb-4">
+    <nav class="navbar navbar-dark bg-dark mb-4 sticky-top" id="site-nav">
         <div class="container">
             <a class="navbar-brand" href="/">Classroom Experiments</a>
             {% if nav and (nav.student or nav.host) %}
@@ -73,6 +73,15 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='js/password-toggle.js') }}?v=20261007"></script>
     <script>
+        // The top bar stays in view (sticky); --nav-h is its height, so other sticky bars (the survey
+        // page's autosave bar) sit just below it and in-page links don't land under it
+        (function() {
+            var nav = document.getElementById('site-nav');
+            function setNavHeight() { document.documentElement.style.setProperty('--nav-h', nav.offsetHeight + 'px'); }
+            setNavHeight();
+            window.addEventListener('resize', setNavHeight);
+        })();
+
         // Hover boxes: elements with data-bs-toggle="tooltip" get a Bootstrap tooltip when first
         // hovered or focused (so rows added later work too). Text only; line breaks are kept.
         ['mouseover', 'focusin'].forEach(function(type) {

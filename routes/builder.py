@@ -335,6 +335,7 @@ def _render_form(classroom, mode, student, **ctx):
         classmates=roster_model.classmates(classroom['id'], exclude_id=exclude),
         members=survey['members'] if survey else [],
         pending_invites=roster_model.pending_invites_for_survey(survey_id) if survey_id else [],
+        join_requests=roster_model.join_requests_for_survey(survey_id) if survey_id else [],
         warnings=survey_warnings(survey) if survey else [],
         todo=survey_incomplete(survey) if survey else [],
         response_count=respondent_count(survey_id) if survey_id else 0,
@@ -435,6 +436,8 @@ def new(code):
             flash(f'Error creating your group: {e}', 'danger')
             return redirect(url_for('builder.new', code=code))
 
+        if student and not is_host:
+            roster_model.after_join(classroom, survey_id, student['id'])  # their requests to join other groups are void
         sent = 0
         for invitee_id in invite_ids:
             if not roster_model.invite(classroom['id'], survey_id, student['id'] if student else None, invitee_id):

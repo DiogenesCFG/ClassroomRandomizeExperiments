@@ -235,9 +235,92 @@
     {% if show_finder %}
     <div class="card mb-4" id="finder-card">
         <div class="card-header"><strong>Group finder</strong>
-            <span class="text-muted small">{% if groups %}find teammates for your group{% else %}for classmates who don't have a group yet{% endif %}</span></div>
+            <span class="text-muted small">{% if groups %}find teammates for your group{% else %}find a group, or classmates to start one with{% endif %}</span></div>
         <div class="card-body">
+            {% if open_group %}
+            {# A group with room: list it, answer requests, invite listed classmates #}
+            <form method="POST" action="{{ url_for('account.group_seeking', code=classroom.code, survey_id=open_group.id) }}" class="mb-3">
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" role="switch" id="group-listed" name="listed" value="1"
+                           {% if open_group.seeking_members %}checked{% endif %} onchange="this.form.submit()">
+                    <label class="form-check-label" for="group-listed">List Group {{ open_group.group_number }} as looking for members</label>
+                </div>
+                <div class="input-group input-group-sm">
+                    <input type="text" class="form-control" name="note" maxlength="200" value="{{ open_group.seeking_note or '' }}"
+                           placeholder="Optional note, e.g. testing price anchoring; need someone comfortable with Stata">
+                    <button type="submit" class="btn btn-outline-primary">Save note</button>
+                </div>
+                <div class="form-text">Classmates without a group see your group, its members and open spots, and can ask to join. Any member can accept.
+                    It stops being listed once the group is full.</div>
+            </form>
+            {% if join_requests %}
+            <p class="small mb-2 fw-semibold">Asked to join your group:</p>
+            <ul class="list-group mb-3">
+                {% for jr in join_requests %}
+                <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    {% if jr.from_group %}
+                    <div><strong>Group {{ jr.from_group.number }}: {{ jr.from_group.title }}</strong> wants to merge into yours
+                        <br><small>Its members would join your group: {{ jr.from_group.members|join('; ') }}. Their survey would be deleted.</small>
+                        {% if jr.note %}<br><small class="text-muted">{{ jr.note }}</small>{% endif %}</div>
+                    {% else %}
+                    <div><strong>{{ jr.full_name }}</strong>{% if jr.note %}<br><small class="text-muted">{{ jr.note }}</small>{% endif %}</div>
+                    {% endif %}
+                    <div class="d-flex gap-2">
+                        <form method="POST" action="{{ url_for('account.respond_request', code=classroom.code, request_id=jr.id, action='accept') }}">
+                            <button type="submit" class="btn btn-sm btn-primary">Accept</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('account.respond_request', code=classroom.code, request_id=jr.id, action='decline') }}">
+                            <button type="submit" class="btn btn-sm btn-outline-secondary">Decline</button>
+                        </form>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+
+            {% if outgoing_merge %}
+            <div class="alert alert-info py-2 small d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <span>Your group proposed to merge into <strong>Group {{ outgoing_merge.group_number }}: {{ outgoing_merge.title }}</strong>.
+                    Any of its members can accept; they may not check the site often, so message them on Canvas too.</span>
+                <form method="POST" action="{{ url_for('account.respond_request', code=classroom.code, request_id=outgoing_merge.id, action='withdraw') }}">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">Withdraw</button>
+                </form>
+            </div>
+            {% endif %}
+            {% if groups_seeking %}
+            <p class="small mb-1 fw-semibold">Other groups looking for members:</p>
+            <p class="small text-muted mb-2">A small group can merge into another: your members join that group, and your own survey is deleted
+                (download or copy anything you want to keep first). Any member of the other group can accept.</p>
+            <ul class="list-group mb-3">
+                {% for g in groups_seeking %}
+                {% set fits = not classroom.max_group_size or (open_group.member_count + g.members|length) <= classroom.max_group_size %}
+                <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div>
+                        <strong>Group {{ g.group_number }}: {{ g.title }}</strong>
+                        {% if g.spots %}<span class="badge text-bg-success">{{ g.spots }} spot{{ 's' if g.spots != 1 }} left</span>{% endif %}
+                        <br><small>Members: {{ g.members|join('; ') or 'none yet' }}</small>
+                        {% if g.note %}<br><small class="text-muted">{{ g.note }}</small>{% endif %}
+                    </div>
+                    {% if outgoing_merge and outgoing_merge.survey_id == g.id %}
+                    <span class="badge text-bg-info">Merge proposed</span>
+                    {% elif not fits %}
+                    <span class="small text-muted">Too many to merge ({{ open_group.member_count + g.members|length }} &gt; {{ classroom.max_group_size }})</span>
+                    {% elif not outgoing_merge %}
+                    <form method="POST" action="{{ url_for('account.propose_merge', code=classroom.code, survey_id=open_group.id) }}"
+                          data-group="{{ g.group_number }}" data-title="{{ open_group.title }}"
+                          onsubmit="return confirm('Propose that your group joins Group ' + this.dataset.group + '?\n\nIf they accept, all your members move to their group and your survey (' + this.dataset.title + ') is deleted. Download or copy anything you want to keep first.')">
+                        <input type="hidden" name="target_id" value="{{ g.id }}">
+                        <button type="submit" class="btn btn-sm btn-outline-primary">Propose merging</button>
+                    </form>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            {% endif %}
+
             {% if not groups %}
+            {# No group: list yourself, see groups looking for members, ask to join #}
             <form method="POST" action="{{ url_for('account.group_finder', code=classroom.code) }}" class="mb-3">
                 <div class="form-check form-switch mb-2">
                     <input class="form-check-input" type="checkbox" role="switch" id="finder-listed" name="listed" value="1"
@@ -249,12 +332,46 @@
                            placeholder="Optional note, e.g. interested in pricing or framing experiments">
                     <button type="submit" class="btn btn-outline-primary">Save note</button>
                 </div>
-                <div class="form-text">Only classmates without a group see this list. You leave it automatically once you join a group or get an invite.
-                    Turning it off removes you right away.</div>
+                <div class="form-text">Classmates and groups looking for members can see you and invite you. You leave the list automatically once you
+                    join a group, get an invite or ask to join a group. Turning it off removes you right away.</div>
             </form>
+            {% if my_request %}
+            <div class="alert alert-info py-2 small d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <span>You asked to join <strong>Group {{ my_request.group_number }}: {{ my_request.title }}</strong>. Any of its members can accept.
+                    They may not check the site often: message them on Canvas too.</span>
+                <form method="POST" action="{{ url_for('account.respond_request', code=classroom.code, request_id=my_request.id, action='withdraw') }}">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">Withdraw</button>
+                </form>
+            </div>
             {% endif %}
+            <p class="small mb-2 fw-semibold">Groups looking for members:</p>
+            {% if groups_seeking %}
+            <ul class="list-group mb-3">
+                {% for g in groups_seeking %}
+                <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div>
+                        <strong>Group {{ g.group_number }}: {{ g.title }}</strong>
+                        {% if g.spots %}<span class="badge text-bg-success">{{ g.spots }} spot{{ 's' if g.spots != 1 }} left</span>{% endif %}
+                        <br><small>Members: {{ g.members|join('; ') or 'none yet' }}</small>
+                        {% if g.note %}<br><small class="text-muted">{{ g.note }}</small>{% endif %}
+                    </div>
+                    {% if my_request and my_request.survey_id == g.id %}
+                    <span class="badge text-bg-info">Request sent</span>
+                    {% elif not at_limit and not my_request %}
+                    <form method="POST" action="{{ url_for('account.ask_to_join', code=classroom.code, survey_id=g.id) }}">
+                        <button type="submit" class="btn btn-sm btn-outline-primary">Ask to join</button>
+                    </form>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="small text-muted mb-3">No group is listed right now.</p>
+            {% endif %}
+            {% endif %}
+
+            <p class="small mb-2 fw-semibold">Classmates looking for a group:</p>
             {% if finder %}
-            <p class="small mb-2">Classmates looking for a group:</p>
             <ul class="list-group">
                 {% for f in finder %}
                 <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">

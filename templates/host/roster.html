@@ -109,7 +109,8 @@
             <option value="yes">In a group</option>
             <option value="no">Not in a group</option>
             <option value="invited">Has a pending invite</option>
-            <option value="none">No group and no pending invite</option>
+            <option value="none">No group, no pending invite or request</option>
+            <option value="requested">Asked to join a group</option>
             <option value="finder">Listed in the group finder</option>
             <option value="alone">Alone in their group</option>
         </select>
@@ -135,7 +136,8 @@
             {% for s in active %}
             <tr data-signed="{{ 'yes' if s.registered_at else 'no' }}" data-groups="{{ s.group_count }}"
                 data-size="{{ s.group_size or 0 }}" data-invites="{{ s.invite_count }}"
-                data-finder="{{ '1' if s.seeking_group and not s.group_count and not s.invite_count else '0' }}">
+                data-finder="{{ '1' if s.seeking_group and not s.group_count and not s.invite_count and s.id not in requested else '0' }}"
+                data-requested="{{ '1' if s.id in requested else '0' }}">
                 <td>{{ s.full_name }}</td>
                 <td><code>{{ s.sis_id }}</code></td>
                 <td>
@@ -144,7 +146,7 @@
                     {% else %}
                     <span class="badge text-bg-secondary">Not signed up</span>
                     {% endif %}
-                    {% if s.seeking_group and not s.group_count and not s.invite_count %}<span class="badge text-bg-warning" tabindex="0" role="button" data-bs-toggle="tooltip"
+                    {% if s.seeking_group and not s.group_count and not s.invite_count and s.id not in requested %}<span class="badge text-bg-warning" tabindex="0" role="button" data-bs-toggle="tooltip"
                         title="Listed in the group finder{% if s.seeking_note %}: {{ s.seeking_note }}{% endif %}">Looking for a group</span>{% endif %}
                 </td>
                 <td>
@@ -164,6 +166,10 @@
                     {% endfor %}
                     <span class="badge text-bg-info" tabindex="0" role="button" data-bs-toggle="tooltip"
                           title="{{ lines|join('\n\n') }}">{{ s.invite_count }} pending</span>
+                    {% endif %}
+                    {% if s.id in requested %}{% set g = groups[requested[s.id]] %}
+                    <span class="badge text-bg-warning" tabindex="0" role="button" data-bs-toggle="tooltip"
+                          title="Asked to join Group {{ g.number }}: {{ g.title }}&#10;Members: {{ g.members|join('; ') or 'none' }}">asked to join {{ g.number }}</span>
                     {% endif %}</td>
                 <td class="text-end text-nowrap">
                     {% if s.registered_at %}
@@ -226,7 +232,8 @@
                     && (!signup || d.signed === signup)
                     && (!group || (group === 'yes' && groups > 0) || (group === 'no' && groups === 0)
                         || (group === 'invited' && parseInt(d.invites, 10) > 0) || (group === 'alone' && groups > 0 && size === 1)
-                        || (group === 'none' && groups === 0 && parseInt(d.invites, 10) === 0)
+                        || (group === 'none' && groups === 0 && parseInt(d.invites, 10) === 0 && d.requested === '0')
+                        || (group === 'requested' && d.requested === '1')
                         || (group === 'finder' && d.finder === '1'))
                     && (!op || isNaN(n) || (groups > 0 && ((op === 'lt' && size < n) || (op === 'eq' && size === n) || (op === 'gt' && size > n))));
                 tr.style.display = ok ? '' : 'none';

@@ -119,4 +119,6 @@ host.post('/c/ECON101/host/reset')
 # Three students without a group list themselves in the group finder
 for i, note in ((18, 'Happy to do the data analysis'), (19, 'Interested in pricing or framing experiments'), (20, '')):
     S[i].post('/c/ECON101/group-finder', data={'listed': '1', 'note': note})
+# ... and Group 4 (2 members) is looking for more
+S[10].post('/c/ECON101/team/4/seeking', data={'listed': '1', 'note': 'Testing default options in retirement savings; looking for 1-3 more'})
 print('done')

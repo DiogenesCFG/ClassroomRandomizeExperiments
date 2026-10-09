@@ -57,7 +57,7 @@
        This is what students will see when they confirm who they are.</p>
     <div class="table-responsive" style="max-height: 420px;">
         <table class="table table-sm table-striped">
-            <thead class="sticky-top"><tr><th>SIS ID</th><th>Full name (in your exports)</th><th>Shown to student as</th></tr></thead>
+            <thead class="sticky-top" style="top: var(--nav-h, 56px); z-index: 1010;"><tr><th>SIS ID</th><th>Full name (in your exports)</th><th>Shown to student as</th></tr></thead>
             <tbody>
                 {% for s in students %}
                 <tr><td><code>{{ s.sis_id }}</code></td><td>{{ s.full_name }}</td><td>"Are you {{ s.first_name }}?"</td></tr>
