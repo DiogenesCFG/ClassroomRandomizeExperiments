@@ -114,7 +114,8 @@ def index(code):
     last_import = session.get('last_import')
     if not last_import or last_import.get('classroom_id') != classroom['id']:
         last_import = None
-    return render_template('host/roster.html', classroom=classroom, students=students, last_import=last_import)
+    return render_template('host/roster.html', classroom=classroom, students=students, last_import=last_import,
+                           **roster_model.teams_overview(classroom['id']))
 
 
 @bp.route('/upload', methods=['POST'])

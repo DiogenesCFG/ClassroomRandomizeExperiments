@@ -24,7 +24,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Classroom Experiments{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="{{ url_for('static', filename='css/style.css') }}?v=20261016" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}?v=20261017" rel="stylesheet">
     {% block head %}{% endblock %}
 </head>
 <body>
@@ -72,6 +72,18 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='js/password-toggle.js') }}?v=20261007"></script>
+    <script>
+        // Hover boxes: elements with data-bs-toggle="tooltip" get a Bootstrap tooltip when first
+        // hovered or focused (so rows added later work too). Text only; line breaks are kept.
+        ['mouseover', 'focusin'].forEach(function(type) {
+            document.addEventListener(type, function(e) {
+                var el = e.target.closest && e.target.closest('[data-bs-toggle="tooltip"]');
+                if (el && window.bootstrap && !bootstrap.Tooltip.getInstance(el)) {
+                    bootstrap.Tooltip.getOrCreateInstance(el).show();
+                }
+            });
+        });
+    </script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

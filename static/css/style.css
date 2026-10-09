@@ -127,6 +127,9 @@
 }
 .info-tip { cursor: help; font-size: 0.95em; margin-left: 0.15rem; }
 .info-tip:hover, .info-tip:focus { color: var(--bs-primary) !important; }
+/* Hover boxes (data-bs-toggle="tooltip") keep their line breaks */
+.tooltip-inner { white-space: pre-line; text-align: left; max-width: 320px; }
+
 /* Notifications: the day picker (tap days on and off) */
 .rem-cal > .d-flex:first-child { max-width: 320px; }
 .rem-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; max-width: 320px; }

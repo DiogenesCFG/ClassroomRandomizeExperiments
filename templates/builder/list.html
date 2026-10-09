@@ -64,7 +64,8 @@
                     <br><small class="text-muted">{{ s.question_types or s.question_type }}</small>
                 </td>
                 <td><strong>{{ s.member_count }}</strong>{% if s.member_count == 1 %} <span class="badge text-bg-warning">alone</span>{% elif classroom.max_group_size and s.member_count >= classroom.max_group_size %} <span class="badge text-bg-secondary">full</span>{% endif %}
-                    {% if s.invite_count %}<span class="badge text-bg-info">+{{ s.invite_count }} invited</span>{% endif %}
+                    {% if s.invite_count %}<span class="badge text-bg-info" tabindex="0" role="button" data-bs-toggle="tooltip"
+                          title="Invited, waiting to accept:&#10;{{ (s.invite_names or '').split('; ')|join('&#10;') }}">+{{ s.invite_count }} invited</span>{% endif %}
                     <br><small>{{ s.member_names or '' }}</small></td>
                 <td>
                     {% set early_url = url_for('feedback.host_early', code=classroom.code, survey_id=s.id) %}

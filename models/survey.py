@@ -404,7 +404,9 @@ def list_surveys(classroom_id):
              FROM survey_question sq WHERE sq.survey_id = s.id) AS question_types,
             (SELECT GROUP_CONCAT(gm.name, '; ') FROM group_member gm WHERE gm.survey_id = s.id) AS member_names,
             (SELECT COUNT(*) FROM group_member gm WHERE gm.survey_id = s.id) AS member_count,
-            (SELECT COUNT(*) FROM team_invite ti WHERE ti.survey_id = s.id) AS invite_count
+            (SELECT COUNT(*) FROM team_invite ti WHERE ti.survey_id = s.id) AS invite_count,
+            (SELECT GROUP_CONCAT(rs.full_name, '; ') FROM team_invite ti JOIN roster_student rs ON ti.roster_student_id = rs.id
+             WHERE ti.survey_id = s.id) AS invite_names
            FROM survey s
            WHERE s.classroom_id=?
            ORDER BY s.group_number''',

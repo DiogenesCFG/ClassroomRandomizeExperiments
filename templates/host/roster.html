@@ -109,6 +109,7 @@
             <option value="yes">In a group</option>
             <option value="no">Not in a group</option>
             <option value="invited">Has a pending invite</option>
+            <option value="none">No group and no pending invite</option>
             <option value="alone">Alone in their group</option>
         </select>
         <span class="small">Group size</span>
@@ -142,9 +143,24 @@
                     <span class="badge text-bg-secondary">Not signed up</span>
                     {% endif %}
                 </td>
-                <td>{{ s.group_numbers or '' }}</td>
+                <td>
+                    {% for sid in member_of.get(s.id, []) %}{% set g = groups[sid] %}
+                    <span class="badge text-bg-light border" tabindex="0" role="button" data-bs-toggle="tooltip"
+                          title="Group {{ g.number }}: {{ g.title }}&#10;Members: {{ g.members|join('; ') }}{% if g.invited %}&#10;Invited: {{ g.invited|join('; ') }}{% endif %}">{{ g.number }}</span>
+                    {% endfor %}
+                </td>
                 <td>{% if s.group_count %}{{ s.group_size }}{% if s.group_size == 1 %} <span class="badge text-bg-warning">alone</span>{% elif classroom.max_group_size and s.group_size >= classroom.max_group_size %} <span class="badge text-bg-secondary">full</span>{% endif %}{% endif %}</td>
-                <td>{% if s.invite_count %}<span class="badge text-bg-info">{{ s.invite_count }} pending</span>{% endif %}</td>
+                <td>{% if s.invite_count %}
+                    {% set lines = [] %}
+                    {% for inv in invited_to.get(s.id, []) %}{% set g = groups[inv.survey_id] %}
+                    {% set others = g.invited|reject('equalto', s.full_name)|list %}
+                    {% set _ = lines.append('Group ' ~ g.number ~ ': ' ~ g.title ~ (' (sent by ' ~ inv.inviter ~ ')' if inv.inviter else '')
+                                            ~ '\nMembers: ' ~ (g.members|join('; ') or 'none')
+                                            ~ ('\nAlso invited: ' ~ others|join('; ') if others else '')) %}
+                    {% endfor %}
+                    <span class="badge text-bg-info" tabindex="0" role="button" data-bs-toggle="tooltip"
+                          title="{{ lines|join('\n\n') }}">{{ s.invite_count }} pending</span>
+                    {% endif %}</td>
                 <td class="text-end text-nowrap">
                     {% if s.registered_at %}
                     <form method="POST" action="{{ url_for('roster.reset_password', code=classroom.code, student_id=s.id) }}" class="d-inline">
@@ -205,7 +221,8 @@
                 var ok = tr.textContent.toLowerCase().indexOf(q) !== -1
                     && (!signup || d.signed === signup)
                     && (!group || (group === 'yes' && groups > 0) || (group === 'no' && groups === 0)
-                        || (group === 'invited' && parseInt(d.invites, 10) > 0) || (group === 'alone' && groups > 0 && size === 1))
+                        || (group === 'invited' && parseInt(d.invites, 10) > 0) || (group === 'alone' && groups > 0 && size === 1)
+                        || (group === 'none' && groups === 0 && parseInt(d.invites, 10) === 0))
                     && (!op || isNaN(n) || (groups > 0 && ((op === 'lt' && size < n) || (op === 'eq' && size === n) || (op === 'gt' && size > n))));
                 tr.style.display = ok ? '' : 'none';
                 if (ok) shown++;

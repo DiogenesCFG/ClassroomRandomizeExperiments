@@ -213,6 +213,27 @@ def list_roster(classroom_id):
     return [dict(r) for r in rows]
 
 
+def teams_overview(classroom_id):
+    """For the roster's hover boxes: each group's members and pending invites, which groups each
+    student is in, and which groups invited them (with who sent the invite)."""
+    db = get_db()
+    groups, member_of, invited_to = {}, {}, {}
+    for r in db.execute('SELECT id, group_number, title FROM survey WHERE classroom_id=? ORDER BY group_number', (classroom_id,)):
+        groups[r['id']] = {'number': r['group_number'], 'title': r['title'], 'members': [], 'invited': []}
+    for r in db.execute('SELECT gm.survey_id, gm.roster_student_id, gm.name FROM group_member gm JOIN survey s '
+                        'ON gm.survey_id = s.id WHERE s.classroom_id=? ORDER BY gm.name COLLATE NOCASE', (classroom_id,)):
+        groups[r['survey_id']]['members'].append(r['name'])
+        if r['roster_student_id']:
+            member_of.setdefault(r['roster_student_id'], []).append(r['survey_id'])
+    for r in db.execute('SELECT ti.survey_id, ti.roster_student_id, rs.full_name, inv.full_name AS inviter FROM team_invite ti '
+                        'JOIN survey s ON ti.survey_id = s.id JOIN roster_student rs ON ti.roster_student_id = rs.id '
+                        'LEFT JOIN roster_student inv ON ti.invited_by = inv.id WHERE s.classroom_id=? '
+                        'ORDER BY rs.full_name COLLATE NOCASE', (classroom_id,)):
+        groups[r['survey_id']]['invited'].append(r['full_name'])
+        invited_to.setdefault(r['roster_student_id'], []).append({'survey_id': r['survey_id'], 'inviter': r['inviter']})
+    return {'groups': groups, 'member_of': member_of, 'invited_to': invited_to}
+
+
 def get_student(classroom_id, roster_student_id):
     row = get_db().execute('SELECT * FROM roster_student WHERE id=? AND classroom_id=?',
                            (roster_student_id, classroom_id)).fetchone()
