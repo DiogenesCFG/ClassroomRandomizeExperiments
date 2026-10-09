@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Classroom Experiments: Instructor Guide</title>
+<!-- Source of docs/instructor-guide.pdf. Regenerate with:
+     chrome --headless --no-pdf-header-footer --print-to-pdf=docs/instructor-guide.pdf docs/instructor-guide/instructor-guide.html -->
+<style>
+    @page { size: Letter; margin: 0.7in 0.75in; }
+    :root { --ink: #1f2328; --muted: #59636e; --accent: #0b5cad; --rule: #d8dee4; --soft: #f4f6f8; }
+    * { box-sizing: border-box; }
+    body { font-family: "Segoe UI", system-ui, -apple-system, Helvetica, Arial, sans-serif; color: var(--ink);
+           font-size: 10.5pt; line-height: 1.5; margin: 0; }
+    h1 { font-size: 24pt; margin: 0 0 4pt; letter-spacing: -0.01em; }
+    h2 { font-size: 15pt; margin: 22pt 0 6pt; padding-top: 6pt; border-top: 2px solid var(--accent); color: var(--accent);
+         break-after: avoid; }
+    h3 { font-size: 11.5pt; margin: 14pt 0 4pt; break-after: avoid; }
+    p { margin: 0 0 7pt; }
+    ul, ol { margin: 0 0 8pt; padding-left: 18pt; }
+    li { margin-bottom: 3pt; }
+    .subtitle { color: var(--muted); font-size: 11.5pt; margin-bottom: 14pt; }
+    .cover-note { background: var(--soft); border-left: 4px solid var(--accent); padding: 8pt 12pt; margin: 10pt 0 6pt; }
+    .toc { columns: 2; column-gap: 24pt; padding-left: 18pt; margin: 4pt 0 0; }
+    figure { margin: 6pt 0 12pt 0; break-inside: avoid; }
+    figure img { display: block; max-width: 100%; border: 1px solid var(--rule); border-radius: 6px;
+                 box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+    figure.mid img { width: 5in; }
+    figcaption { color: var(--muted); font-size: 9pt; margin-top: 4pt; }
+    .tip { background: #fff8e6; border-left: 4px solid #d29922; padding: 6pt 10pt; margin: 8pt 0; break-inside: avoid; }
+    .tip strong:first-child { color: #9a6700; }
+    table { border-collapse: collapse; width: 100%; margin: 6pt 0 10pt; font-size: 9.8pt; break-inside: avoid; }
+    th, td { border: 1px solid var(--rule); padding: 4pt 7pt; text-align: left; vertical-align: top; }
+    th { background: var(--soft); }
+    code { font-family: Consolas, "Courier New", monospace; font-size: 9pt; background: var(--soft); padding: 0 3pt; border-radius: 3px; }
+    .page-break { break-before: page; }
+    .keep { break-inside: avoid; }
+    b, strong { font-weight: 650; }
+</style>
+</head>
+<body>
+
+<h1>Classroom Experiments</h1>
+<div class="subtitle">Instructor guide: setting up the class, approving designs, running the live session and collecting the data</div>
+
+<p>Groups of students design randomized experiments as surveys; on class day each group presents while everyone answers its survey on
+their phones and the results appear on the projected dashboard. This guide covers everything on the instructor side. Students have
+their own guide (<code>docs/student-guide.pdf</code>).</p>
+
+<div class="cover-note"><b>Contents:</b>
+<ol class="toc">
+    <li>Creating the classroom</li>
+    <li>The instructor home</li>
+    <li>The roster</li>
+    <li>Class phases</li>
+    <li>Managing surveys</li>
+    <li>Two-part surveys and notifications</li>
+    <li>The demo dashboard</li>
+    <li>Class day: the live session</li>
+    <li>Peer feedback</li>
+    <li>Data and downloads</li>
+    <li>Deploying and backups</li>
+    <li>Troubleshooting</li>
+</ol>
+</div>
+
+<h2>1. Creating the classroom</h2>
+<p>On the site's home page, choose <b>Create Classroom</b> and give it:</p>
+<ul>
+    <li>a <b>code</b> students type to join (e.g. <code>ECON101</code>; unique, not case-sensitive);</li>
+    <li>a <b>host password</b>, only for you: it opens the instructor pages;</li>
+    <li>a <b>classroom password</b> that you share with the class (it's also in the QR code on the live dashboard);</li>
+    <li>the <b>roster</b>: a CSV with the students' IDs and names. A Canvas gradebook export works as is.</li>
+</ul>
+<p>Later, log in from <b>Host a Classroom</b> on the home page with the code and the host password. Students sign in with their SIS ID; the first time they confirm
+their first name and choose a password, so names and IDs in your data always match the roster.</p>
+
+<h2 class="page-break">2. The instructor home</h2>
+<p>Everything between classes is on the instructor home: the class phase, the roster, the surveys and the data.
+<b>Start live session</b> opens the page you project in class.</p>
+<figure><img src="img/01_home.png" alt="Instructor home"></figure>
+<ul>
+    <li><b>Max questions per survey</b> (Surveys card): students can't save more; you're exempt.</li>
+    <li><b>Reminders and part 2 until</b>: the latest date any group's notifications or remote parts can fall on. Leave it empty for no limit.</li>
+    <li><b>Two-part dates and reminders to approve</b> lists groups waiting for you (see section 6).</li>
+    <li><b>Survey answers collected</b> counts each student who answered a survey once. It stays at 0 until surveys run (in class, launched on their own,
+        opened early or a remote part), however many surveys groups have built.</li>
+</ul>
+
+<h2>3. The roster</h2>
+<p><b>Manage roster</b> shows every student, whether they signed up, their group, its size and any pending invites. The filters at the top
+narrow the list: name or ID, signed up or not, in a group or not, with a pending invite, alone in their group, or group size fewer than,
+exactly or more than a number of members. "Showing X of Y" counts what's left.</p>
+<figure><img src="img/03_roster_filter.png" alt="Roster filtered to students not in a group"><figcaption>Students not in a group yet.</figcaption></figure>
+<ul>
+    <li><b>Upload</b> again any time: new IDs are added, existing students keep their passwords and groups. Optionally remove students who aren't in the file.</li>
+    <li><b>Add one student</b> for late additions; <b>Reset password</b> if someone forgets theirs (they choose a new one on their next sign-in);
+        <b>Remove</b> hides a student who dropped (their past answers stay in your data; you can restore them).</li>
+    <li><b>Max members per group</b> and <b>Max groups per student</b>: lowering them never removes anyone; full groups just can't take more.</li>
+</ul>
+
+<h2>4. Class phases</h2>
+<p>The <b>Class phase</b> card moves the class through four steps with <b>Next step</b>, or with individual switches:</p>
+<table>
+    <tr><th style="width: 22%">Phase</th><th>What students can do</th></tr>
+    <tr><td>Building</td><td>Create groups, invite teammates, build and edit surveys.</td></tr>
+    <tr><td>Locked</td><td>Surveys and groups are frozen (you can still edit). Each student sees the groups they'll comment on. Previews and downloads keep working.</td></tr>
+    <tr><td>Feedback open</td><td>Students send their comments on other groups (each group opens for comments once its survey has run).</td></tr>
+    <tr><td>Feedback closed</td><td>Comments are final; groups read the comments they received, anonymized.</td></tr>
+</table>
+<p>Set <b>Required comments per student</b> before locking; assignments are balanced so every group gets about the same number of reviewers, never their own.</p>
+
+<h2 class="page-break">5. Managing surveys</h2>
+<p><b>Manage surveys</b> lists every group's survey with its members (count, "alone" and "full" badges, pending invites), status and badges
+(not finished, two-part, waiting for your approval). Filter by title or member, by number of members, or by status.</p>
+<figure><img src="img/02_surveys.png" alt="Manage surveys"></figure>
+<ul>
+    <li><b>Edit</b> opens a group's survey page; you can always edit (saving a survey that has responses deletes them, after a warning).</li>
+    <li><b>Allow early</b> lets a one-part survey run before class: the group submits it with an answer-by date, classmates answer from their lobby,
+        and it still runs in class. <b>Copy email text</b> gives you an announcement to paste.</li>
+    <li><b>Running it</b> shows how each survey (or each part) runs and whether it already ran:
+        <ul>
+            <li><b>Launch</b> opens the live dashboard with only that survey or part, e.g. a part that runs at the start of class, or a group that presents on another day.</li>
+            <li><b>Next Survey</b> in the live session skips everything that already ran.</li>
+            <li><b>Run again&hellip;</b> (host password) deletes that survey's responses and notification sign-ups so it runs again as new, for a group that changed its survey after running it. Download its data first.</li>
+        </ul></li>
+    <li><b>View survey</b> (from a survey's page or the lobby) shows all arms side by side; the flow chart shows each arm's path.</li>
+</ul>
+
+<h2>6. Two-part surveys and notifications</h2>
+<p>Both are optional; by default a survey has one part, no notifications, and runs in the live session. Groups set them up in two cards at the
+bottom of their survey page.</p>
+<h3>Two-part surveys</h3>
+<p>Part 2 starts at a question the group chooses. Each part runs <b>in the live session</b>, <b>in class, launched separately</b> (by you, from Manage
+surveys), or <b>remote</b> (answered from the lobby between the group's dates). Part 2 is only for students who answered part 1, in the same arm; in the
+live session, others see "This survey is for classmates who answered its part 1" and wait for the next survey. The dashboard marks part-2 questions.</p>
+<h3>Notifications</h3>
+<p>Per arm: a short note respondents read first, then messages, each with a time of day and chosen days. After answering (part 1), respondents add them
+to their calendar (iPhone and computers: a calendar file; Android: Google Calendar links) or turn on notifications from the site. Times are each phone's
+local time unless the group picks a time zone.</p>
+<h3>Your approval</h3>
+<p>Notifications and remote dates need your approval: nothing is sent, and remote parts stay closed, until you approve. Review them on the group's
+<b>View survey</b> page, where they're listed under the questions with an <b>Approve</b> button. If the group changes them afterwards, they need approval again
+(the home page lists them).</p>
+<figure><img src="img/06_approve.png" alt="Approving a group's dates and notifications"></figure>
+<div class="tip"><strong>Push notifications on the server</strong> need nothing set up: the site creates its own keys on first use and sends due notifications
+every minute. Optionally set the environment variable <code>VAPID_SUBJECT</code> on Render to <code>mailto:</code> plus your email, as a contact for the push services.
+iPhones only get site notifications if the site is added to the Home Screen, so iPhone users are offered the calendar.</div>
+
+<h2 class="page-break">7. The demo dashboard</h2>
+<p><b>Demo dashboard</b> (Surveys card on the home page) lets you click through every survey's questions, images and charts with made-up answers,
+without going live. Use it to check the surveys before class or to walk the class through the designs.</p>
+<figure><img src="img/05_demo_dashboard.png" alt="Demo dashboard"></figure>
+
+<h2 class="page-break">8. Class day: the live session</h2>
+<ol>
+    <li>On the home page, click <b>Start live session</b> and project it. Students join from their lobby, or by scanning the QR code with the classroom code and password.</li>
+    <li>Click a survey on the left, or <b>Next Survey</b>, to start it. Students' phones show it within a few seconds; each student always gets the same arm.</li>
+    <li>Click <b>Refresh Results</b> for the latest charts (they don't update on their own, to keep the site fast with a full class).</li>
+    <li><b>Next Survey</b> moves on in group order, skipping surveys or parts that already ran; <b>Reset Session</b> stops the current survey (nothing is deleted).</li>
+</ol>
+<figure class="mid"><img src="img/04_live_dashboard.png" alt="Live session"></figure>
+<ul>
+    <li>Two-part surveys show which part runs here ("part 2"); a "&#10003; ran" badge marks what already ran (click it to show its results again).</li>
+    <li><b>Block designers from own survey</b> shows group members "You designed this survey" instead of their own questions.</li>
+    <li>Surveys run on another platform are listed for the order but don't start here.</li>
+</ul>
+
+<h2>9. Peer feedback</h2>
+<p>When you lock surveys, each student is assigned groups to comment on. Comments are drafts until sent; students can jot private notes right after answering
+a live survey. Groups read the comments as "Reviewer 1, Reviewer 2"; you see names. <b>Feedback comments</b> and <b>Feedback summary</b> (required sent
+per student) are in the Data card for grading.</p>
+
+<h2>10. Data and downloads</h2>
+<p><b>Download everything (.zip)</b> on the home page has every file plus the uploaded images:</p>
+<table>
+    <tr><th style="width: 32%">File</th><th>Contents</th></tr>
+    <tr><td>all_responses.csv</td><td>Every answer, with names, IDs, the respondent ID, arm, time on the question, left-page and timeout flags, and part.</td></tr>
+    <tr><td>surveys_config.csv</td><td>What each arm showed: question texts and options.</td></tr>
+    <tr><td>participants.csv</td><td>The roster key: names, IDs and the random respondent IDs students see.</td></tr>
+    <tr><td>survey_designers.csv / survey_participation.csv</td><td>Who designed each survey; who answered each one.</td></tr>
+    <tr><td>feedback.csv / feedback_summary.csv</td><td>Comments and required-comment counts, for grading.</td></tr>
+    <tr><td>reminder_plans.csv</td><td>Each group's notifications per arm, how its parts run, and approval.</td></tr>
+    <tr><td>reminder_actions.csv / reminder_notifications.csv</td><td>Who downloaded the calendar file, opened Google Calendar links, turned notifications on;
+        each notification sent, delivered and tapped.</td></tr>
+</table>
+<p>Groups download their own survey's responses, anonymized (random respondent IDs only), in wide (one row per respondent) or long (one row per answer) format.</p>
+
+<h2>11. Deploying and backups</h2>
+<ul>
+    <li>The site runs on Render with a persistent disk (<code>/data</code>) for the database and images. Pushing to the repository deploys it.</li>
+    <li>Before deploying, download the zip, and if possible a copy of <code>/data/app.db</code>. Don't deploy during class: the site restarts.</li>
+    <li>Updates only add to the database; existing classrooms, students, groups and surveys are kept.</li>
+</ul>
+
+<h2>12. Troubleshooting</h2>
+<table>
+    <tr><th style="width: 38%">Problem</th><th>What to do</th></tr>
+    <tr><td>A student can't sign in</td><td>Check they're on the roster (not removed); reset their password if needed.</td></tr>
+    <tr><td>A survey doesn't appear on phones</td><td>Students poll every 3 seconds; have them go back to the lobby and click Join. Check the survey isn't a part that's remote, or that it isn't already "ran" (click it to show it).</td></tr>
+    <tr><td>A group needs to run its survey again</td><td>Manage surveys &rarr; Run again&hellip; (download its data first).</td></tr>
+    <tr><td>A remote part doesn't open</td><td>It needs your approval and its dates; see "to approve" on the home page.</td></tr>
+    <tr><td>"0 survey answers collected"</td><td>Normal before surveys run; it counts answers, not surveys built.</td></tr>
+</table>
+
+</body>
+</html>

@@ -72,7 +72,9 @@ def view_survey(code, survey_id):
     if not can_view_survey(classroom, survey, student):
         flash('You can look at other groups\' surveys once they have run.', 'danger')
         return redirect(url_for('classroom.lobby', code=code))
-    return render_template('feedback/view_survey.html', classroom=classroom, survey=survey)
+    from routes.reminders import view_data
+    return render_template('feedback/view_survey.html', classroom=classroom, survey=survey,
+                           reminders=view_data(classroom, survey), is_host=_is_host(classroom))
 
 
 # --- Writing comments ---
@@ -229,6 +231,13 @@ def submit_early(code, survey_id):
     if not survey['early_allowed']:
         flash('Your instructor has not enabled early deployment for this survey.', 'danger')
         return redirect(url_for('builder.edit', code=code, survey_id=survey_id))
+    if survey['part2_from'] is not None:
+        flash('Two-part surveys open from the lobby on their own dates (see "Part 2 and reminders").', 'danger')
+        return redirect(url_for('builder.edit', code=code, survey_id=survey_id))
+    from models.survey import survey_incomplete
+    if survey_incomplete(survey):
+        flash('Finish the survey before submitting it (see "Not finished yet" at the top).', 'danger')
+        return redirect(url_for('builder.edit', code=code, survey_id=survey_id))
     deadline_utc = request.form.get('deadline_utc', '').strip()
     label = request.form.get('deadline_label', '').strip()[:40]
     if not fb.parse_utc(deadline_utc) or not label:
@@ -282,6 +291,15 @@ def set_phase(code):
             return redirect(url_for('host.home', code=code))
         fields = {'max_questions_per_survey': int(raw) if raw else None}
         flash('Question limit saved: ' + (f'{raw} per survey.' if raw else 'no limit.'), 'success')
+
+    elif action == 'reminders_until':
+        raw = request.form.get('reminders_until', '').strip()
+        from models.reminders import _date, nice_date
+        if raw and not _date(raw):
+            flash('Choose a valid date (or leave it empty for no limit).', 'danger')
+            return redirect(url_for('host.home', code=code))
+        fields = {'reminders_until': raw or None}
+        flash('Reminders and part 2 can now run ' + (f'until {nice_date(_date(raw))}.' if raw else 'on any date.'), 'success')
 
     for col, val in fields.items():
         db.execute(f'UPDATE classroom SET {col}=? WHERE id=?', (val, classroom['id']))

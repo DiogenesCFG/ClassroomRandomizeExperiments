@@ -1,131 +1,95 @@
 # Classroom Randomize Experiments
 
-A web app for running randomized behavioral economics experiments in class. Student groups each design a survey with treatment/control arms, then all experiments run live with the class participating on their phones.
+A web app for running randomized behavioral economics experiments in class. Student groups each design a survey with treatment/control arms; on class day each group presents while the class answers its survey on their phones and the results appear on the projected dashboard.
+
+Guides: [student guide](docs/student-guide.pdf) and [instructor guide](docs/instructor-guide.pdf) (sources in `docs/student-guide/` and `docs/instructor-guide/`).
 
 ## How It Works
 
-1. **Host creates a classroom** with a code (e.g., `ECON101`), a host password, a classroom password, and the class roster (a CSV; a Canvas gradebook export works as-is)
-2. **Students join** with the code and classroom password, then sign in with their SIS ID. The first time, they confirm their first name and choose a password, so names and IDs in your data always match the roster.
-3. **In their lobby**, one student per group creates the survey (each with 1-4 treatment/control arms) and invites teammates, who accept the invite from their own lobby
-4. **On class day**, the host clicks **Start live session** on the instructor home and projects that page. Students join the live session from their lobby (or scan the QR code shown on the dashboard)
-5. **The host activates surveys one by one** -- each student is randomly assigned to an arm and sees that arm's questions
-6. **Students submit answers via HTTP** -- the host clicks "Refresh Results" to see updated charts and statistics
+1. **The instructor creates a classroom** with a code (e.g., `ECON101`), a host password, a classroom password, and the class roster (a CSV; a Canvas gradebook export works as-is).
+2. **Students join** with the code and classroom password, then sign in with their SIS ID. The first time, they confirm their first name and choose a password, so names and IDs in the data always match the roster.
+3. **In their lobby**, one student per group creates the group and invites teammates, who accept from their own lobby. The group then builds its survey together; it autosaves, even unfinished.
+4. **The instructor moves the class through phases** from the instructor home: Building, Locked (surveys and groups frozen, reviewers assigned), Feedback open, Feedback closed.
+5. **On class day**, the instructor clicks **Start live session** and projects it. Students join from their lobby or the QR code. The instructor starts surveys one by one (**Next Survey** follows group order and skips what already ran); each student is randomly assigned to an arm and sees that arm's questions.
+6. **Results**: the instructor clicks **Refresh Results** for charts and statistics by arm. Groups download their own anonymized data; the instructor downloads everything as a zip.
 
 ## Designing Surveys
 
-Each survey is designed by a student group and represents one experiment. A survey has:
+Each survey is one experiment:
 
-- **Arms** (2-4): Each arm is a treatment or control condition. Every student is randomly assigned to exactly one arm per survey. Arms let you vary what different groups of students see -- for example, one arm might frame a question as a gain while another frames it as a loss.
-- **Questions** (1 or more): Each survey can have multiple questions. Questions are shared across arms, but the *question text, images, and answer options can differ per arm*. This is how you introduce the experimental manipulation -- the same question slot shows different wording depending on which arm the student was assigned to.
-- **Question types**: Multiple choice (single select), multiple answer (multi-select), numeric (free number input), short answer (free text, 140 char limit), and slider (draggable range with configurable min/max/step).
-- **Images**: Builders can attach an image (PNG or JPEG, max 5MB) to any arm-question. The image appears above the question text when the student takes the survey.
+- **Arms** (1-4): treatment or control conditions. Each student always gets the same arm (deterministic SHA-256 assignment).
+- **Questions** (up to the instructor's limit): shared across arms, but the text, image and answer options can differ per arm. That difference is the treatment.
+- **Question types**: multiple choice, multiple answer, numeric, short answer (140 characters), slider.
+- **Extras, all optional** (per question, under "Advanced options"): ask a question only in some arms, show it only after certain answers to an earlier question (follow-ups), a per-arm timer, an "Other" choice with a text box. `{{Q1}}` in a question's text shows the respondent's answer to Question 1.
+- **Two-part surveys (optional)**: part 2 starts at a chosen question; each part runs in the live session, in class launched separately by the instructor, or remotely from the lobby between chosen dates. Part 2 is only for students who answered part 1, in the same arm.
+- **Notifications (optional)**: per arm, messages with a time of day and chosen days, which respondents add to their calendar (.ics on iPhone and computers, Google Calendar links on Android) or receive as web push notifications. Floating local time by default, or a chosen time zone. The instructor approves them (and remote dates) first.
 
-For example, a survey testing anchoring bias might have:
-- 2 arms: "High anchor" and "Low anchor"
-- 1 question: "How much would you pay for this product?" (numeric type)
-- The High anchor arm's question text includes "Most people pay $500" while the Low anchor arm says "Most people pay $50"
-- Both arms collect the same numeric answer, but the framing differs
+The survey page has collapsible sections, drag-to-reorder questions, a "Not finished yet" list, warnings (e.g. identical arms), previews of the respondent screen (per arm and part, with the break between parts and a test notification) and of the dashboard (with made-up answers and a matching example data file), and a flow chart of each arm's path.
 
 ## Key Features
 
-- **Deterministic random assignment** -- students are assigned to arms using a SHA-256 hash of their ID + survey ID, so assignments are stable across page refreshes
-- **Multiple question types** -- multiple choice, multiple answer, numeric, short answer, and slider (with histograms on the dashboard)
-- **Image uploads** -- survey builders can attach images (PNG or JPEG, max 5MB) to individual arm-questions
-- **Classroom password** -- students need both the classroom code and a password to join, preventing unauthorized access
-- **Class roster** -- students sign in with an SIS ID from your roster plus their own password. Manage it from the dashboard's Roster page: re-upload the CSV, add late students, remove students who drop (their past answers are kept), and reset a forgotten password with one click
-- **Teams** -- group members are invited and must accept. The host sets the maximum number of groups per student (empty = no limit). Only members can edit their group's survey
-- **Survey builder aids** -- edits autosave (with "Discard all changes from this session"), "Copy from Control" for each arm, warnings when two arms are identical, a respondent preview for each arm, and a dashboard preview filled with random sample responses
-- **Lock survey edits** -- one switch on the dashboard freezes students' surveys and groups once experiments are deployed; previews and downloads keep working
-- **Peer feedback** -- once surveys are locked, each student is assigned groups to comment on (balanced so every group gets about the same number of reviewers, never their own). Comments open and close from the dashboard; groups read them anonymously after feedback closes. Students can jot private notes right after answering a live survey. Exports for grading included
-- **Early deployment** -- the instructor can let a group run its survey before class; classmates answer it from their lobby until the group's deadline, and it still runs live for the presentation
-- **Anonymized data for students** -- groups download their own survey's responses with each respondent shown only as a random ID; the instructor's exports include the key linking IDs to names
-- **QR code** -- the host dashboard displays a QR code that links to the join page with the classroom code and password pre-filled, so students can scan and join instantly
-- **Dark/light mode** -- the UI automatically follows the browser's color scheme preference
-- **Block designers** -- the host can toggle a setting to prevent survey designers from participating in their own survey, avoiding bias
-- **Image gallery** -- the host can browse all uploaded images across surveys from a single page
-- **Manual refresh** -- host clicks "Refresh Results" to recount all submitted votes and update charts
-- **Per-classroom isolation** -- multiple classrooms can run independently
-- **CSV export** -- download all responses, survey configs, and participant lists, or everything (all CSVs + uploaded images) as a single .zip
-
-The current implementation has, for simplicity, there's the following limits:
-
-| | Minimum | Maximum |
-| --- | --- | --- |
-| Surveys per classroom | no limit | no limit |
-| Arms per survey | 1 (server-enforced, defaults to 2) | 4 (client side only in builder.js:113) |
-| Questions per survey | 1 (server enforced) | no limit | 
-| Options per MC question | 2 (server-enforced) | 5 (client side only, in builder.js:229) | 
-| Group members | 1 (server-enforced) | no limit |
-
-To change the max arms or max options, edit the numbers in `static/js/builder.js` — the cap on arms is at line 113 (`armCount >= 4`) and the cap on options is at line 229 (`optCount >= 5`). There is no server-side maximum, so changing these two lines is all that's needed.
-
+- **Roster sign-in and teams**: SIS ID + own password; invites with accept/decline; limits on group size and groups per student; filters on the roster (signed up, in a group, group size, pending invites)
+- **Class phases and peer feedback**: balanced, stable reviewer assignments (never one's own group), drafts and private notes, anonymous comments released after feedback closes, grading exports
+- **Live session**: launch any survey or part on its own (from Manage Surveys), a sequence that skips what already ran, "Run again" to reset a survey, block designers from their own survey, QR code
+- **Demo dashboard**: click through every survey's questions, images and sample charts without going live
+- **Early deployment** of one-part surveys, and **other-platform** surveys (e.g. Google Forms) that still present and get feedback
+- **Data**: per-question time on screen, left-page and timeout flags; anonymized group downloads in wide or long format; instructor exports (all responses, configs, roster key, designers, participation, feedback, notifications) and a zip with everything plus images
+- **Dark/light mode**, image uploads (PNG/JPEG, 5 MB), image gallery, per-classroom isolation
 
 ## Architecture
 
-The app uses a pure HTTP architecture. Students poll for survey state every 3 seconds and submit answers via POST. The host dashboard fetches results on demand via a Refresh button. This approach was chosen over WebSockets for reliability -- SocketIO connections were unreliable on phones and caused slow page loads.
+Pure HTTP: students poll for survey state every 3 seconds and submit answers via POST; the instructor dashboard fetches results on demand. This was chosen over WebSockets for reliability on phones. Push notifications are sent by a background loop in the app process (`models/push.py`, pywebpush). SQLite (WAL mode) on a persistent disk; schema changes are additive migrations that run on startup. See [CLAUDE.md](CLAUDE.md) for a detailed developer reference.
 
 ## Local Development
 
 ```bash
-# Create virtual environment
 python -m venv venv
-
-# Activate (Windows Git Bash)
-source venv/Scripts/activate
-
-# Install dependencies
+source venv/Scripts/activate      # Windows Git Bash (venv/bin/activate on macOS/Linux)
 pip install -r requirements.txt
-
-# Run the app
-python run.py
+python run.py                     # http://localhost:5000
 ```
-
-Visit `http://localhost:5000`.
 
 ## Deploying to Render
 
-The repo includes `render.yaml` for one-click deployment. The app uses:
-- A persistent disk at `/data` for the SQLite database and uploaded images
-- Gunicorn with eventlet as the async worker
-- Environment variables: `SECRET_KEY` (auto-generated), `DATABASE_PATH`, `UPLOAD_FOLDER`, `ASYNC_MODE`
+The repo includes `render.yaml`. The app uses a persistent disk at `/data` for the SQLite database and uploaded images, and Gunicorn with one eventlet worker. Environment variables: `SECRET_KEY` (auto-generated), `DATABASE_PATH`, `UPLOAD_FOLDER`, `ASYNC_MODE`; optionally `VAPID_SUBJECT` (`mailto:you@example.edu`) as the contact for push services. Push keys are generated on first use and stored in the database. Back up the database (or download the instructor zip) before deploying, and don't deploy during class.
 
 ## Project Structure
 
 ```
-app.py              Flask app factory + server init
-config.py           Configuration (SECRET_KEY, DATABASE path)
+app.py              Flask app factory (also starts the notification sender)
+config.py           Configuration (SECRET_KEY, DATABASE path, UPLOAD_FOLDER)
 run.py              Local dev entry point
-schema.sql          Database schema
+schema.sql          Database schema (migrations in models/db.py)
 models/
-  db.py             Database connections, migrations
-  classroom.py      Classroom CRUD
-  survey.py         Survey CRUD with password protection
-  participant.py    Participant records (live-session identity)
+  db.py             Connections, additive migrations
+  classroom.py      Classrooms and passwords
+  survey.py         Survey CRUD, warnings, "not finished" checks
+  rules.py          Display rules (shown in arms, follow-ups)
+  reminders.py      Two-part surveys, notification plans, calendar files and links
+  push.py           Web push: keys, subscriptions, scheduling, sending
   roster.py         Roster CSV parsing, student accounts, teams/invites
-  response.py       Answer storage and aggregation
-  download.py       CSV export
+  feedback.py       Phases, reviewer assignments, comments, early surveys
+  flow.py           Flow charts (Mermaid)
+  preview.py        Made-up responses for previews
+  download.py       CSV exports
 routes/
   classroom.py      /c/create, /c/join, /c/<code>/lobby
-  account.py        /c/<code>/signin, signout, live status, team invites/leave
-  roster.py         /c/<code>/host/roster/ (upload, preview, add, reset, remove)
-  builder.py        /c/<code>/builder/ (survey creation)
-  student.py        /c/<code>/student/ (login + live session + HTTP submit)
-  host.py           /c/<code>/host/ (dashboard + activate/next/reset/state/gallery)
-  download.py       /c/<code>/download/ (CSV files)
-sockets/
-  events.py         Helper functions for aggregation and assignment
-  assignment.py     Deterministic arm assignment (SHA-256)
-templates/          Jinja2 HTML templates
-static/
-  js/builder.js     Dynamic survey form
-  js/student.js     Student HTTP client (polling + submit)
-  js/host.js        Host dashboard + Chart.js (manual refresh)
-  css/style.css     Custom styles
+  account.py        Sign-in, invites, tours
+  roster.py         /c/<code>/host/roster/
+  builder.py        /c/<code>/builder/ (survey page, autosave, previews, flow chart, downloads)
+  reminders.py      Parts and notifications: plans, approval, calendar step, push, remote parts
+  student.py        Live session state and answer submission
+  host.py           Instructor home, live dashboard, demo dashboard, launch/run again
+  feedback.py       Phases, View survey, comments, early surveys
+  download.py       Instructor CSVs and the zip
+sockets/            Helper functions for payloads/aggregation, arm assignment
+templates/          Jinja2 templates
+static/js/          builder.js, reminders-builder.js, student.js, reminders.js, host.js, sw.js (service worker), tour.js
+docs/               Student and instructor guides (HTML sources + PDFs)
 ```
 
 ## Tech Stack
 
-- **Backend:** Python, Flask
-- **Database:** SQLite (WAL mode)
-- **Frontend:** Bootstrap 5.3.3 (with native dark mode), Chart.js, qrcodejs
-- **Production:** Gunicorn + eventlet
+- **Backend:** Python, Flask, SQLite (WAL), pywebpush, tzdata
+- **Frontend:** Bootstrap 5.3, Chart.js, Mermaid, SortableJS, Driver.js, qrcodejs
+- **Production:** Gunicorn + eventlet on Render

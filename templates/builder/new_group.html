@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}Create your group{% endblock %}
+
+{% block content %}
+<div class="mx-auto" style="max-width: 640px;">
+    <a href="{{ url_for('builder.index' if is_host else 'classroom.lobby', code=classroom.code) }}" class="small text-muted">&larr; {{ 'Surveys' if is_host else 'My lobby' }}</a>
+    <h2 class="mt-2 mb-1">Create your group</h2>
+    <p class="text-muted mb-4">Just a name and your teammates for now. You'll build the survey next, and it saves as you go, even unfinished.</p>
+
+    <form method="POST" id="new-group-form">
+        <div class="card mb-3">
+            <div class="card-body">
+                {% if is_host %}
+                <div class="mb-3">
+                    <label for="group_number" class="form-label">Group #</label>
+                    <input type="number" class="form-control" id="group_number" name="group_number" min="1" max="999" placeholder="Auto" style="max-width: 140px;">
+                </div>
+                {% endif %}
+                <label for="title" class="form-label">Survey title <span class="text-muted small">(optional, you can change it later)</span></label>
+                <input type="text" class="form-control" id="title" name="title" maxlength="200"
+                       placeholder="e.g., Anchoring Effect on Price Estimates" autofocus>
+            </div>
+        </div>
+
+        {% if not is_host %}
+        <div class="card mb-3" id="teammates-card">
+            <div class="card-header"><strong>Teammates</strong> <span class="text-muted small">(optional, you can also invite them later)</span></div>
+            <div class="card-body">
+                <p class="text-muted small mb-2">You're added automatically. Start typing a classmate's name and pick it from the list; they'll accept the invite from their lobby.</p>
+                <div class="input-group">
+                    <input type="text" class="form-control" id="invite-search" list="classmate-list" placeholder="Classmate's name" autocomplete="off">
+                    <button type="button" class="btn btn-outline-primary" id="invite-add">Add</button>
+                </div>
+                <div class="text-danger small mt-1" id="invite-feedback" style="display:none">Pick a name from the list.</div>
+                <div class="mt-2" id="invite-chips"></div>
+            </div>
+        </div>
+        <datalist id="classmate-list">
+            {% for c in classmates %}<option value="{{ c.full_name }}" data-id="{{ c.id }}"></option>{% endfor %}
+        </datalist>
+        {% endif %}
+
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary btn-lg">Create group &amp; start building</button>
+            <a href="{{ url_for('builder.index' if is_host else 'classroom.lobby', code=classroom.code) }}" class="btn btn-outline-secondary btn-lg">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Teammate picker: names from the datalist become chips carrying hidden invite_ids
+    (function() {
+        var input = document.getElementById('invite-search');
+        if (!input) return;
+        var chips = document.getElementById('invite-chips');
+        var feedback = document.getElementById('invite-feedback');
+        function find(name) {
+            var match = null;
+            document.querySelectorAll('#classmate-list option').forEach(function(o) {
+                if (o.value.toLowerCase() === name.trim().toLowerCase()) match = o;
+            });
+            return match;
+        }
+        function add() {
+            var opt = find(input.value);
+            if (!opt) { feedback.style.display = input.value.trim() ? '' : 'none'; return; }
+            feedback.style.display = 'none';
+            input.value = '';
+            if (chips.querySelector('input[value="' + opt.dataset.id + '"]')) return;
+            var chip = document.createElement('span');
+            chip.className = 'badge rounded-pill text-bg-primary me-1 mb-1 p-2';
+            chip.textContent = opt.value + ' ';
+            var hidden = document.createElement('input');
+            hidden.type = 'hidden'; hidden.name = 'invite_ids'; hidden.value = opt.dataset.id;
+            var x = document.createElement('button');
+            x.type = 'button'; x.className = 'btn-close btn-close-white ms-1'; x.style.fontSize = '0.6em';
+            x.setAttribute('aria-label', 'Remove');
+            x.addEventListener('click', function() { chip.remove(); });
+            chip.appendChild(hidden); chip.appendChild(x);
+            chips.appendChild(chip);
+        }
+        document.getElementById('invite-add').addEventListener('click', add);
+        input.addEventListener('change', function() { if (find(input.value)) add(); });
+        input.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+        // A name typed but not added yet still counts when the form is sent
+        document.getElementById('new-group-form').addEventListener('submit', function() { if (find(input.value)) add(); });
+    })();
+</script>
+{% endblock %}

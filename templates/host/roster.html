@@ -95,15 +95,44 @@
 </div>
 
 {% if active %}
-<input type="search" class="form-control mb-2" id="roster-filter" placeholder="Filter by name or ID">
+{# Filters (all in the browser): name/ID, signed up, in a group, size of their group #}
+<div class="card mb-2">
+    <div class="card-body py-2 d-flex flex-wrap align-items-center gap-2" id="roster-filters">
+        <input type="search" class="form-control form-control-sm" style="max-width: 220px;" id="roster-filter" placeholder="Name or ID">
+        <select class="form-select form-select-sm w-auto" id="f-signup">
+            <option value="">Signed up or not</option>
+            <option value="yes">Signed up</option>
+            <option value="no">Not signed up</option>
+        </select>
+        <select class="form-select form-select-sm w-auto" id="f-group">
+            <option value="">In a group or not</option>
+            <option value="yes">In a group</option>
+            <option value="no">Not in a group</option>
+            <option value="invited">Has a pending invite</option>
+            <option value="alone">Alone in their group</option>
+        </select>
+        <span class="small">Group size</span>
+        <select class="form-select form-select-sm w-auto" id="f-size-op">
+            <option value="">any</option>
+            <option value="lt">fewer than</option>
+            <option value="eq">exactly</option>
+            <option value="gt">more than</option>
+        </select>
+        <input type="number" class="form-control form-control-sm" style="width: 70px;" id="f-size" min="0" value="{{ classroom.max_group_size or 3 }}">
+        <span class="small">members</span>
+        <a href="#" class="small ms-1" id="f-clear">Clear</a>
+        <span class="small text-muted ms-auto" id="f-count"></span>
+    </div>
+</div>
 <div class="table-responsive">
     <table class="table table-sm table-striped align-middle" id="roster-table">
         <thead>
-            <tr><th>Name</th><th>SIS ID</th><th>Status</th><th>Group(s)</th><th class="text-end">Actions</th></tr>
+            <tr><th>Name</th><th>SIS ID</th><th>Status</th><th>Group(s)</th><th title="Members in their group (their largest, if several)">Group size</th><th>Invites</th><th class="text-end">Actions</th></tr>
         </thead>
         <tbody>
             {% for s in active %}
-            <tr>
+            <tr data-signed="{{ 'yes' if s.registered_at else 'no' }}" data-groups="{{ s.group_count }}"
+                data-size="{{ s.group_size or 0 }}" data-invites="{{ s.invite_count }}">
                 <td>{{ s.full_name }}</td>
                 <td><code>{{ s.sis_id }}</code></td>
                 <td>
@@ -114,6 +143,8 @@
                     {% endif %}
                 </td>
                 <td>{{ s.group_numbers or '' }}</td>
+                <td>{% if s.group_count %}{{ s.group_size }}{% if s.group_size == 1 %} <span class="badge text-bg-warning">alone</span>{% elif classroom.max_group_size and s.group_size >= classroom.max_group_size %} <span class="badge text-bg-secondary">full</span>{% endif %}{% endif %}</td>
+                <td>{% if s.invite_count %}<span class="badge text-bg-info">{{ s.invite_count }} pending</span>{% endif %}</td>
                 <td class="text-end text-nowrap">
                     {% if s.registered_at %}
                     <form method="POST" action="{{ url_for('roster.reset_password', code=classroom.code, student_id=s.id) }}" class="d-inline">
@@ -159,14 +190,36 @@
 
 {% block scripts %}
 <script>
-    var filter = document.getElementById('roster-filter');
-    if (filter) {
-        filter.addEventListener('input', function() {
-            var q = filter.value.toLowerCase();
-            document.querySelectorAll('#roster-table tbody tr').forEach(function(tr) {
-                tr.style.display = tr.textContent.toLowerCase().indexOf(q) === -1 ? 'none' : '';
+    // Roster filters: every control narrows the table; "Showing X of Y" counts what's left
+    (function() {
+        var box = document.getElementById('roster-filters');
+        if (!box) return;
+        var el = function(id) { return document.getElementById(id); };
+        function apply() {
+            var q = el('roster-filter').value.toLowerCase();
+            var signup = el('f-signup').value, group = el('f-group').value;
+            var op = el('f-size-op').value, n = parseInt(el('f-size').value, 10);
+            var rows = document.querySelectorAll('#roster-table tbody tr'), shown = 0;
+            rows.forEach(function(tr) {
+                var d = tr.dataset, groups = parseInt(d.groups, 10), size = parseInt(d.size, 10);
+                var ok = tr.textContent.toLowerCase().indexOf(q) !== -1
+                    && (!signup || d.signed === signup)
+                    && (!group || (group === 'yes' && groups > 0) || (group === 'no' && groups === 0)
+                        || (group === 'invited' && parseInt(d.invites, 10) > 0) || (group === 'alone' && groups > 0 && size === 1))
+                    && (!op || isNaN(n) || (groups > 0 && ((op === 'lt' && size < n) || (op === 'eq' && size === n) || (op === 'gt' && size > n))));
+                tr.style.display = ok ? '' : 'none';
+                if (ok) shown++;
             });
+            el('f-count').textContent = 'Showing ' + shown + ' of ' + rows.length;
+        }
+        box.addEventListener('input', apply);
+        box.addEventListener('change', apply);
+        el('f-clear').addEventListener('click', function(e) {
+            e.preventDefault();
+            ['roster-filter', 'f-signup', 'f-group', 'f-size-op'].forEach(function(id) { el(id).value = ''; });
+            apply();
         });
-    }
+        apply();
+    })();
 </script>
 {% endblock %}

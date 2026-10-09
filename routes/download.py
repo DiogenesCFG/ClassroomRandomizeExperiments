@@ -12,7 +12,8 @@ from models.db import get_db
 from models.download import (
     export_all_responses_csv, export_surveys_config_csv, export_participants_csv,
     export_survey_designers_csv, export_survey_participation_csv,
-    export_feedback_csv, export_feedback_summary_csv,
+    export_feedback_csv, export_feedback_summary_csv, export_reminder_actions_csv, export_reminder_plans_csv,
+    export_push_messages_csv,
 )
 
 bp = Blueprint('download', __name__, url_prefix='/c/<code>/download')
@@ -83,6 +84,13 @@ def download_participation(code):
     )
 
 
+@bp.route('/reminders')
+def download_reminders(code):
+    classroom = _get_classroom_or_403(code)
+    return Response(export_reminder_actions_csv(classroom['id']), mimetype='text/csv',
+                    headers={'Content-Disposition': 'attachment; filename=reminder_actions.csv'})
+
+
 @bp.route('/everything')
 def download_everything(code):
     """Download all CSV exports plus uploaded images as a single .zip archive."""
@@ -109,6 +117,9 @@ def download_everything(code):
         zf.writestr('survey_participation.csv', export_survey_participation_csv(cid))
         zf.writestr('feedback.csv', export_feedback_csv(classroom))
         zf.writestr('feedback_summary.csv', export_feedback_summary_csv(classroom))
+        zf.writestr('reminder_plans.csv', export_reminder_plans_csv(cid))
+        zf.writestr('reminder_actions.csv', export_reminder_actions_csv(cid))
+        zf.writestr('reminder_notifications.csv', export_push_messages_csv(cid))
 
         index = io.StringIO()
         writer = csv.writer(index)
@@ -150,5 +161,9 @@ def clear_responses(code):
         'DELETE FROM response WHERE survey_id IN (SELECT id FROM survey WHERE classroom_id=?)',
         (classroom['id'],)
     )
+    db.execute('DELETE FROM reminder_action WHERE survey_id IN (SELECT id FROM survey WHERE classroom_id=?)',
+               (classroom['id'],))
+    db.execute('DELETE FROM push_subscription WHERE survey_id IN (SELECT id FROM survey WHERE classroom_id=?)',
+               (classroom['id'],))
     db.commit()
     return redirect(url_for('host.home', code=code))

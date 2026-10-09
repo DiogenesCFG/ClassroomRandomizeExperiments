@@ -16,6 +16,8 @@
         {% endif %}
     </div>
     {% if not survey.external %}
+    <div class="d-flex gap-2">
+    <a href="{{ url_for('builder.flow_chart', code=classroom.code, survey_id=survey.id) }}" class="btn btn-outline-primary btn-sm">View as flow chart</a>
     <div class="dropdown">
         <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">See it as a respondent</button>
         <ul class="dropdown-menu dropdown-menu-end">
@@ -24,6 +26,7 @@
                    href="{{ url_for('builder.preview_survey', code=classroom.code, survey_id=survey.id, arm=loop.index0) }}">{{ arm.label }}</a></li>
             {% endfor %}
         </ul>
+    </div>
     </div>
     {% endif %}
 </div>
@@ -38,29 +41,56 @@
 {% set type_names = {'multiple_choice': 'Multiple choice', 'multiple_answer': 'Multiple answer', 'numeric': 'Number',
                      'short_answer': 'Short answer', 'slider': 'Slider'} %}
 {% for q in survey.questions if not survey.external %}
-<div class="card mb-3">
+{% if reminders and reminders.two_part and loop.first %}
+<h5 class="mb-2">Part 1 <small class="text-muted fw-normal">{{ reminders.parts[1] }}</small></h5>
+{% endif %}
+{% if reminders and reminders.two_part and loop.index0 == reminders.part2_from %}
+<h5 class="mt-4 mb-2 border-top border-2 pt-3">Part 2 <small class="text-muted fw-normal">{{ reminders.parts[2] }}; only for those who answered part 1</small></h5>
+{% endif %}
+<div class="card mb-3" id="q-{{ loop.index }}">
     <div class="card-header d-flex justify-content-between">
         <strong>Question {{ loop.index }}{% if q.label %}: {{ q.label }}{% endif %}</strong>
         <span class="text-muted small">{{ type_names.get(q.question_type, q.question_type) }}
             {% if q.question_type == 'slider' %}({{ q.slider_min|round(2) }} to {{ q.slider_max|round(2) }}, step {{ q.slider_step }}){% endif %}</span>
     </div>
     <div class="card-body">
+        {% if q.show_arms is not none or q.cond_question is not none %}
+        <div class="small text-muted mb-2">
+            {% if q.show_arms is not none %}
+            Only shown in: {{ survey.arms|selectattr('arm_index', 'in', q.show_arms)|map(attribute='label')|join(', ') or 'no arm' }}.
+            {% endif %}
+            {% if q.cond_question is not none %}
+            Only shown if Question {{ q.cond_question + 1 }} was answered {{ q.cond_values|map('tojson')|join(' or ') }}.
+            {% endif %}
+        </div>
+        {% endif %}
         <div class="row g-3">
             {% for arm in survey.arms %}
             {% set data = q.arms.get(arm.arm_index, {}) %}
+            {% set asked = q.show_arms is none or arm.arm_index in q.show_arms %}
             <div class="col-md">
                 <div class="border-start border-3 ps-3 h-100">
                     <div class="fw-bold mb-1">{{ arm.label }}</div>
+                    {% if not asked %}
+                    <div class="text-muted fst-italic">Not asked in this arm.</div>
+                    {% else %}
                     {% if data.image_filename %}
                     <a href="/uploads/{{ data.image_filename }}" target="_blank">
                         <img src="/uploads/{{ data.image_filename }}" alt="" class="img-fluid rounded mb-2" style="max-height: 180px;">
                     </a>
                     {% endif %}
                     <div style="white-space: pre-wrap;">{{ data.question_text }}</div>
-                    {% if data.options %}
+                    {% if data.options or data.allow_other %}
                     <ul class="small mt-2 mb-0">
                         {% for opt in data.options %}<li>{{ opt }}</li>{% endfor %}
+                        {% if data.allow_other %}<li><em>Other (respondents type their answer)</em></li>{% endif %}
                     </ul>
+                    {% endif %}
+                    {% if data.timer_seconds %}
+                    {% set shown = {'both': 'countdown and bar', 'countdown': 'countdown', 'bar': 'shrinking bar', 'hidden': 'not shown to respondents'} %}
+                    <div class="small text-muted mt-2">&#9201; {{ data.timer_seconds }}-second timer ({{ shown.get(data.timer_display or 'both') }});
+                        if time runs out: {{ ('"' ~ data.timer_default ~ '"') if data.timer_default else 'no answer' }}</div>
+                    {% endif %}
                     {% endif %}
                 </div>
             </div>
@@ -69,6 +99,53 @@
     </div>
 </div>
 {% endfor %}
+
+{% if reminders %}
+<div class="card mb-3" id="reminders">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <strong>{% if reminders.two_part %}Two parts and notifications{% else %}Notifications{% endif %}</strong>
+        {% if reminders.approval == 'approved' %}<span class="badge text-bg-success">&#10003; Approved</span>
+        {% elif reminders.approval == 'pending' %}<span class="badge text-bg-warning">Waiting for instructor approval</span>
+        {% elif reminders.approval == 'changed' %}<span class="badge text-bg-warning">Changed since approval</span>{% endif %}
+    </div>
+    <div class="card-body">
+        {% if reminders.two_part %}
+        <p class="small mb-1">Part 1: {{ reminders.parts[1] }}. Part 2: {{ reminders.parts[2] }}{% if reminders.remote_part2 %}; everyone who answered part 1 gets a reminder when it opens ({{ reminders.time }}){% endif %}.</p>
+        {% endif %}
+        {% if reminders.tz %}<p class="small">Reminder times are in {{ reminders.tz }}.</p>{% endif %}
+        <div class="row g-3">
+            {% for arm in reminders.arms %}
+            <div class="col-md">
+                <div class="border-start border-3 ps-3 h-100">
+                    <div class="fw-bold mb-1">{{ arm.label }}</div>
+                    {% if arm.note %}<div class="small mb-2" style="white-space: pre-wrap;">{{ arm.note }}</div>{% endif %}
+                    {% if arm.events %}
+                    <ul class="small mb-0">
+                        {% for i in arm.events %}<li><b>{{ i.summary }}</b>: {{ i.when }}</li>{% endfor %}
+                    </ul>
+                    {% else %}<div class="text-muted fst-italic small">No reminders.</div>{% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% if is_host %}
+        {% if reminders.problems %}<div class="alert alert-info py-2 small mt-3 mb-0">Still to do: {{ reminders.problems|join(' ') }}</div>{% endif %}
+        {% if reminders.approval != 'none' %}
+        <form method="POST" action="{{ url_for('reminders.approve', code=classroom.code, survey_id=survey.id) }}" class="mt-3">
+            <input type="hidden" name="next" value="{{ url_for('feedback.view_survey', code=classroom.code, survey_id=survey.id) }}#reminders">
+            {% if reminders.approval == 'approved' %}
+            <button type="submit" name="action" value="revoke" class="btn btn-outline-secondary btn-sm">Withdraw approval</button>
+            <span class="small text-muted ms-2">Respondents then get no notifications, and remote parts close.</span>
+            {% else %}
+            <button type="submit" name="action" value="approve" class="btn btn-success btn-sm">Approve these dates and notifications</button>
+            <span class="small text-muted ms-2">Until then respondents get no notifications and remote parts stay closed. If the group edits them later, they need approval again.</span>
+            {% endif %}
+        </form>
+        {% endif %}
+        {% endif %}
+    </div>
+</div>
+{% endif %}
 
 <a href="{{ url_for('classroom.lobby', code=classroom.code) }}#feedback" class="text-muted">Back to lobby</a>
 {% endblock %}

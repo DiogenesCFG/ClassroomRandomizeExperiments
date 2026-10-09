@@ -1,0 +1,67 @@
+{# "Notifications" card on the survey page. Rendered by reminders-builder.js and saved as JSON to
+   reminders.save_plan (with the two-part card's timing), so it never touches arms, questions or responses. #}
+<div class="card mb-4 collapsible-card" id="reminders-card"
+     data-save-url="{{ url_for('reminders.save_plan', code=classroom.code, survey_id=survey_id) }}"
+     data-locked="{{ '1' if locked else '' }}" data-limit="{{ classroom.reminders_until or '' }}"
+     data-state='{{ reminders_state|tojson }}'
+     {% if not reminders_state.has_notifications %}data-default-collapsed="1"{% endif %}>
+    <div class="card-header d-flex align-items-center gap-2 flex-wrap">
+        <span class="collapse-toggle d-inline-flex align-items-center gap-2" role="button" tabindex="0" data-collapse-key="reminders" aria-expanded="true">
+            <span class="collapse-chevron">&#9662;</span><strong>Notifications</strong>
+        </span>
+        <span class="small text-muted">(optional)</span>
+        <span class="badge approval-badge" style="display:none"></span>
+    </div>
+    <div class="card-body collapse-body">
+        <p class="small text-muted">
+            Nudges respondents receive on their phones after answering your survey (part 1 of a two-part survey),
+            e.g. &ldquo;Drink some water&rdquo; at noon every day for a week. Each arm gets its own messages, times and days, or none.
+            Respondents add them to their calendar or turn on notifications. Your instructor approves them before anyone gets them.
+            <span class="info-tip text-muted" tabindex="0" role="button"
+                  data-bs-title="If only one arm gets notifications, only that arm goes through the &quot;add them&quot; step, so the arms differ in more than the messages. Consider giving the other arm different ones (a placebo), e.g. a neutral message on the same days."
+                  aria-label="About a placebo">&#9432;</span>
+        </p>
+        {% if classroom.reminders_until %}
+        <p class="small mb-2">Your instructor allows dates up to <strong>{{ reminders_state.limit_text }}</strong>.</p>
+        {% endif %}
+
+        <div class="d-flex align-items-center gap-2 flex-wrap mb-3">
+            <label for="rem-tz" class="small">Times are in</label>
+            <select id="rem-tz" class="form-select form-select-sm w-auto">
+                <option value="">each phone's own time (no time zone)</option>
+            </select>
+            <span class="info-tip text-muted" tabindex="0" role="button"
+                  data-bs-title="With no time zone, a 12:00 notification arrives at noon wherever the respondent is. Pick a time zone to send every notification at that zone's time instead (e.g. 12:00 Pacific is 3 PM for someone in New York)."
+                  aria-label="About time zones">&#9432;</span>
+        </div>
+
+        <div id="reminder-arms"></div>
+
+        <div class="alert alert-info py-2 small reminders-problems" style="display:none"></div>
+
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <small class="text-muted extras-status">{% if locked %}Locked.{% else %}Changes here save automatically.{% endif %}</small>
+            <div class="d-flex gap-2 flex-wrap">
+                <div class="dropdown">
+                    <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">See it as a respondent</button>
+                    <ul class="dropdown-menu" style="z-index: 1030;">
+                        {% for arm in arms %}
+                        <li><a class="dropdown-item" target="_blank"
+                               href="{{ url_for('reminders.page', code=classroom.code, survey_id=survey_id, arm=loop.index0) }}">In &ldquo;{{ arm.label }}&rdquo;</a></li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% if is_host and reminders_state.approval != 'none' %}
+                <form method="POST" action="{{ url_for('reminders.approve', code=classroom.code, survey_id=survey_id) }}" class="d-inline">
+                    <input type="hidden" name="next" value="{{ url_for('builder.edit', code=classroom.code, survey_id=survey_id) }}#reminders-card">
+                    {% if reminders_state.approval == 'approved' %}
+                    <button type="submit" name="action" value="revoke" class="btn btn-outline-secondary btn-sm">Withdraw approval</button>
+                    {% else %}
+                    <button type="submit" name="action" value="approve" class="btn btn-success btn-sm">Approve</button>
+                    {% endif %}
+                </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>

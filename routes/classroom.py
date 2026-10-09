@@ -5,7 +5,7 @@ from models.classroom import (
     create_classroom, get_classroom_by_code, check_host_password, check_classroom_password, parse_max_groups,
 )
 from models import roster as roster_model
-from models.survey import list_surveys, get_survey, survey_warnings, respondent_count
+from models.survey import list_surveys, get_survey, survey_warnings, respondent_count, survey_incomplete
 
 bp = Blueprint('classroom', __name__, url_prefix='/c')
 
@@ -112,7 +112,9 @@ def lobby(code):
     from models import feedback as fb
     groups = roster_model.my_groups(classroom['id'], student['id'])
     for g in groups:
-        g['warnings'] = survey_warnings(get_survey(g['id']))
+        full = get_survey(g['id'])
+        g['warnings'] = survey_warnings(full)
+        g['todo'] = survey_incomplete(full)
         g['responses'] = respondent_count(g['id'])
         g['received'] = fb.received_feedback(g['id']) if classroom['feedback_released'] else []
     at_limit = roster_model.at_group_limit(classroom, student['id'])
@@ -136,7 +138,9 @@ def lobby(code):
                if s['id'] not in carded and s['id'] in live_ids]
 
     surveys = list_surveys(classroom['id'])
+    from routes.reminders import followups_for_student
     return render_template('classroom/lobby.html', classroom=classroom, student=student,
+                           followups=followups_for_student(classroom, student, session.get('participant_id')),
                            groups=groups, at_limit=at_limit,
                            invites=roster_model.pending_invites_for_student(student['id']),
                            live=any(s['is_active'] for s in surveys),

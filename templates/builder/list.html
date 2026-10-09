@@ -12,8 +12,33 @@
 </div>
 
 {% if surveys %}
+{# Quick filters (in the browser): title/member name, number of members, status #}
+<div class="card mb-2">
+    <div class="card-body py-2 d-flex flex-wrap align-items-center gap-2" id="survey-filters">
+        <input type="search" class="form-control form-control-sm" style="max-width: 220px;" id="s-text" placeholder="Title or member name">
+        <span class="small">Members</span>
+        <select class="form-select form-select-sm w-auto" id="s-op">
+            <option value="">any</option>
+            <option value="lt">fewer than</option>
+            <option value="eq">exactly</option>
+            <option value="gt">more than</option>
+        </select>
+        <input type="number" class="form-control form-control-sm" style="width: 70px;" id="s-n" min="0" value="{{ classroom.max_group_size or 3 }}">
+        <select class="form-select form-select-sm w-auto" id="s-status">
+            <option value="">Any status</option>
+            <option value="unfinished">Not finished</option>
+            <option value="finished">Finished</option>
+            <option value="invites">Has pending invites</option>
+            <option value="approve">Waiting for your approval</option>
+            <option value="twopart">Two-part</option>
+            <option value="external">Other platform</option>
+        </select>
+        <a href="#" class="small ms-1" id="s-clear">Clear</a>
+        <span class="small text-muted ms-auto" id="s-count"></span>
+    </div>
+</div>
 <div class="table-responsive">
-    <table class="table table-striped">
+    <table class="table table-striped" id="surveys-table">
         <thead>
             <tr>
                 <th>Group #</th>
@@ -21,19 +46,26 @@
                 <th>Type</th>
                 <th>Members</th>
                 <th>Early deployment</th>
+                <th>Running it <span class="text-muted small" title="Next Survey in the live session runs each survey once, skipping the ones that already ran (for example launched on their own). Run again deletes a survey's responses so it can run again.">&#9432;</span></th>
                 <th>Actions</th>
             </tr>
         </thead>
         <tbody>
             {% for s in surveys %}
-            <tr>
+            <tr data-members="{{ s.member_count }}" data-invites="{{ s.invite_count }}"
+                data-status="{{ 'external' if s.external else ('unfinished' if s.todo else 'finished') }}{% if s.two_part %} twopart{% endif %}{% if s.reminder_approval in ('pending', 'changed') %} approve{% endif %}">
                 <td>{{ s.group_number }}</td>
-                <td>{{ s.title }}{% if s.external %}<br><span class="badge text-bg-secondary" title="{{ s.external_note or '' }}">Other platform</span>{% endif %}</td>
+                <td>{{ s.title }}{% if s.external %}<br><span class="badge text-bg-secondary" title="{{ s.external_note or '' }}">Other platform</span>{% elif s.todo %}<br><span class="badge text-bg-warning" title="{{ s.todo|join(' ') }}">Not finished</span>{% endif %}
+                    {% if s.two_part and not s.external %}<span class="badge text-bg-dark">Two-part</span>{% endif %}
+                    {% if s.reminder_approval in ('pending', 'changed') and not s.external %}<a href="{{ url_for('feedback.view_survey', code=classroom.code, survey_id=s.id) }}#reminders" class="badge text-bg-warning text-decoration-none">Dates/notifications: approve</a>
+                    {% elif s.reminder_approval == 'approved' and not s.external %}<span class="badge text-bg-success">Approved</span>{% endif %}</td>
                 <td>
                     <span class="badge bg-info">{{ s.question_count or 1 }} Q</span>
                     <br><small class="text-muted">{{ s.question_types or s.question_type }}</small>
                 </td>
-                <td><small>{{ s.member_names or '' }}</small></td>
+                <td><strong>{{ s.member_count }}</strong>{% if s.member_count == 1 %} <span class="badge text-bg-warning">alone</span>{% elif classroom.max_group_size and s.member_count >= classroom.max_group_size %} <span class="badge text-bg-secondary">full</span>{% endif %}
+                    {% if s.invite_count %}<span class="badge text-bg-info">+{{ s.invite_count }} invited</span>{% endif %}
+                    <br><small>{{ s.member_names or '' }}</small></td>
                 <td>
                     {% set early_url = url_for('feedback.host_early', code=classroom.code, survey_id=s.id) %}
                     {% if s.early_open %}
@@ -58,6 +90,28 @@
                         <input type="hidden" name="action" value="allow">
                         <button type="submit" class="btn btn-sm btn-outline-primary py-0">Allow early</button>
                     </form>
+                    {% endif %}
+                </td>
+                <td class="small">
+                    {% if not s.external %}
+                    {% for r in s.runs %}
+                    <div class="mb-1">
+                        {% if s.runs|length > 1 %}<strong>Part {{ r.part }}:</strong>{% endif %}
+                        {% if r.when == 'remote' %}<span class="text-muted">remote, from the lobby</span>
+                        {% else %}
+                        {% if r.ran %}<span class="badge text-bg-secondary">&#10003; ran</span>{% elif r.when == 'class' %}<span class="text-muted">launched separately</span>{% else %}<span class="text-muted">in the live session</span>{% endif %}
+                        <a class="btn btn-sm btn-outline-success py-0" href="{{ url_for('host.dashboard', code=classroom.code, survey=s.id, part=r.part) }}"
+                           title="Open the live dashboard with just this survey">Launch{% if s.runs|length == 1 %} on its own{% endif %}</a>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                    {% if s.runs|selectattr('ran')|list %}
+                    <form method="POST" action="{{ url_for('host.run_again', code=classroom.code, survey_id=s.id) }}"
+                          onsubmit="return askRunAgain(this, {{ s.group_number }})">
+                        <input type="hidden" name="host_password" value="">
+                        <button type="submit" class="btn btn-sm btn-link text-danger p-0">Run again&hellip;</button>
+                    </form>
+                    {% endif %}
                     {% endif %}
                 </td>
                 <td>
@@ -85,6 +139,43 @@
 
 {% block scripts %}
 <script>
+    // Survey filters: text, number of members, status
+    (function() {
+        var box = document.getElementById('survey-filters');
+        if (!box) return;
+        var el = function(id) { return document.getElementById(id); };
+        function apply() {
+            var q = el('s-text').value.toLowerCase(), op = el('s-op').value, n = parseInt(el('s-n').value, 10);
+            var status = el('s-status').value;
+            var rows = document.querySelectorAll('#surveys-table tbody tr'), shown = 0;
+            rows.forEach(function(tr) {
+                var m = parseInt(tr.dataset.members, 10);
+                var statuses = tr.dataset.status.split(' ');
+                var ok = tr.textContent.toLowerCase().indexOf(q) !== -1
+                    && (!op || isNaN(n) || (op === 'lt' && m < n) || (op === 'eq' && m === n) || (op === 'gt' && m > n))
+                    && (!status || (status === 'invites' ? parseInt(tr.dataset.invites, 10) > 0 : statuses.indexOf(status) !== -1));
+                tr.style.display = ok ? '' : 'none';
+                if (ok) shown++;
+            });
+            el('s-count').textContent = 'Showing ' + shown + ' of ' + rows.length;
+        }
+        box.addEventListener('input', apply);
+        box.addEventListener('change', apply);
+        el('s-clear').addEventListener('click', function(e) {
+            e.preventDefault();
+            ['s-text', 's-op', 's-status'].forEach(function(id) { el(id).value = ''; });
+            apply();
+        });
+        apply();
+    })();
+    function askRunAgain(form, group) {
+        var pw = prompt('Run Group ' + group + '\'s survey again?\n\nThis DELETES all its responses (and notification sign-ups), ' +
+                        'so it can run again in the live session as if new. Download its data first if you need it.\n\n' +
+                        'Enter the host password to confirm:');
+        if (pw === null) return false;
+        form.querySelector('input[name="host_password"]').value = pw;
+        return true;
+    }
     document.querySelectorAll('.copy-email-btn').forEach(function(btn) {
         btn.addEventListener('click', function() {
             var done = function() { btn.textContent = 'Copied!'; setTimeout(function() { btn.textContent = 'Copy email text'; }, 1500); };

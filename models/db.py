@@ -199,12 +199,40 @@ def init_db():
         ('classroom', 'feedback_released', 'INTEGER NOT NULL DEFAULT 0'),
         ('classroom', 'reviews_required', 'INTEGER NOT NULL DEFAULT 2'),
         ('classroom', 'max_questions_per_survey', 'INTEGER DEFAULT 3'),
+        ('arm_question', 'allow_other', 'INTEGER NOT NULL DEFAULT 0'),
+        ('response', 'seconds', 'REAL DEFAULT NULL'),
+        ('response', 'left_page', 'INTEGER DEFAULT NULL'),
+        ('response', 'other_text', 'TEXT DEFAULT NULL'),
+        ('response', 'timed_out', 'INTEGER DEFAULT NULL'),
+        ('arm_question', 'timer_seconds', 'INTEGER DEFAULT NULL'),
+        ('survey_question', 'show_arms', 'TEXT DEFAULT NULL'),
+        ('survey_question', 'cond_question', 'INTEGER DEFAULT NULL'),
+        ('survey_question', 'cond_values', 'TEXT DEFAULT NULL'),
+        ('arm_question', 'timer_display', 'TEXT DEFAULT NULL'),
+        ('arm_question', 'timer_default', 'TEXT DEFAULT NULL'),
         ('survey', 'early_allowed', 'INTEGER NOT NULL DEFAULT 0'),
         ('survey', 'early_open', 'INTEGER NOT NULL DEFAULT 0'),
         ('survey', 'early_deadline_utc', 'TEXT DEFAULT NULL'),
         ('survey', 'early_deadline_label', 'TEXT DEFAULT NULL'),
         ('survey', 'external', 'INTEGER NOT NULL DEFAULT 0'),
         ('survey', 'external_note', 'TEXT DEFAULT NULL'),
+        ('survey', 'part2_from', 'INTEGER DEFAULT NULL'),
+        ('survey', 'part1_when', 'TEXT DEFAULT NULL'),
+        ('survey', 'part2_when', 'TEXT DEFAULT NULL'),
+        ('survey', 'part1_open_date', 'TEXT DEFAULT NULL'),
+        ('survey', 'part1_close_date', 'TEXT DEFAULT NULL'),
+        ('survey', 'part1_open_utc', 'TEXT DEFAULT NULL'),
+        ('survey', 'part1_close_utc', 'TEXT DEFAULT NULL'),
+        ('survey', 'active_part', 'INTEGER DEFAULT NULL'),
+        ('survey', 'part2_ran', 'TEXT DEFAULT NULL'),
+        ('survey', 'part2_open_date', 'TEXT DEFAULT NULL'),
+        ('survey', 'part2_close_date', 'TEXT DEFAULT NULL'),
+        ('survey', 'part2_open_utc', 'TEXT DEFAULT NULL'),
+        ('survey', 'part2_close_utc', 'TEXT DEFAULT NULL'),
+        ('survey', 'part2_time', 'TEXT DEFAULT NULL'),
+        ('survey', 'reminder_plan', 'TEXT DEFAULT NULL'),
+        ('survey', 'reminders_approved', 'TEXT DEFAULT NULL'),
+        ('classroom', 'reminders_until', 'TEXT DEFAULT NULL'),
     ):
         try:
             db.execute(f'ALTER TABLE {table} ADD COLUMN {col} {col_def}')
@@ -215,6 +243,13 @@ def init_db():
         db.execute('ALTER TABLE survey ADD COLUMN went_live INTEGER NOT NULL DEFAULT 0')
         # Surveys that already ran (active now or have answers) count as having gone live
         db.execute('UPDATE survey SET went_live=1 WHERE is_active=1 OR id IN (SELECT DISTINCT survey_id FROM response)')
+        db.commit()
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    try:
+        db.execute('ALTER TABLE survey ADD COLUMN part1_ran TEXT DEFAULT NULL')
+        # Surveys that already ran live count as run, so the live sequence won't start them again
+        db.execute("UPDATE survey SET part1_ran=datetime('now') WHERE went_live=1")
         db.commit()
     except sqlite3.OperationalError:
         pass  # Column already exists

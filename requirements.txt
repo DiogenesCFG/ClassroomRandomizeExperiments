@@ -3,3 +3,5 @@ flask-socketio
 eventlet
 openpyxl
 gunicorn<23
+pywebpush
+tzdata

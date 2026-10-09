@@ -7,9 +7,13 @@ from flask_socketio import emit, join_room, leave_room
 
 from app import socketio
 from models.db import get_socket_db
+from models import reminders, rules
 from sockets.assignment import assign_arm
 
 logger = logging.getLogger(__name__)
+
+# Stored answer for the "Other" choice; what the respondent typed goes in response.other_text
+OTHER_LABEL = 'Other'
 
 
 def _get_survey_with_arms_and_questions(db, survey_id):
@@ -57,6 +61,7 @@ def _get_survey_with_arms_and_questions(db, survey_id):
     questions_list = []
     for q in questions:
         q_dict = dict(q)
+        q_dict.update(rules.from_row(q))
         q_dict['arm_texts'] = {}
         for arm in arms:
             aq = aq_by_key.get((arm['id'], q['id']))
@@ -65,23 +70,30 @@ def _get_survey_with_arms_and_questions(db, survey_id):
                     'question_text': aq['question_text'],
                     'options': options_by_aq.get(aq['id'], []),
                     'image_filename': aq['image_filename'],
+                    'allow_other': bool(aq['allow_other']),
+                    'timer_seconds': aq['timer_seconds'],
+                    'timer_display': aq['timer_display'] or 'both',
+                    'timer_default': aq['timer_default'] or '',
                 }
             else:
                 q_dict['arm_texts'][arm['id']] = {
                     'question_text': '',
                     'options': [],
                     'image_filename': None,
+                    'allow_other': False,
                 }
         questions_list.append(q_dict)
 
     return dict(survey), [dict(a) for a in arms], questions_list
 
 
-def _build_assignment_payload(survey, arms, questions, student_id, arm_position=None):
+def _build_assignment_payload(survey, arms, questions, student_id, arm_position=None, part=1):
     """Build the assignment payload for a specific student.
 
     arm_position forces a specific arm (used by the builder's "Preview survey").
+    part: which part of a two-part survey (part 1 runs live; part 2 is answered later).
     """
+    two_part = reminders.is_two_part(survey)
     num_arms = len(arms)
     if arm_position is None:
         arm_position = assign_arm(student_id, survey['id'], num_arms)
@@ -94,10 +106,15 @@ def _build_assignment_payload(survey, arms, questions, student_id, arm_position=
         'arm_id': arm['id'],
         'arm_index': arm['arm_index'],
         'arm_label': arm['label'],
+        'part': part if two_part else None,
         'questions': [],
     }
 
     for q in questions:
+        if not rules.shown_in_arm(q, arm['arm_index']):
+            continue  # display rule: this arm doesn't see the question
+        if reminders.question_part(survey, q) != part:
+            continue  # the other part of a two-part survey
         arm_data = q['arm_texts'].get(arm['id'], {})
         q_payload = {
             'question_id': q['id'],
@@ -106,7 +123,15 @@ def _build_assignment_payload(survey, arms, questions, student_id, arm_position=
             'label': q.get('label', ''),
             'question_text': arm_data.get('question_text', ''),
             'options': arm_data.get('options', []),
+            'allow_other': bool(arm_data.get('allow_other')) and q['question_type'] in ('multiple_choice', 'multiple_answer'),
         }
+        if q.get('cond_question') is not None:
+            # Shown only if the respondent answered that earlier question with one of these
+            q_payload['condition'] = {'question_index': q['cond_question'], 'values': q.get('cond_values') or []}
+        if arm_data.get('timer_seconds'):
+            q_payload['timer'] = {'seconds': arm_data['timer_seconds'],
+                                  'display': arm_data.get('timer_display') or 'both',
+                                  'default': arm_data.get('timer_default') or ''}
         if q['question_type'] == 'slider':
             q_payload['slider_min'] = q.get('slider_min', 0) or 0
             q_payload['slider_max'] = q.get('slider_max', 100) or 100
@@ -129,7 +154,7 @@ def _get_aggregated_results(db, survey_id):
 
     # Batch-fetch ALL responses for this survey in one query
     all_responses = db.execute(
-        'SELECT arm_id, question_id, answer_text, answer_index FROM response WHERE survey_id=?',
+        'SELECT arm_id, question_id, answer_text, answer_index, other_text, timed_out FROM response WHERE survey_id=?',
         (survey_id,)
     ).fetchall()
 
@@ -168,6 +193,7 @@ def _aggregate_responses(survey, arms, questions, all_responses):
             'question_index': q['question_index'],
             'question_type': q['question_type'],
             'label': q.get('label', ''),
+            'part': reminders.question_part(survey, q) if reminders.is_two_part(survey) else None,
             'arms': [],
             'total_responses': 0,
         }
@@ -184,6 +210,8 @@ def _aggregate_responses(survey, arms, questions, all_responses):
                 'label': arm['label'],
                 'question_text': arm_q_info.get('question_text', ''),
             }
+            if not rules.shown_in_arm(q, arm['arm_index']):
+                arm_data['not_shown'] = True
             image_fn = arm_q_info.get('image_filename')
             if image_fn:
                 arm_data['image_url'] = '/uploads/' + image_fn
@@ -191,8 +219,18 @@ def _aggregate_responses(survey, arms, questions, all_responses):
             responses = responses_by_key.get((arm['id'], q['id']), [])
             q_data['total_responses'] += len(responses)
 
+            if arm_q_info.get('timer_seconds'):
+                arm_data['timer_seconds'] = arm_q_info['timer_seconds']
+                arm_data['timed_out'] = sum(1 for r in responses if 'timed_out' in r.keys() and r['timed_out'])
+                arm_data['respondents'] = len(responses)  # n can exclude blank timed-out answers
+            if q['question_type'] in ('multiple_choice', 'multiple_answer'):
+                # "Other" is counted like an option; what people typed is listed separately
+                arm_data['other_texts'] = [r['other_text'] for r in responses
+                                           if 'other_text' in r.keys() and r['other_text']]
             if q['question_type'] == 'multiple_choice':
-                option_texts = arm_q_info.get('options', [])
+                option_texts = list(arm_q_info.get('options', []))
+                if arm_q_info.get('allow_other'):
+                    option_texts.append(OTHER_LABEL)
                 counts = {opt: 0 for opt in option_texts}
                 for r in responses:
                     if r['answer_text'] in counts:
@@ -201,7 +239,9 @@ def _aggregate_responses(survey, arms, questions, all_responses):
                 arm_data['counts'] = counts
                 arm_data['n'] = len(responses)
             elif q['question_type'] == 'multiple_answer':
-                option_texts = arm_q_info.get('options', [])
+                option_texts = list(arm_q_info.get('options', []))
+                if arm_q_info.get('allow_other'):
+                    option_texts.append(OTHER_LABEL)
                 counts = {opt: 0 for opt in option_texts}
                 for r in responses:
                     try:
@@ -268,16 +308,37 @@ def _aggregate_responses(survey, arms, questions, all_responses):
     return output
 
 
-def _is_fully_answered(db, participant_id, survey_id):
-    """Check if a student has answered all questions for a survey."""
-    question_count = db.execute(
-        'SELECT COUNT(*) as cnt FROM survey_question WHERE survey_id=?', (survey_id,)
-    ).fetchone()['cnt']
-    answered_count = db.execute(
-        'SELECT COUNT(*) as cnt FROM response WHERE participant_id=? AND survey_id=?',
-        (participant_id, survey_id)
-    ).fetchone()['cnt']
-    return answered_count >= question_count and question_count > 0
+def _is_fully_answered(db, participant_id, survey_id, part=1):
+    """Has the student answered every question they were shown (in this part of a two-part survey)?
+
+    With display rules a respondent sees only their arm's questions, and conditional
+    questions only after the matching answer, so this replays the rules on their answers.
+    """
+    survey = db.execute('SELECT * FROM survey WHERE id=?', (survey_id,)).fetchone()
+    if not survey:
+        return False
+    survey = dict(survey)
+    responses = db.execute(
+        'SELECT r.question_id, r.answer_text, sa.arm_index FROM response r '
+        'JOIN survey_arm sa ON r.arm_id = sa.id WHERE r.participant_id=? AND r.survey_id=?',
+        (participant_id, survey_id)).fetchall()
+    if not responses:
+        return False
+    questions = []
+    for row in db.execute('SELECT * FROM survey_question WHERE survey_id=? ORDER BY question_index', (survey_id,)):
+        q = dict(row)
+        q.update(rules.from_row(row))
+        if reminders.question_part(survey, q) == part:
+            questions.append(q)
+    if not questions:
+        return False
+    index_of = {q['id']: q['question_index'] for q in questions}
+    responses = [r for r in responses if r['question_id'] in index_of]
+    if not responses:
+        return False
+    answers = {index_of[r['question_id']]: r['answer_text'] for r in responses if r['question_id'] in index_of}
+    visible = rules.visible_questions(questions, responses[0]['arm_index'], answers)
+    return all(q['question_index'] in answers for q in visible)
 
 
 @socketio.on('join_student')

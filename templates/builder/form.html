@@ -9,6 +9,7 @@
 {% set read_only = mode == 'edit' and locked %}
 <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
     <div>
+        <a href="{{ url_for('builder.index' if is_host else 'classroom.lobby', code=classroom.code) }}" class="small text-muted">&larr; {{ 'Surveys' if is_host else 'My lobby' }}</a>
         <h2 class="mb-0">{% if read_only %}Survey{% elif mode == 'edit' %}Edit Survey{% else %}Create New Survey{% endif %}</h2>
         {% if not read_only %}<a href="#" class="small text-muted" id="tour-replay" data-tour-replay>Show me around</a>{% endif %}
     </div>
@@ -19,12 +20,23 @@
             <ul class="dropdown-menu" style="z-index: 1030;"><!-- above the sticky autosave bar (z-index 1020) -->
                 {% for arm in arms %}
                 <li><a class="dropdown-item" target="_blank"
-                       href="{{ url_for('builder.preview_survey', code=classroom.code, survey_id=survey_id, arm=loop.index0) }}">As a respondent in "{{ arm.label }}"</a></li>
+                       href="{{ url_for('builder.preview_survey', code=classroom.code, survey_id=survey_id, arm=loop.index0) }}">As a respondent in "{{ arm.label }}"{% if survey.part2_from is not none %}, part 1{% endif %}</a></li>
+                {% if survey.part2_from is not none %}
+                <li><a class="dropdown-item" target="_blank"
+                       href="{{ url_for('builder.preview_survey', code=classroom.code, survey_id=survey_id, arm=loop.index0, part=2) }}">As a respondent in "{{ arm.label }}", part 2</a></li>
+                {% endif %}
+                {% endfor %}
+                <li><hr class="dropdown-divider"></li>
+                {% for arm in arms %}
+                <li><a class="dropdown-item" target="_blank"
+                       href="{{ url_for('reminders.page', code=classroom.code, survey_id=survey_id, arm=loop.index0) }}">Notifications in "{{ arm.label }}"</a></li>
                 {% endfor %}
             </ul>
         </div>
         <a class="btn btn-outline-primary btn-sm" target="_blank"
            href="{{ url_for('builder.preview_dashboard', code=classroom.code, survey_id=survey_id) }}">Preview dashboard</a>
+        <a class="btn btn-outline-primary btn-sm" id="flow-btn"
+           href="{{ url_for('builder.flow_chart', code=classroom.code, survey_id=survey_id) }}">View as flow chart</a>
     </div>
     {% endif %}
 </div>
@@ -50,15 +62,269 @@
     <div class="alert alert-warning py-2 small mb-2">&#9888; {{ w }}</div>
     {% endfor %}
 </div>
+<div id="survey-todo" class="alert alert-info py-2 small mb-3" {% if not todo or external %}style="display:none"{% endif %}>
+    <strong>Not finished yet.</strong> It's saved, but before it can run: <span id="survey-todo-list">{{ todo|join(' ') }}</span>
+</div>
+
+<div class="card mb-4 collapsible-card" id="members-card" {% if members|length > 1 %}data-default-collapsed="1"{% endif %}>
+    <div class="card-header d-flex align-items-center gap-2">
+        <span class="collapse-toggle d-inline-flex align-items-center gap-2" role="button" tabindex="0" data-collapse-key="members" aria-expanded="true">
+            <span class="collapse-chevron">&#9662;</span><strong>Group Members</strong>
+        </span>
+        <span class="small text-muted">{{ members|map(attribute='name')|join(' · ') }}{% if pending_invites %} · {{ pending_invites|length }} invited{% endif %}</span>
+    </div>
+    <div class="card-body collapse-body">
+        <ul class="list-unstyled mb-2">
+            {% for m in members %}
+            <li>{{ m.name }}{% if student and m.roster_student_id == student.id %} <span class="text-muted">(you)</span>{% endif %}</li>
+            {% else %}
+            <li class="text-muted">No members yet.</li>
+            {% endfor %}
+            {% for inv in pending_invites %}
+            <li class="text-muted">{{ inv.full_name }} <span class="badge text-bg-light">invited, waiting to accept</span></li>
+            {% endfor %}
+        </ul>
+        {% set group_is_full = classroom.max_group_size and members|length >= classroom.max_group_size %}
+        {% if group_is_full and not groups_locked %}
+        <p class="small text-muted mb-0">Your group is full (at most {{ classroom.max_group_size }} members).</p>
+        {% elif not groups_locked and student and members|selectattr('roster_student_id', 'equalto', student.id)|list %}
+        <form method="POST" action="{{ url_for('account.invite', code=classroom.code, survey_id=survey_id) }}"
+              class="invite-picker" data-mode="single">
+            <input type="hidden" name="back" value="edit">
+            <input type="hidden" name="invitee_id" value="">
+            <div class="input-group">
+                <input type="text" class="form-control invite-search" list="classmate-list"
+                       placeholder="Invite a classmate by name" autocomplete="off">
+                <button type="submit" class="btn btn-outline-primary">Send invite</button>
+            </div>
+            <div class="invite-feedback text-danger small mt-1" style="display:none"></div>
+        </form>
+        {% endif %}
+    </div>
+</div>
 {% endif %}
 
-<form method="POST" id="survey-form" enctype="multipart/form-data"
+{# ---------- Reusable pieces (also cloned by builder.js through the <template>s at the bottom) ---------- #}
+{% macro info(text) -%}
+<span class="info-tip text-muted" tabindex="0" role="button" data-bs-title="{{ text }}" aria-label="{{ text }}">&#9432;</span>
+{%- endmacro %}
+
+{% macro collapse_head(key, title, extra='') -%}
+<span class="collapse-toggle d-inline-flex align-items-center gap-2" role="button" tabindex="0" data-collapse-key="{{ key }}" aria-expanded="true">
+    <span class="collapse-chevron">&#9662;</span><strong>{{ title }}</strong>{{ extra }}
+</span>
+{%- endmacro %}
+
+{% macro arm_block(q_idx, ai, arm_label, first_label, arm_data, qtype) %}
+<div class="question-arm-block border-start border-3 ps-3 mb-3" data-arm-index="{{ ai }}">
+    <div class="d-flex justify-content-between align-items-baseline gap-2">
+        <label class="form-label fw-bold arm-label-ref">{{ arm_label or 'Arm ' ~ (ai + 1) }}</label>
+        <button type="button" class="btn btn-link btn-sm p-0 copy-from-first-btn"
+                {% if ai == 0 %}style="display:none"{% endif %}>Copy from <span class="first-arm-name">{{ first_label or 'Arm 1' }}</span></button>
+    </div>
+    <input type="text" class="form-control mb-1 arm-question-text"
+           name="questions[{{ q_idx }}][arms][{{ ai }}][question_text]"
+           value="{{ arm_data.question_text }}"
+           placeholder="Question text for {{ arm_label or 'this arm' }}">
+    <div class="arm-image-section mb-1">
+        {% if arm_data.image_filename %}
+        <div class="d-flex align-items-center gap-2 mb-1 existing-image-info">
+            <small class="text-muted">Image: {{ arm_data.image_filename.split('_', 1)[1] if '_' in arm_data.image_filename else arm_data.image_filename }}</small>
+            <a href="/uploads/{{ arm_data.image_filename }}" target="_blank" class="btn btn-sm btn-outline-secondary py-0">View</a>
+            <button type="button" class="btn btn-sm btn-outline-danger py-0 remove-image-btn">Remove</button>
+        </div>
+        <input type="hidden" class="existing-image-input"
+               name="questions[{{ q_idx }}][arms][{{ ai }}][existing_image]"
+               value="{{ arm_data.image_filename }}">
+        {% endif %}
+        <input type="file" class="form-control form-control-sm arm-image-input"
+               name="questions[{{ q_idx }}][arms][{{ ai }}][image]"
+               accept=".png,.jpg,.jpeg">
+        <small class="text-muted">Optional image (PNG or JPEG, max 5MB)</small>
+    </div>
+    <div class="question-options-section" {% if qtype not in ('multiple_choice', 'multiple_answer') %}style="display:none"{% endif %}>
+        <label class="form-label text-muted small">Answer options
+            {{ info('The choices respondents pick from. Their wording and order can differ between arms.') }}</label>
+        <div class="question-options-container">
+            {% for opt in arm_data.options %}
+            <div class="input-group mb-1 q-option-row">
+                <input type="text" class="form-control form-control-sm"
+                       name="questions[{{ q_idx }}][arms][{{ ai }}][options][{{ loop.index0 }}]"
+                       value="{{ opt }}" placeholder="Option {{ loop.index }}">
+                <button type="button" class="btn btn-sm btn-outline-danger remove-q-option-btn"
+                        {% if arm_data.options|length <= 2 %}style="display:none"{% endif %}>x</button>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="input-group input-group-sm mb-1 q-other-row" {% if not arm_data.allow_other %}style="display:none"{% endif %}>
+            <span class="input-group-text">Other:</span>
+            <input type="text" class="form-control" disabled placeholder="respondents type their own answer">
+            <button type="button" class="btn btn-sm btn-outline-danger remove-q-other-btn" title="Remove the Other choice">x</button>
+        </div>
+        <input type="hidden" class="allow-other-input" name="questions[{{ q_idx }}][arms][{{ ai }}][allow_other]" value="{{ '1' if arm_data.allow_other else '' }}">
+        <button type="button" class="btn btn-sm btn-outline-secondary add-q-option-btn mt-1">+ Add Option</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary add-q-other-btn mt-1" {% if arm_data.allow_other %}style="display:none"{% endif %}>+ Add &quot;Other&quot;</button>
+        {{ info('Adds an "Other" choice with a text box, so respondents can type their own answer. The dashboard lists what they typed.') }}
+    </div>
+</div>
+{% endmacro %}
+
+{% macro timer_row(q_idx, ai, arm_label, arm_data) %}
+{% set has_timer = arm_data.timer_seconds or arm_data.timer_seconds_raw %}
+<div class="timer-row border-start border-3 ps-3 mb-3" data-arm-index="{{ ai }}">
+    <div class="form-check form-switch mb-1">
+        <label class="form-check-label">
+            <input class="form-check-input timer-on-input" type="checkbox" value="1"
+                   name="questions[{{ q_idx }}][arms][{{ ai }}][timer_on]" {% if has_timer %}checked{% endif %}>
+            Timer in <strong class="timer-arm-name">{{ arm_label or 'Arm ' ~ (ai + 1) }}</strong>
+        </label>
+    </div>
+    <div class="timer-fields row g-2 align-items-end" {% if not has_timer %}style="display:none"{% endif %}>
+        <div class="col-auto">
+            <label class="form-label small mb-0">Seconds {{ info('From 1 to 600.') }}</label>
+            <input type="number" class="form-control form-control-sm timer-seconds-input" min="1" max="600" style="width: 90px;"
+                   name="questions[{{ q_idx }}][arms][{{ ai }}][timer_seconds]" value="{{ arm_data.timer_seconds_raw or arm_data.timer_seconds or 10 }}">
+        </div>
+        <div class="col-auto">
+            <label class="form-label small mb-0">Respondents see {{ info('A countdown number, a shrinking bar, both, or nothing: with "nothing" the limit still applies, but respondents are not told.') }}</label>
+            <select class="form-select form-select-sm timer-display-input" name="questions[{{ q_idx }}][arms][{{ ai }}][timer_display]">
+                {% for value, text in [('both', 'Countdown and bar'), ('countdown', 'Countdown only'), ('bar', 'Shrinking bar only'), ('hidden', 'Nothing (hidden limit)')] %}
+                <option value="{{ value }}" {% if (arm_data.timer_display or 'both') == value %}selected{% endif %}>{{ text }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col">
+            <label class="form-label small mb-0">If time runs out, record {{ info('The answer saved if time runs out before they answer. For choice questions, type one option exactly; for numbers and sliders, a number. Leave empty to record no answer. Either way, the data marks it as timed out.') }}</label>
+            <input type="text" class="form-control form-control-sm timer-default-input" maxlength="140"
+                   name="questions[{{ q_idx }}][arms][{{ ai }}][timer_default]" value="{{ arm_data.timer_default or '' }}"
+                   placeholder="empty = no answer">
+        </div>
+    </div>
+</div>
+{% endmacro %}
+
+{% macro question_block(q, q_idx, arms, all_questions=[]) %}
+{% set blank_arm = {'question_text': '', 'options': ['', ''], 'image_filename': None} %}
+<div class="question-block border rounded mb-3" data-question-index="{{ q_idx }}">
+    <div class="q-head d-flex align-items-center gap-2 px-3 py-2 flex-wrap">
+        <span class="q-drag" title="Drag to move this question" aria-label="Drag to move this question">&#10303;</span>
+        <span class="collapse-toggle q-collapse d-inline-flex align-items-center gap-2" role="button" tabindex="0" aria-expanded="true">
+            <span class="collapse-chevron">&#9662;</span><span class="fw-semibold question-header">Question {{ q_idx + 1 }}</span>
+        </span>
+        <span class="q-summary small text-muted"></span>
+        <span class="q-badges d-flex flex-wrap gap-1"></span>
+        <span class="ms-auto d-flex gap-2">
+            <span class="btn btn-sm btn-outline-secondary q-advanced-btn" role="button" tabindex="0">&#9881; Advanced options</span>
+            <button type="button" class="btn btn-sm btn-outline-danger remove-question-btn">Remove</button>
+        </span>
+    </div>
+    <div class="q-body px-3 pb-1">
+        <div class="row g-2 mb-3">
+            <div class="col-md-4">
+                <label class="form-label">Type {{ info('What respondents answer with: buttons (multiple choice: pick one; multiple answer: pick several), a number box, a short text box, or a slider. It is the same in every arm.') }}</label>
+                <select class="form-select question-type-select" name="questions[{{ q_idx }}][question_type]">
+                    {% for value, text in [('multiple_choice', 'Multiple Choice'), ('multiple_answer', 'Multiple Answer'), ('numeric', 'Numeric'), ('short_answer', 'Short Answer'), ('slider', 'Slider')] %}
+                    <option value="{{ value }}" {% if q.question_type == value %}selected{% endif %}>{{ text }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-8">
+                <label class="form-label">Label (optional) {{ info('A short name for this question, used for the dashboard tab and the data column, e.g. "Willingness to pay". Respondents see it above the question.') }}</label>
+                <input type="text" class="form-control" name="questions[{{ q_idx }}][label]"
+                       value="{{ q.label }}" placeholder="e.g., Willingness to Pay">
+            </div>
+        </div>
+        <div class="slider-config-section row g-2 mb-3" {% if q.question_type != 'slider' %}style="display:none"{% endif %}>
+            <div class="col-md-4">
+                <label class="form-label text-muted small">Min</label>
+                <input type="number" class="form-control slider-min-input" name="questions[{{ q_idx }}][slider_min]"
+                       value="{{ q.slider_min if q.slider_min is defined and q.slider_min is not none else 0 }}" step="any">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label text-muted small">Max</label>
+                <input type="number" class="form-control slider-max-input" name="questions[{{ q_idx }}][slider_max]"
+                       value="{{ q.slider_max if q.slider_max is defined and q.slider_max is not none else 100 }}" step="any">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label text-muted small">Step</label>
+                <input type="number" class="form-control slider-step-input" name="questions[{{ q_idx }}][slider_step]"
+                       value="{{ q.slider_step if q.slider_step is defined and q.slider_step is not none else 1 }}" step="any" min="0.01">
+            </div>
+        </div>
+        <div class="question-arms">
+            {% for arm in arms %}
+            {{ arm_block(q_idx, loop.index0, arm.label, arms[0].label, q.arms[loop.index0] if loop.index0 in q.arms else blank_arm, q.question_type) }}
+            {% endfor %}
+        </div>
+    </div>
+
+    {# Advanced options: a pop-up that lives inside the question, so its fields are part of the form #}
+    <div class="modal fade q-advanced-modal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Advanced options: <span class="q-adv-title">Question {{ q_idx + 1 }}</span></h5>
+                    <a href="#" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></a>
+                </div>
+                <div class="modal-body">
+                    <h6 class="mb-1">Display rules</h6>
+                    <p class="small text-muted mb-2">Leave these as they are for most surveys.</p>
+                    <div class="rules-section mb-3" data-cond-index="{{ q.cond_question if q.cond_question is not none else '' }}"
+                         data-cond-values='{{ (q.cond_values or [])|tojson }}'>
+                        <input type="hidden" class="rules-present" name="questions[{{ q_idx }}][rules_present]" value="1">
+                        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                            <span>Shown in {{ info('Untick an arm to ask this question only in the other arms. Its version in an unticked arm is greyed out and does not need to be filled in.') }}:</span>
+                            <span class="show-arms-boxes">
+                                {% for arm in arms %}
+                                <label class="me-2 show-arm-box"><input type="checkbox" class="form-check-input show-arm-input" value="{{ loop.index0 }}"
+                                       name="questions[{{ q_idx }}][show_arms]" {% if q.show_arms is not defined or q.show_arms is none or loop.index0 in q.show_arms %}checked{% endif %}>
+                                    <span class="show-arm-name">{{ arm.label or 'Arm ' ~ loop.index }}</span></label>
+                                {% endfor %}
+                            </span>
+                        </div>
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            <span>Show it {{ info('Make this a follow-up question: it is shown only to respondents who answered an earlier multiple-choice question a certain way. Everyone else skips it.') }}:</span>
+                            <select class="form-select form-select-sm w-auto cond-select"><option value="">always</option></select>
+                            {# Rendered here too (not only by the script) so the page saves correctly even before builder.js runs #}
+                            {% set src = all_questions[q.cond_question] if q.cond_question is not none and q.cond_question < all_questions|length else none %}
+                            <input type="hidden" class="cond-question-input" name="questions[{{ q_idx }}][cond_question]" value="{{ q.cond_question if src else '' }}">
+                            <span class="cond-values-wrap" {% if not src %}style="display:none"{% endif %}>if the answer is any of: <span class="cond-values">
+                                {% if src %}
+                                {% set answers = src.arms.values()|map(attribute='options')|sum(start=[])|reject('equalto', '')|unique|list %}
+                                {% if src.arms.values()|selectattr('allow_other')|list and 'Other' not in answers %}{% set answers = answers + ['Other'] %}{% endif %}
+                                {% for v in answers %}<label class="me-2"><input type="checkbox" class="form-check-input cond-value-input" value="{{ v }}"
+                                    name="questions[{{ q_idx }}][cond_values]" {% if v in (q.cond_values or []) %}checked{% endif %}> {{ v }}</label>{% endfor %}
+                                {% endif %}
+                            </span></span>
+                        </div>
+                    </div>
+                    <hr>
+                    <h6 class="mb-1">Timer {{ info('A time limit for this question, set separately for each arm (e.g. 10 seconds in the treatment, none in the control). It starts when the question appears and keeps running if respondents switch apps.') }}</h6>
+                    <p class="small text-muted mb-2">Off unless you turn it on for an arm.</p>
+                    <div class="timer-rows">
+                        {% for arm in arms %}
+                        {{ timer_row(q_idx, loop.index0, arm.label, q.arms[loop.index0] if loop.index0 in q.arms else blank_arm) }}
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <span class="small text-muted me-auto">Changes save automatically.</span>
+                    <a href="#" class="btn btn-primary" role="button" data-bs-dismiss="modal">Done</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endmacro %}
+
+<form method="POST" id="survey-form" enctype="multipart/form-data" novalidate
       {% if classroom.max_questions_per_survey and not is_host %}data-max-questions="{{ classroom.max_questions_per_survey }}"{% endif %}
+      {% if mode == 'edit' %}data-collapse-scope="survey-{{ survey_id }}"{% endif %}
       {% if mode == 'edit' and not read_only and not response_count %}data-autosave-url="{{ url_for('builder.autosave', code=classroom.code, survey_id=survey_id) }}" data-survey-id="{{ survey_id }}"{% endif %}>
 <fieldset {% if read_only %}disabled{% endif %}>
-    <div class="card mb-4">
-        <div class="card-header"><strong>Survey Details</strong></div>
-        <div class="card-body">
+    <div class="card mb-4 collapsible-card" id="details-card">
+        <div class="card-header">{{ collapse_head('details', 'Survey details') }}</div>
+        <div class="card-body collapse-body">
             <div class="row g-3">
                 {% if is_host %}
                 <div class="col-md-3">
@@ -75,41 +341,37 @@
                     {% endif %}
                     <label for="title" class="form-label">Survey Title</label>
                     <input type="text" class="form-control" id="title" name="title"
-                           value="{{ title }}" required placeholder="e.g., Anchoring Effect on Price Estimates">
+                           value="{{ title }}" placeholder="e.g., Anchoring Effect on Price Estimates">
+                </div>
+            </div>
+            <div class="mt-3" id="external-card">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" role="switch" id="external" name="external" value="1" {% if external %}checked{% endif %}>
+                    <label class="form-check-label fw-semibold" for="external">We're running our survey on another platform (e.g., Google Forms)</label>
+                    {{ info('Only if your instructor agreed. Your group randomizes the versions and emails them to classmates; this site will not run your survey. You still present in your turn and get peer feedback, but there are no live results, so bring your own.') }}
+                </div>
+                <div id="external-fields" class="mt-3" {% if not external %}style="display:none"{% endif %}>
+                    <label for="external_note" class="form-label">How you're running it (optional)</label>
+                    <textarea class="form-control" id="external_note" name="external_note" rows="3" maxlength="1000"
+                              placeholder="e.g., Two Google Forms. Each half of the class gets one version by email; version B adds a $25 anchor.">{{ external_note or '' }}</textarea>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="card mb-4" id="external-card">
-        <div class="card-body">
-            <div class="form-check form-switch">
-                <input class="form-check-input" type="checkbox" role="switch" id="external" name="external" value="1" {% if external %}checked{% endif %}>
-                <label class="form-check-label fw-semibold" for="external">We're running our survey on another platform (e.g., Google Forms)</label>
-            </div>
-            <div class="form-text">Only if your instructor agreed. Your group randomizes the versions and emails them to classmates; this site won't run your survey.
-                You still present in your turn and get peer feedback, but there are no live results, so bring your own.</div>
-            <div id="external-fields" class="mt-3" {% if not external %}style="display:none"{% endif %}>
-                <label for="external_note" class="form-label">How you're running it (optional)</label>
-                <textarea class="form-control" id="external_note" name="external_note" rows="3" maxlength="1000"
-                          placeholder="e.g., Two Google Forms. Each half of the class gets one version by email; version B adds a $25 anchor.">{{ external_note or '' }}</textarea>
-            </div>
-        </div>
-    </div>
-
     <fieldset id="in-app-design" {% if external %}disabled style="display:none"{% endif %}>
-    <div class="card mb-4" id="arms-card">
+    <div class="card mb-4 collapsible-card" id="arms-card">
         <div class="card-header d-flex justify-content-between align-items-center">
-            <strong>Arms (Treatment/Control Groups)</strong>
+            {{ collapse_head('arms', 'Arms', ' ' ~ info('Arms are the versions of your survey: usually a control and one or more treatments. Each respondent is randomly shown one arm, always the same one.')) }}
             <button type="button" class="btn btn-sm btn-outline-success" id="add-arm-btn">+ Add Arm</button>
         </div>
-        <div class="card-body" id="arms-container">
+        <div class="card-body collapse-body" id="arms-container">
             {% for arm in arms %}
             {% set arm_idx = loop.index0 %}
             <div class="arm-label-block d-flex align-items-center gap-2 mb-2" data-arm-index="{{ arm_idx }}">
                 <span class="fw-bold arm-number-label">Arm {{ loop.index }}:</span>
                 <input type="text" class="form-control" name="arms[{{ arm_idx }}][label]"
-                       value="{{ arm.label }}" placeholder="e.g., Control" required>
+                       value="{{ arm.label }}" placeholder="e.g., Control">
                 <button type="button" class="btn btn-sm btn-outline-danger remove-arm-btn"
                         {% if arms|length <= 1 %}style="display:none"{% endif %}>Remove</button>
             </div>
@@ -117,111 +379,92 @@
         </div>
     </div>
 
-    <div class="card mb-4">
-        <div class="card-header d-flex justify-content-between align-items-center">
+    <div class="card mb-4 collapsible-card" id="questions-card">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
             <div>
-                <strong>Questions</strong>
+                {{ collapse_head('questions', 'Questions') }}
                 {% if classroom.max_questions_per_survey and not is_host %}
                 <small class="text-muted ms-1">up to {{ classroom.max_questions_per_survey }}; shorter surveys get better answers</small>
                 {% endif %}
             </div>
-            <button type="button" class="btn btn-sm btn-outline-success" id="add-question-btn">+ Add Question</button>
-        </div>
-        <div class="card-body" id="questions-container">
-            {% for q in questions %}
-            {% set q_idx = loop.index0 %}
-            <div class="question-block border rounded p-3 mb-3" data-question-index="{{ q_idx }}">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h6 class="mb-0 question-header">Question {{ loop.index }}</h6>
-                    <button type="button" class="btn btn-sm btn-outline-danger remove-question-btn"
-                            {% if questions|length <= 1 %}style="display:none"{% endif %}>Remove</button>
-                </div>
-                <div class="row g-2 mb-3">
-                    <div class="col-md-4">
-                        <label class="form-label">Type</label>
-                        <select class="form-select question-type-select" name="questions[{{ q_idx }}][question_type]">
-                            <option value="multiple_choice" {% if q.question_type == 'multiple_choice' %}selected{% endif %}>Multiple Choice</option>
-                            <option value="multiple_answer" {% if q.question_type == 'multiple_answer' %}selected{% endif %}>Multiple Answer</option>
-                            <option value="numeric" {% if q.question_type == 'numeric' %}selected{% endif %}>Numeric</option>
-                            <option value="short_answer" {% if q.question_type == 'short_answer' %}selected{% endif %}>Short Answer</option>
-                            <option value="slider" {% if q.question_type == 'slider' %}selected{% endif %}>Slider</option>
-                        </select>
-                    </div>
-                    <div class="col-md-8">
-                        <label class="form-label">Label (optional)</label>
-                        <input type="text" class="form-control" name="questions[{{ q_idx }}][label]"
-                               value="{{ q.label }}" placeholder="e.g., Willingness to Pay">
-                    </div>
-                </div>
-                <div class="slider-config-section row g-2 mb-3" {% if q.question_type != 'slider' %}style="display:none"{% endif %}>
-                    <div class="col-md-4">
-                        <label class="form-label text-muted small">Min</label>
-                        <input type="number" class="form-control slider-min-input" name="questions[{{ q_idx }}][slider_min]"
-                               value="{{ q.slider_min if q.slider_min is defined and q.slider_min is not none else 0 }}" step="any">
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label text-muted small">Max</label>
-                        <input type="number" class="form-control slider-max-input" name="questions[{{ q_idx }}][slider_max]"
-                               value="{{ q.slider_max if q.slider_max is defined and q.slider_max is not none else 100 }}" step="any">
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label text-muted small">Step</label>
-                        <input type="number" class="form-control slider-step-input" name="questions[{{ q_idx }}][slider_step]"
-                               value="{{ q.slider_step if q.slider_step is defined and q.slider_step is not none else 1 }}" step="any" min="0.01">
-                    </div>
-                </div>
-                <div class="question-arms">
-                    {% for arm in arms %}
-                    {% set ai = loop.index0 %}
-                    {% set arm_data = q.arms[ai] if ai in q.arms else {'question_text': '', 'options': ['', '']} %}
-                    <div class="question-arm-block border-start border-3 ps-3 mb-3" data-arm-index="{{ ai }}">
-                        <div class="d-flex justify-content-between align-items-baseline gap-2">
-                            <label class="form-label fw-bold arm-label-ref">{{ arm.label or 'Arm ' ~ (ai + 1) }}</label>
-                            <button type="button" class="btn btn-link btn-sm p-0 copy-from-first-btn"
-                                    {% if ai == 0 %}style="display:none"{% endif %}>Copy from <span class="first-arm-name">{{ arms[0].label or 'Arm 1' }}</span></button>
-                        </div>
-                        <input type="text" class="form-control mb-1 arm-question-text"
-                               name="questions[{{ q_idx }}][arms][{{ ai }}][question_text]"
-                               value="{{ arm_data.question_text }}"
-                               placeholder="Question text for {{ arm.label or 'this arm' }}" required>
-                        <div class="arm-image-section mb-1">
-                            {% if arm_data.image_filename %}
-                            <div class="d-flex align-items-center gap-2 mb-1 existing-image-info">
-                                <small class="text-muted">Image: {{ arm_data.image_filename.split('_', 1)[1] if '_' in arm_data.image_filename else arm_data.image_filename }}</small>
-                                <a href="/uploads/{{ arm_data.image_filename }}" target="_blank" class="btn btn-sm btn-outline-secondary py-0">View</a>
-                                <button type="button" class="btn btn-sm btn-outline-danger py-0 remove-image-btn">Remove</button>
-                            </div>
-                            <input type="hidden" class="existing-image-input"
-                                   name="questions[{{ q_idx }}][arms][{{ ai }}][existing_image]"
-                                   value="{{ arm_data.image_filename }}">
-                            {% endif %}
-                            <input type="file" class="form-control form-control-sm arm-image-input"
-                                   name="questions[{{ q_idx }}][arms][{{ ai }}][image]"
-                                   accept=".png,.jpg,.jpeg">
-                            <small class="text-muted">Optional image (PNG or JPEG, max 5MB)</small>
-                        </div>
-                        <div class="question-options-section" {% if q.question_type not in ('multiple_choice', 'multiple_answer') %}style="display:none"{% endif %}>
-                            <label class="form-label text-muted small">Answer Options:</label>
-                            <div class="question-options-container">
-                                {% for opt in arm_data.options %}
-                                <div class="input-group mb-1 q-option-row">
-                                    <input type="text" class="form-control form-control-sm"
-                                           name="questions[{{ q_idx }}][arms][{{ ai }}][options][{{ loop.index0 }}]"
-                                           value="{{ opt }}" placeholder="Option {{ loop.index }}">
-                                    <button type="button" class="btn btn-sm btn-outline-danger remove-q-option-btn"
-                                            {% if arm_data.options|length <= 2 %}style="display:none"{% endif %}>x</button>
-                                </div>
-                                {% endfor %}
-                            </div>
-                            <button type="button" class="btn btn-sm btn-outline-secondary add-q-option-btn mt-1">+ Add Option</button>
-                        </div>
-                    </div>
-                    {% endfor %}
-                </div>
+            <div class="d-flex gap-2 align-items-center">
+                <a href="#" class="small" id="expand-all-questions">Expand all</a>
+                <a href="#" class="small" id="collapse-all-questions">Collapse all</a>
+                <button type="button" class="btn btn-sm btn-outline-success" id="add-question-btn">+ Add Question</button>
             </div>
+        </div>
+        <div class="card-body collapse-body" id="questions-container">
+            {% for q in questions %}
+            {{ question_block(q, loop.index0, arms, questions) }}
             {% endfor %}
         </div>
     </div>
+
+    {% if mode == 'edit' %}
+    {# Two-part survey. The split (part2_from) is part of the survey form; each part's "when" and
+       dates have no name: reminders-builder.js saves them separately (like the notifications), so
+       they can change after the survey has responses. #}
+    {% set p2 = survey.part2_from if survey and survey.part2_from is not none else none %}
+    <div class="card mb-4 collapsible-card" id="two-part-card" {% if p2 is none %}data-default-collapsed="1"{% endif %}>
+        <div class="card-header d-flex align-items-center gap-2 flex-wrap">
+            {{ collapse_head('twopart', 'Two-part survey') }}
+            <span class="small text-muted">(optional)</span>
+            <span class="badge approval-badge" style="display:none"></span>
+        </div>
+        <div class="card-body collapse-body">
+            <p class="small text-muted mb-2">Most surveys have one part, answered in class when you present. Use this only if you need
+                two rounds of answers from the same classmates, e.g. a baseline, then an outcome after a week of notifications.</p>
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" role="switch" id="two-part-switch" {% if p2 is not none %}checked{% endif %}>
+                <label class="form-check-label fw-semibold" for="two-part-switch">This survey has two parts</label>
+                {{ info('Two rounds of questions, answered at different times by the same classmates, in the same arms. Part 2 is only for those who answered part 1.') }}
+            </div>
+            <div id="two-part-fields" class="mt-3" {% if p2 is none %}style="display:none"{% endif %}>
+                <div class="d-flex align-items-center gap-2 flex-wrap mb-3">
+                    <label for="part2-select">Part 2 starts at</label>
+                    <select class="form-select form-select-sm w-auto" id="part2-select">
+                        {% for q in questions[1:] %}<option {% if p2 == loop.index %}selected{% endif %}>Question {{ loop.index + 1 }}</option>{% endfor %}
+                    </select>
+                    <span class="small text-muted">the questions before it are part 1.</span>
+                </div>
+                {% for part in (1, 2) %}
+                <div class="part-when-row border rounded p-2 mb-2" data-part="{{ part }}">
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <label class="fw-semibold" for="p{{ part }}-when">Part {{ part }}:</label>
+                        <select class="form-select form-select-sm w-auto part-when" id="p{{ part }}-when">
+                            <option value="live">In class, during the live session{% if part == 1 %} (default){% endif %}</option>
+                            <option value="class">In class, launched separately by your instructor</option>
+                            <option value="remote">Remote: from the lobby, between dates you choose</option>
+                        </select>
+                        {{ info('During the live session: it runs when your group presents, like any survey. Launched separately: also in class, but your instructor starts it on its own (for example at the start of class, or on another day). Remote: classmates answer it from their lobby, on their own time, between the dates you choose; your instructor approves the dates.') }}
+                    </div>
+                    <div class="row g-2 align-items-end mt-1 part-dates" style="display:none">
+                        <div class="col-6 col-md-3">
+                            <label class="form-label small mb-0" for="p{{ part }}-open">Opens on</label>
+                            <input type="date" class="form-control form-control-sm" id="p{{ part }}-open">
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label class="form-label small mb-0" for="p{{ part }}-close">Closes after</label>
+                            <input type="date" class="form-control form-control-sm" id="p{{ part }}-close">
+                        </div>
+                        {% if part == 2 %}
+                        <div class="col-6 col-md-4">
+                            <label class="form-label small mb-0" for="p2-time">Remind them when it opens, at
+                                {{ info('Everyone who answered part 1 gets a reminder on the day part 2 opens, at this time.') }}</label>
+                            <input type="time" class="form-control form-control-sm" id="p2-time">
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+                {% if classroom.reminders_until %}<p class="small text-muted mb-1">Your instructor allows dates up to {{ reminders_state.limit_text }}.</p>{% endif %}
+                <div class="alert alert-info py-2 small mb-1 parts-problems" style="display:none"></div>
+                <small class="text-muted extras-status"></small>
+            </div>
+            <input type="hidden" name="part2_from" id="part2-from" value="{{ p2 if p2 is not none else '' }}">
+        </div>
+    </div>
+    {% endif %}
     </fieldset>
 
     {% if mode == 'new' and student %}
@@ -259,40 +502,12 @@
     </div>
 </form>
 
-{% if mode == 'edit' %}
-<div class="card mb-4" id="members-card">
-    <div class="card-header"><strong>Group Members</strong></div>
-    <div class="card-body">
-        <ul class="list-unstyled mb-2">
-            {% for m in members %}
-            <li>{{ m.name }}{% if student and m.roster_student_id == student.id %} <span class="text-muted">(you)</span>{% endif %}</li>
-            {% else %}
-            <li class="text-muted">No members yet.</li>
-            {% endfor %}
-            {% for inv in pending_invites %}
-            <li class="text-muted">{{ inv.full_name }} <span class="badge text-bg-light">invited, waiting to accept</span></li>
-            {% endfor %}
-        </ul>
-        {% set group_is_full = classroom.max_group_size and members|length >= classroom.max_group_size %}
-        {% if group_is_full and not groups_locked %}
-        <p class="small text-muted mb-0">Your group is full (at most {{ classroom.max_group_size }} members).</p>
-        {% elif not groups_locked and student and members|selectattr('roster_student_id', 'equalto', student.id)|list %}
-        <form method="POST" action="{{ url_for('account.invite', code=classroom.code, survey_id=survey_id) }}"
-              class="invite-picker" data-mode="single">
-            <input type="hidden" name="back" value="edit">
-            <input type="hidden" name="invitee_id" value="">
-            <div class="input-group">
-                <input type="text" class="form-control invite-search" list="classmate-list"
-                       placeholder="Invite a classmate by name" autocomplete="off">
-                <button type="submit" class="btn btn-outline-primary">Send invite</button>
-            </div>
-            <div class="invite-feedback text-danger small mt-1" style="display:none"></div>
-        </form>
-        {% endif %}
-    </div>
-</div>
+{% if mode == 'edit' and not external %}
+{% include 'builder/_reminders_card.html' %}
+{% endif %}
 
-{% if survey.early_allowed and not survey.early_open and not survey.external and not groups_locked and student
+{% if mode == 'edit' %}
+{% if survey.early_allowed and not survey.early_open and not survey.external and survey.part2_from is none and not groups_locked and student
       and members|selectattr('roster_student_id', 'equalto', student.id)|list %}
 <div class="card mb-4 border-info">
     <div class="card-header"><strong>Deploy early</strong></div>
@@ -333,6 +548,14 @@
 {% endif %}
 {% endif %}
 
+{% if mode == 'edit' %}
+{% set blank_arm = {'question_text': '', 'options': ['', ''], 'image_filename': None} %}
+{% set blank_q = {'question_type': 'multiple_choice', 'label': '', 'arms': {}, 'show_arms': None, 'cond_question': None, 'cond_values': []} %}
+<template id="tpl-question">{{ question_block(blank_q, 0, arms) }}</template>
+<template id="tpl-arm">{{ arm_block(0, 1, '', arms[0].label if arms else '', blank_arm, 'multiple_choice') }}</template>
+<template id="tpl-timer-row">{{ timer_row(0, 0, '', blank_arm) }}</template>
+{% endif %}
+
 <datalist id="classmate-list">
     {% for c in classmates %}<option value="{{ c.full_name }}" data-id="{{ c.id }}"></option>{% endfor %}
 </datalist>
@@ -346,7 +569,8 @@
             Download
         </button>
         <ul class="dropdown-menu">
-            <li><a class="dropdown-item" href="{{ url_for('builder.download_responses', code=classroom.code, survey_id=survey_id, anonymized=1) }}">Responses (anonymized, one row per respondent)</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('builder.download_responses', code=classroom.code, survey_id=survey_id, anonymized=1) }}">Responses, wide (anonymized, one row per respondent)</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('builder.download_responses', code=classroom.code, survey_id=survey_id, anonymized=1, format='long') }}">Responses, long (anonymized, one row per answer)</a></li>
             <li><a class="dropdown-item" href="{{ url_for('builder.download_config', code=classroom.code, survey_id=survey_id) }}">Survey Config</a></li>
             <li><a class="dropdown-item" href="{{ url_for('builder.download_designers', code=classroom.code, survey_id=survey_id) }}">Survey Designers</a></li>
             {% if is_host %}
@@ -357,17 +581,32 @@
         </ul>
     </div>
     {% if not locked %}
-    <form method="POST" action="{{ url_for('builder.delete', code=classroom.code, survey_id=survey_id) }}" class="mt-4"
-          onsubmit="return confirm('Delete this survey for your whole group? This also deletes any responses it has collected. This cannot be undone.')">
-        <button type="submit" class="btn btn-outline-danger btn-sm">Delete survey</button>
-    </form>
+    <details class="mt-4" id="danger-zone">
+        <summary class="text-danger">Danger zone</summary>
+        <div class="d-flex flex-column gap-3 mt-2">
+            {% if not external %}
+            <form method="POST" action="{{ url_for('builder.start_over', code=classroom.code, survey_id=survey_id) }}"
+                  onsubmit="return confirm('Clear the whole survey and start from scratch?\n\nAll arms, questions, options and images will be removed. The title, your group and its members stay.\n\nAs long as you stay in this browser tab, \'Discard all changes from this session\' can bring the old version back.')">
+                <button type="submit" class="btn btn-outline-danger btn-sm" {% if response_count %}disabled title="This survey has responses, so it can't be cleared."{% endif %}>Start over (clear the survey)</button>
+                <div class="form-text">Removes all arms, questions and images. Your group and title stay.</div>
+            </form>
+            {% endif %}
+            <form method="POST" action="{{ url_for('builder.delete', code=classroom.code, survey_id=survey_id) }}"
+                  onsubmit="return confirm('Delete this survey for your whole group? This also deletes any responses it has collected. This cannot be undone.')">
+                <button type="submit" class="btn btn-outline-danger btn-sm">Delete survey</button>
+                <div class="form-text">Deletes the survey and the group itself (members, place in the presentation order).</div>
+            </form>
+        </div>
+    </details>
     {% endif %}
 </div>
 {% endif %}
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/builder.js') }}?v=20261007b"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script src="{{ url_for('static', filename='js/builder.js') }}?v=20261015"></script>
+{% if mode == 'edit' and not external %}<script src="{{ url_for('static', filename='js/reminders-builder.js') }}?v=20261015"></script>{% endif %}
 <script src="https://cdn.jsdelivr.net/npm/driver.js@1.9.0/dist/driver.js.iife.js"></script>
 <script src="{{ url_for('static', filename='js/tour.js') }}?v=20261007"></script>
 <script>
@@ -383,14 +622,16 @@
             {element: '#external-card', title: 'Another platform?', text: 'Only if your instructor agreed to let you run your survey elsewhere (e.g. Google Forms). Otherwise leave this off.'},
             {element: '#arms-card', title: 'Arms', text: 'Arms are the versions of your survey: usually a <b>control</b> and one or more <b>treatments</b>. Each classmate is randomly shown one arm, always the same one.'},
             {element: '#questions-container .question-block', title: 'Questions', text: 'Pick the question type, then write the question <b>for each arm</b>. Keep the arms identical except for the one thing you are testing: that difference is your treatment.'},
+            {element: '#questions-container .q-advanced-btn', title: 'Advanced options',
+             text: 'Optional extras for a question: ask it only in some arms, show it only after a certain answer, or give it a timer. Most surveys don\'t need them. The &#9432; icons explain each option.'},
             {element: '#questions-container .question-arm-block + .question-arm-block .copy-from-first-btn', title: 'Copy from ' + first,
              text: 'Copies the first arm\'s text, options and image into this arm, so you only change the part that differs.'},
             {element: '#teammates-card', title: 'Teammates', text: 'Add your teammates now or later. They accept from their lobby, and then <b>every member can edit</b> this survey.'},
             {element: '#autosave-bar', edit: true, title: 'Saving', text: 'Your edits save automatically. This bar tells you when, or what is missing if something can\'t be saved yet. Teammates editing at the same time overwrite each other, so take turns.'},
             {element: '#preview-buttons', edit: true, title: 'Preview', text: '<b>Preview survey</b> shows exactly what a classmate sees in each arm. <b>Preview dashboard</b> shows how your results will look in class, with made-up answers.'},
-            {element: '#members-card', edit: true, title: 'Group members', text: 'Everyone in your group. Any member can edit the survey and download its responses; invite more classmates here.'},
+            {element: '#members-card', edit: true, title: 'Group members', text: 'Everyone in your group. Invite classmates here any time, even before the survey is built. Any member can edit the survey and download its responses.'},
             {element: '#save-btn', title: {{ ('Create it' if mode == 'new' else 'Save')|tojson }},
-             text: {{ ('Click <b>Create Survey</b> when the form is filled in. You can keep editing afterwards.' if mode == 'new' else 'Autosave usually has it covered, but you can also save right away.')|tojson }}}
+             text: {{ ('Click <b>Create Survey</b> when the form is filled in. You can keep editing afterwards.' if mode == 'new' else 'Autosave usually has it covered, even for an unfinished survey, but you can also save right away.')|tojson }}}
         ];
         if (shortTour) steps = steps.filter(function(s) { return s.edit; });
         startTour(steps, {seenUrl: auto ? {{ url_for('account.mark_tour_seen', code=classroom.code, name='builder' if mode == 'new' else 'builder_edit')|tojson }} : null});

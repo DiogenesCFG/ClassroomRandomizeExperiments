@@ -13,9 +13,6 @@
         </div>
         <div class="d-flex align-items-center">
             <a href="#" class="btn btn-link btn-sm text-muted" id="tour-replay" data-tour-replay>Show me around</a>
-            <form method="POST" action="{{ url_for('account.signout', code=classroom.code) }}">
-                <button type="submit" class="btn btn-link btn-sm text-muted">Sign out</button>
-            </form>
         </div>
     </div>
 
@@ -98,12 +95,44 @@
     </div>
     {% endif %}
 
+    {% if followups %}
+    <div class="card mb-4 border-primary" id="followups-card">
+        <div class="card-header"><strong>Surveys to answer from here, and notifications</strong></div>
+        <ul class="list-group list-group-flush">
+            {% for f in followups %}
+            <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <strong>Group {{ f.group_number }}:</strong> {{ f.title }}
+                    {% for p in f.parts %}
+                    <br><small class="text-muted">
+                        {% if p.window == 'upcoming' %}Part {{ p.part }} opens {{ p.opens }} (until {{ p.closes }})
+                        {% elif p.window == 'open' %}Part {{ p.part }} is open until {{ p.closes }}
+                        {% elif p.window == 'closed' %}Part {{ p.part }} closed on {{ p.closes }}{% endif %}
+                    </small>
+                    {% endfor %}
+                </div>
+                <div class="d-flex gap-2 flex-wrap">
+                    {% if f.reminders %}
+                    <a href="{{ url_for('reminders.page', code=classroom.code, survey_id=f.id) }}" class="btn btn-outline-primary btn-sm">&#128276; Notifications</a>
+                    {% endif %}
+                    {% for p in f.parts %}
+                    {% if p.done %}<span class="badge text-bg-success align-self-center">&#10003; Part {{ p.part }} answered</span>
+                    {% elif p.window == 'open' %}<a href="{{ url_for('reminders.remote_part', code=classroom.code, survey_id=f.id, part=p.part) }}" class="btn btn-success btn-sm">Answer part {{ p.part }}</a>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
     <!-- My groups -->
     <div class="card mb-4" id="my-group-card">
         <div class="card-header d-flex justify-content-between align-items-center">
             <strong>My group{% if classroom.max_groups_per_student != 1 %}s{% endif %}</strong>
             {% if groups and not at_limit and not classroom.surveys_locked %}
-            <a href="{{ url_for('builder.new', code=classroom.code) }}" class="btn btn-sm btn-outline-primary">+ New survey</a>
+            <a href="{{ url_for('builder.new', code=classroom.code) }}" class="btn btn-sm btn-outline-primary">+ New group</a>
             {% endif %}
         </div>
         {% if groups %}
@@ -130,6 +159,8 @@
                             <span class="badge text-bg-secondary" title="Your group sends its survey out itself; it won't run on this site.">Other platform</span>
                             {% elif g.early_open %}
                             <span class="badge text-bg-info">Open early &middot; until {{ g.early_deadline_label }}</span>
+                            {% elif g.todo %}
+                            <span class="badge text-bg-info" title="{{ g.todo|join(' ') }}">Not finished</span>
                             {% elif g.warnings %}
                             <span class="badge text-bg-warning" title="{{ g.warnings|join(' ') }}">{{ g.warnings|length }} warning{{ 's' if g.warnings|length != 1 }}</span>
                             {% else %}
@@ -151,6 +182,8 @@
                                 {% if classroom.surveys_locked %}Open{% else %}Edit{% endif %}</a>
                             {% if not g.external %}
                             <a href="{{ url_for('builder.preview_survey', code=classroom.code, survey_id=g.id) }}" class="btn btn-outline-secondary btn-sm">Preview</a>
+                            <a href="{{ url_for('builder.flow_chart', code=classroom.code, survey_id=g.id) }}" class="btn btn-outline-secondary btn-sm"
+                               title="See the survey as a flow chart, one column per arm">Flow</a>
                             {% endif %}
                             {% if not classroom.surveys_locked %}
                             <form method="POST" action="{{ url_for('account.leave', code=classroom.code, survey_id=g.id) }}" class="d-inline"
@@ -191,8 +224,8 @@
             {% if classroom.surveys_locked %}
             <p class="text-muted small mb-0">Survey creation is closed.</p>
             {% elif not at_limit %}
-            <a href="{{ url_for('builder.new', code=classroom.code) }}" class="btn btn-primary btn-lg" id="create-survey-btn">Create your group's survey</a>
-            <p class="text-muted small mt-3 mb-0">Only one person per group needs to do this. Teammates can wait for an invite to show up here.</p>
+            <a href="{{ url_for('builder.new', code=classroom.code) }}" class="btn btn-primary btn-lg" id="create-survey-btn">Create your group</a>
+            <p class="text-muted small mt-3 mb-0">Only one person per group needs to do this: pick a name, invite your teammates, then build the survey together. Everyone else waits for an invite to show up here.</p>
             {% endif %}
         </div>
         {% endif %}
@@ -321,7 +354,7 @@
             {element: '#live-card', title: 'Class day', text: 'When your instructor runs the surveys in class, click <b>Join</b> here. Each survey appears on your screen as it starts.'},
             {element: '#invites-card', title: 'Group invites', text: 'When a classmate adds you to their group, the invite shows up here. Accept it and you can edit your group\'s survey too.'},
             {element: '#open-surveys-card', title: 'Open surveys', text: 'Some groups run their survey before class. Answer these before their deadline.'},
-            {element: '#create-survey-btn', title: 'Not in a group yet?', text: 'Only <b>one person per group</b> clicks here to create the survey and invite the others. Everyone else waits for an invite above.'},
+            {element: '#create-survey-btn', title: 'Not in a group yet?', text: 'Only <b>one person per group</b> clicks here: name the group and invite the others. You build the survey together afterwards. Everyone else waits for an invite above.'},
             {element: '#my-group-table', title: 'Your group', text: 'Open your survey to edit it (any member can), preview it, and later download its responses.'},
             {element: '#order-card', title: 'Presentation order', text: 'Groups present in class in this order. Yours is highlighted, so you know when it is your turn.'},
             {element: '#feedback', title: 'Feedback for other groups', text: 'The groups you must comment on appear here once surveys are locked.'},

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}Notifications{% endblock %}
+
+{% block content %}
+<div class="mx-auto" style="max-width: 600px;">
+    <a href="{{ url_for('classroom.lobby', code=classroom.code) }}" class="small text-muted">&larr; My lobby</a>
+    <h3 class="mb-1">Notifications</h3>
+    <p class="text-muted small">Group {{ survey.group_number }}'s survey{% if preview_arm is not none %} &middot; preview{% endif %}</p>
+    {% if preview_arm is not none and survey.arms|length > 1 %}
+    <div class="btn-group btn-group-sm mb-3" role="group" aria-label="Arm">
+        {% for arm in survey.arms %}
+        <a class="btn {% if loop.index0 == preview_arm %}btn-primary{% else %}btn-outline-primary{% endif %}"
+           href="{{ url_for('reminders.page', code=classroom.code, survey_id=survey.id, arm=loop.index0) }}">{{ arm.label }}</a>
+        {% endfor %}
+    </div>
+    {% endif %}
+    <div id="reminders-box" style="display:none"></div>
+    <p id="reminders-none" class="text-muted" style="display:none">There are no notifications to add{% if preview_arm is not none %} in this arm{% endif %}.</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/reminders.js') }}?v=20261015"></script>
+<script>
+    (function() {
+        RemindersPanel.load(document.getElementById('reminders-box'), {{ panel_url|tojson }}, function() {
+            document.getElementById('reminders-none').style.display = '';
+        });
+    })();
+</script>
+{% endblock %}

@@ -59,6 +59,10 @@ def create_app():
     from sockets import register_events
     register_events(socketio)
 
+    # Send reminder notifications when they're due (models/push.py)
+    from models.push import start_sender
+    start_sender(app, socketio)
+
     return app
 
 

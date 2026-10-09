@@ -128,12 +128,25 @@
                            value="{{ classroom.max_questions_per_survey or '' }}" min="1" placeholder="No limit" style="width: 80px;">
                     <button type="submit" class="btn btn-outline-primary btn-sm">Set</button>
                 </form>
+                <form method="POST" action="{{ url_for('feedback.set_phase', code=classroom.code) }}" class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+                    <input type="hidden" name="action" value="reminders_until">
+                    <label for="reminders_until" class="small" title="The latest date any group's calendar reminders or part 2 can fall on. Leave empty for no limit.">Reminders and part 2 until</label>
+                    <input type="date" class="form-control form-control-sm w-auto" id="reminders_until" name="reminders_until"
+                           value="{{ classroom.reminders_until or '' }}">
+                    <button type="submit" class="btn btn-outline-primary btn-sm">Set</button>
+                </form>
+                {% if to_approve %}
+                <p class="small text-warning-emphasis mb-2">&#128197; Two-part dates and reminders to approve:
+                    {% for s in to_approve %}<a href="{{ url_for('feedback.view_survey', code=classroom.code, survey_id=s.id) }}#reminders">Group {{ s.group_number }}</a>{{ ', ' if not loop.last }}{% endfor %}</p>
+                {% endif %}
                 {% set over = surveys|selectattr('question_count', 'gt', classroom.max_questions_per_survey or 999)|list %}
                 {% if over %}
                 <p class="small text-warning-emphasis mb-2">&#9888; Over the limit: {% for s in over %}Group {{ s.group_number }} ({{ s.question_count }}){{ ', ' if not loop.last }}{% endfor %}. They'll have to remove questions before saving again.</p>
                 {% endif %}
                 <p class="text-muted small">Edit any survey, reorder groups, allow early deployment.</p>
                 <a href="{{ url_for('builder.index', code=classroom.code) }}" class="btn btn-outline-primary btn-sm">Manage surveys</a>
+                <a href="{{ url_for('host.demo', code=classroom.code) }}" class="btn btn-outline-primary btn-sm"
+                   title="Click through every survey's questions, images and sample charts without going live">Demo dashboard</a>
                 <a href="{{ url_for('host.image_gallery', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">Images</a>
             </div>
         </div>
@@ -144,7 +157,8 @@
         <div class="card h-100">
             <div class="card-header"><strong>Data</strong></div>
             <div class="card-body">
-                <p class="mb-1"><strong>{{ response_count }}</strong> survey submissions</p>
+                <p class="mb-1"><strong>{{ response_count }}</strong> survey answer{{ 's' if response_count != 1 }} collected
+                    <span class="text-muted small" title="Each student who answers a survey counts once. Surveys collect answers only once they run (live in class, launched on their own, opened early, or a remote part), so this stays at 0 until then, however many surveys groups have built.">&#9432;</span></p>
                 <a href="{{ url_for('download.download_everything', code=classroom.code) }}" class="btn btn-primary btn-sm mb-2">Download everything (.zip)</a>
                 <div class="dropdown">
                     <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">Individual CSVs</button>
@@ -156,6 +170,7 @@
                         <li><a class="dropdown-item" href="{{ url_for('download.download_participants', code=classroom.code) }}">Participants (roster key)</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('feedback.download_feedback', code=classroom.code) }}">Feedback comments</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('feedback.download_feedback_summary', code=classroom.code) }}">Feedback summary</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('download.download_reminders', code=classroom.code) }}">Reminder downloads</a></li>
                     </ul>
                 </div>
             </div>

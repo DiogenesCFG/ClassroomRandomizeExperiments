@@ -110,3 +110,34 @@
 [data-bs-theme="dark"] #theme-toggle .theme-icon-dark {
     display: none;
 }
+
+/* Survey builder: collapsible sections/questions, info tips */
+.collapse-toggle { cursor: pointer; user-select: none; }
+.collapse-toggle:focus-visible { outline: 2px solid var(--bs-primary); outline-offset: 2px; border-radius: 4px; }
+.collapse-chevron { display: inline-block; width: 1em; color: var(--bs-secondary-color); }
+.question-block .q-head { background: var(--bs-tertiary-bg); border-radius: var(--bs-border-radius) var(--bs-border-radius) 0 0; }
+.question-block .q-body { padding-top: 0.75rem; }
+/* Two-part survey: a label above the first part-2 question */
+.question-block.part2-first { margin-top: 2.5rem; position: relative; }
+.question-block.part2-first::before {
+    content: "Part 2 ·  answered later, from the lobby";
+    position: absolute; top: -1.9rem; left: 0; right: 0;
+    border-top: 2px dashed var(--bs-border-color); padding-top: 0.25rem;
+    font-size: 0.85rem; font-weight: 600; color: var(--bs-secondary-color);
+}
+.info-tip { cursor: help; font-size: 0.95em; margin-left: 0.15rem; }
+.info-tip:hover, .info-tip:focus { color: var(--bs-primary) !important; }
+/* Notifications: the day picker (tap days on and off) */
+.rem-cal > .d-flex:first-child { max-width: 320px; }
+.rem-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; max-width: 320px; }
+.rem-cal-head { text-align: center; font-size: 0.75rem; color: var(--bs-secondary-color); }
+.rem-day {
+    border: 1px solid var(--bs-border-color); background: var(--bs-body-bg); color: var(--bs-body-color);
+    border-radius: 0.3rem; padding: 0.25rem 0; font-size: 0.85rem; line-height: 1.2;
+}
+.rem-day.on { background: var(--bs-primary); border-color: var(--bs-primary); color: #fff; font-weight: 600; }
+.rem-day:disabled { opacity: 0.35; }
+.rem-rule .rem-head { background: var(--bs-tertiary-bg); border-radius: var(--bs-border-radius) var(--bs-border-radius) 0 0; }
+/* Dragging questions to reorder them */
+.q-drag { cursor: grab; color: var(--bs-secondary-color); touch-action: none; user-select: none; padding: 0 0.25rem; }
+.question-block.sortable-ghost { opacity: 0.4; }

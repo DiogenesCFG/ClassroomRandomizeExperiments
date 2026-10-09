@@ -9,11 +9,21 @@
         <strong>Preview</strong>: this is what a respondent in
         <strong>{{ survey.arms[preview_arm].label }}</strong> sees. Answers are not saved.
     </div>
+    <div class="d-flex gap-2 flex-wrap">
     <div class="btn-group btn-group-sm" role="group" aria-label="Arm">
         {% for arm in survey.arms %}
         <a class="btn {% if loop.index0 == preview_arm %}btn-primary{% else %}btn-outline-primary{% endif %}"
-           href="{{ url_for('builder.preview_survey', code=classroom.code, survey_id=survey.id, arm=loop.index0) }}">{{ arm.label }}</a>
+           href="{{ url_for('builder.preview_survey', code=classroom.code, survey_id=survey.id, arm=loop.index0, part=preview_part) }}">{{ arm.label }}</a>
         {% endfor %}
+    </div>
+    {% if two_part %}
+    <div class="btn-group btn-group-sm" role="group" aria-label="Part">
+        {% for p in (1, 2) %}
+        <a class="btn {% if p == preview_part %}btn-dark{% else %}btn-outline-dark{% endif %}"
+           href="{{ url_for('builder.preview_survey', code=classroom.code, survey_id=survey.id, arm=preview_arm, part=p) }}">Part {{ p }}</a>
+        {% endfor %}
+    </div>
+    {% endif %}
     </div>
 </div>
 {% else %}
@@ -21,7 +31,9 @@
     <p class="text-muted">Signed in as <strong>{{ student_name }}</strong>
         &middot; <a href="{{ url_for('classroom.lobby', code=classroom.code) }}" class="text-muted">Back to lobby</a>
     </p>
-    {% if open_survey %}
+    {% if remote_part %}
+    <p class="small text-muted mb-0">Part {{ remote_part }} of Group {{ open_survey.group_number }}'s survey, open until {{ remote_close }}.</p>
+    {% elif open_survey %}
     <p class="small text-muted mb-0">Open survey from Group {{ open_survey.group_number }}, answer by {{ open_survey.early_deadline_label }}.</p>
     {% endif %}
 </div>
@@ -69,6 +81,17 @@
         <h3 class="text-success">Answer submitted!</h3>
         {% if preview %}
         <p class="text-muted mt-2">(Preview: nothing was saved.)</p>
+        {% if two_part and preview_part == 1 %}
+        <!-- The break between the parts, as respondents experience it -->
+        <div class="card text-start border-dark mt-3">
+            <div class="card-header"><strong>&#9208; Break between the parts</strong></div>
+            <div class="card-body small">
+                <p class="mb-2">This is where part 1 ends. Respondents get any notifications (below) in between.
+                    Part 2 is answered <strong>{{ part_texts[2] }}</strong>.</p>
+                <a class="btn btn-dark btn-sm" href="{{ url_for('builder.preview_survey', code=classroom.code, survey_id=survey.id, arm=preview_arm, part=2) }}">Continue to part 2 (preview) &rarr;</a>
+            </div>
+        </div>
+        {% endif %}
         <a class="btn btn-outline-primary mt-2" href="">Try again</a>
         {% elif open_survey %}
         <p class="text-muted mt-2">Thanks! You can go back to your lobby.</p>
@@ -76,6 +99,11 @@
         {% else %}
         <p class="text-muted mt-2">Waiting for the next survey...</p>
         <div class="spinner-border spinner-border-sm text-secondary mt-2" role="status"></div>
+        {% endif %}
+
+        {% if remote_part != 2 and not (preview and preview_part == 2) %}
+        <!-- Calendar reminders for this survey (two-part surveys and nudges), filled by reminders.js -->
+        <div id="reminders-box" class="mt-4" style="display:none"></div>
         {% endif %}
 
         {% if not preview %}
@@ -98,8 +126,8 @@
 <!-- State 4: Blocked (designer of this survey) -->
 <div id="state-blocked" class="state-panel">
     <div class="text-center mt-5">
-        <h3 class="text-warning">You designed this survey</h3>
-        <p class="text-muted mt-2">You cannot participate in your own survey. Please wait for the next one.</p>
+        <h3 class="text-warning" id="blocked-title">You designed this survey</h3>
+        <p class="text-muted mt-2" id="blocked-message">You cannot participate in your own survey. Please wait for the next one.</p>
         <div class="spinner-border spinner-border-sm text-secondary mt-2" role="status"></div>
     </div>
 </div>
@@ -107,8 +135,8 @@
 <!-- State 5: Closed (an open survey past its deadline) -->
 <div id="state-closed" class="state-panel">
     <div class="text-center mt-5">
-        <h3 class="text-secondary">This survey is closed</h3>
-        <p class="text-muted mt-2">Its deadline has passed.</p>
+        <h3 class="text-secondary" id="closed-title">This survey is closed</h3>
+        <p class="text-muted mt-2" id="closed-message">Its deadline has passed.</p>
         <a class="btn btn-outline-primary mt-2" href="{{ url_for('classroom.lobby', code=classroom.code) }}">Back to lobby</a>
     </div>
 </div>
@@ -129,7 +157,23 @@
     const POLL_ONCE = false;
     {% endif %}
 </script>
-<script src="{{ url_for('static', filename='js/student.js') }}?v=20261007"></script>
+<script src="{{ url_for('static', filename='js/student.js') }}?v=20261014"></script>
+{% if remote_part != 2 and not (preview and preview_part == 2) %}
+<script src="{{ url_for('static', filename='js/reminders.js') }}?v=20261015"></script>
+<script>
+    // After submitting, offer this survey's calendar reminders (if it has any for this respondent)
+    (function() {
+        var box = document.getElementById('reminders-box');
+        var base = "{{ url_for('reminders.panel', code=classroom.code, survey_id=0) }}".replace(/0\/panel$/, '');
+        var shown = null;
+        document.addEventListener('survey-submitted', function(e) {
+            if (e.detail.surveyId === shown) return;
+            shown = e.detail.surveyId;
+            RemindersPanel.load(box, base + shown + '/panel'{% if preview %} + '?arm={{ preview_arm }}'{% endif %});
+        });
+    })();
+</script>
+{% endif %}
 {% if not preview %}
 <script>
     // Note box: shown after submitting a survey that isn't the student's own

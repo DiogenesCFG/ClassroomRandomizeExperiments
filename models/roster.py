@@ -195,13 +195,17 @@ def undo_added_students(classroom_id, roster_student_ids):
 
 
 def list_roster(classroom_id):
-    """All roster students with their group count, ordered by name."""
+    """All roster students with their group count, the size of their (largest) group and their
+    pending invites, ordered by name."""
     db = get_db()
     rows = db.execute('''
         SELECT rs.*,
             (SELECT COUNT(*) FROM group_member gm WHERE gm.roster_student_id = rs.id) AS group_count,
             (SELECT GROUP_CONCAT(s.group_number, ', ') FROM group_member gm
-             JOIN survey s ON gm.survey_id = s.id WHERE gm.roster_student_id = rs.id) AS group_numbers
+             JOIN survey s ON gm.survey_id = s.id WHERE gm.roster_student_id = rs.id) AS group_numbers,
+            (SELECT MAX((SELECT COUNT(*) FROM group_member g2 WHERE g2.survey_id = gm.survey_id))
+             FROM group_member gm WHERE gm.roster_student_id = rs.id) AS group_size,
+            (SELECT COUNT(*) FROM team_invite ti WHERE ti.roster_student_id = rs.id) AS invite_count
         FROM roster_student rs
         WHERE rs.classroom_id = ?
         ORDER BY rs.hidden, rs.full_name COLLATE NOCASE

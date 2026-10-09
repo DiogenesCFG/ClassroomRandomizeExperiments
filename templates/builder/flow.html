@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}Flow: Group {{ survey.group_number }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+    <div>
+        <a href="{{ back_url }}" class="small text-muted">&larr; {{ 'Back to the survey' if back == 'edit' else 'Back to the survey overview' }}</a>
+        <h2 class="mb-0">{{ survey.title }}: flow</h2>
+        <p class="text-muted small mb-0">What respondents in each arm see, in order.
+            {% if back == 'edit' %}Click a question to open it in the builder.{% else %}Click a question to see it in full.{% endif %}</p>
+    </div>
+    <div class="small text-muted border rounded px-2 py-1">
+        <span class="me-3">&#9633; question</span>
+        <span class="me-3">&#9671; follow-up condition (yes / no)</span>
+        <span class="me-3">&#9201; timer</span>
+        <span class="me-3">+ Other</span>
+        <span>&#128444; image</span>
+    </div>
+</div>
+
+{% if survey.external %}
+<div class="alert alert-secondary">This group runs its survey on another platform, so there is no flow to show here.</div>
+{% else %}
+<div class="row g-3">
+    {% for f in flows %}
+    <div class="col-lg">
+        <div class="card h-100">
+            <div class="card-header"><strong>{{ f.arm }}</strong>
+                <span class="text-muted small">{{ f.questions }} question{{ 's' if f.questions != 1 }} at most</span></div>
+            <div class="card-body text-center overflow-auto">
+                <pre class="mermaid mb-0">{{ f.chart }}</pre>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<script>
+    // Draw the charts in the page's light/dark theme. "loose" lets the question boxes use
+    // <b>/<br/> and be clickable links; their text is escaped on the server.
+    mermaid.initialize({
+        startOnLoad: true,
+        securityLevel: 'loose',
+        theme: document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'dark' : 'default',
+        flowchart: { htmlLabels: true, useMaxWidth: true, nodeSpacing: 30, rankSpacing: 40 },
+    });
+</script>
+{% endblock %}

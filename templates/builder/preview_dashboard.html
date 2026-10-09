@@ -1,22 +1,67 @@
 {% extends "base.html" %}
 
-{% block title %}Dashboard Preview - Group {{ survey.group_number }}{% endblock %}
+{% block title %}{% if demo_surveys %}Demo Dashboard{% else %}Dashboard Preview - Group {{ survey.group_number }}{% endif %}{% endblock %}
 
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 {% endblock %}
 
 {% block content %}
+{% if demo_surveys %}
+{# Instructor's demo dashboard: every survey in the sidebar, nothing goes live #}
+<div class="row">
+<div class="col-md-3 mb-3">
+    <div class="card">
+        <div class="card-header"><strong>Demo dashboard</strong><br><small class="text-muted">Nothing goes live; answers are made up.</small></div>
+        <div class="list-group list-group-flush survey-list" style="max-height: 70vh; overflow-y: auto;">
+            {% for s in demo_surveys %}
+            {% if s.external %}
+            <div class="list-group-item text-muted small"><strong>#{{ s.group_number }}</strong> {{ s.title }}<br>Other platform</div>
+            {% else %}
+            <a class="list-group-item list-group-item-action {% if s.id == survey.id %}active{% endif %}"
+               href="{{ url_for('host.demo', code=classroom.code, survey=s.id, n=n) }}">
+                <strong>#{{ s.group_number }}</strong> {{ s.title }}
+                {% if s.todo %}<span class="badge text-bg-warning">not finished</span>{% endif %}
+            </a>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+    <div class="d-grid gap-2 mt-3">
+        <a href="{{ url_for('feedback.view_survey', code=classroom.code, survey_id=survey.id) }}" class="btn btn-outline-primary btn-sm">All arms side by side</a>
+        <a href="{{ url_for('builder.flow_chart', code=classroom.code, survey_id=survey.id) }}" class="btn btn-outline-primary btn-sm">Flow chart</a>
+        <a href="{{ url_for('host.home', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">&larr; Instructor home</a>
+    </div>
+</div>
+<div class="col-md-9">
+{% endif %}
 <div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap gap-2">
     <div class="small">
-        <strong>Dashboard preview</strong> with <strong>{{ n }}</strong> made-up respondents, so you can see how your
+        <strong>{% if demo_surveys %}Demo{% else %}Dashboard preview{% endif %}</strong> with <strong>{{ n }}</strong> made-up respondents, so you can see how {% if demo_surveys %}the{% else %}your{% endif %}
         results will look in class. These are random sample answers, not real data, and nothing is saved.
     </div>
     <form method="GET" class="d-flex align-items-center gap-2">
+        {% if demo_surveys %}<input type="hidden" name="survey" value="{{ survey.id }}">{% endif %}
         <label for="n" class="small text-nowrap">Sample size</label>
         <input type="number" id="n" name="n" value="{{ n }}" min="1" max="500" class="form-control form-control-sm" style="width: 90px;">
         <button type="submit" class="btn btn-sm btn-primary">Apply</button>
     </form>
+</div>
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div class="small text-muted">
+        The example file has the same made-up answers as the charts below, in exactly the format of your real
+        download: one row per respondent, one column per question, plus time and timer columns.
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        <div class="dropdown">
+            <button class="btn btn-success btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">&#8681; Download example answers (CSV)</button>
+            <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="{{ example_url }}">Wide: one row per respondent</a></li>
+                <li><a class="dropdown-item" href="{{ example_long_url }}">Long: one row per answer</a></li>
+            </ul>
+        </div>
+        <a href="?{% if demo_surveys %}survey={{ survey.id }}&{% endif %}n={{ n }}" class="btn btn-outline-primary btn-sm">New random sample</a>
+    </div>
 </div>
 
 <!-- Same markup and script as the host dashboard's results area -->
@@ -31,7 +76,7 @@
             <span class="text-muted">Group #<span id="result-group"></span></span>
         </div>
         <div class="text-end">
-            <button class="btn btn-primary me-2" id="btn-refresh" data-label="New random sample">New random sample</button>
+            <button class="btn btn-primary me-2" id="btn-refresh" data-label="New random sample" style="display:none">New random sample</button>
             <span class="badge bg-success fs-6" id="response-count">0 responses</span>
         </div>
     </div>
@@ -49,6 +94,7 @@
 </div>
 
 <div id="all-done-msg" style="display:none"></div>
+{% if demo_surveys %}</div></div>{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -59,5 +105,5 @@
     const HOST_NEXT_URL = "";
     const HOST_RESET_URL = "";
 </script>
-<script src="{{ url_for('static', filename='js/host.js') }}?v=20261007"></script>
+<script src="{{ url_for('static', filename='js/host.js') }}?v=20261015"></script>
 {% endblock %}

@@ -3,6 +3,7 @@ import os
 
 from flask import current_app
 
+from models import rules
 from models.db import get_db
 
 
@@ -38,10 +39,16 @@ def survey_warnings(survey):
         sig = []
         for q in questions:
             data = q['arms'].get(arm_index, {})
+            if not rules.shown_in_arm(q, arm_index):
+                sig.append(None)  # not asked in this arm
+                continue
             sig.append((
                 ' '.join((data.get('question_text') or '').lower().split()),
                 tuple(' '.join(o.lower().split()) for o in data.get('options', [])),
                 _image_fingerprint(data.get('image_filename'), cache),
+                bool(data.get('allow_other')),
+                data.get('timer_seconds') or None,
+                (data.get('timer_display'), data.get('timer_default')) if data.get('timer_seconds') else None,
             ))
         return sig
 
@@ -53,6 +60,84 @@ def survey_warnings(survey):
                 warnings.append(f'Arms "{arms[i]["label"]}" and "{arms[j]["label"]}" are identical in every '
                                 f'question (text, options, and images), so there is no treatment difference.')
     return warnings
+
+
+def missing_parts(arms, questions):
+    """What a survey still needs before it can run, as short to-do items.
+
+    Works on the builder's parsed form (arms: [{'label'}], questions with 'arms' keyed
+    0..n-1) and, through survey_incomplete(), on a stored survey. Unfinished surveys
+    still save; these are shown as "Still to do" and block early deployment.
+    """
+    todo = []
+    if not questions:
+        todo.append('Add at least one question.')
+    for qi, q in enumerate(questions):
+        for ai in range(len(arms)):
+            if not rules.shown_in_arm(q, ai):
+                continue  # this arm never sees the question, so its version can stay empty
+            data = q.get('arms', {}).get(ai, {})
+            name = f'Question {qi + 1}' + (f', {arms[ai]["label"]}' if len(arms) > 1 else '')
+            if not (data.get('question_text') or '').strip():
+                todo.append(f'{name}: write the question.')
+            if q['question_type'] in ('multiple_choice', 'multiple_answer') and len(
+                    [o for o in data.get('options', []) if o.strip()]) + (1 if data.get('allow_other') else 0) < 2:
+                todo.append(f'{name}: add at least 2 answer options.')
+            problem = timer_default_problem(q, data)
+            if problem:
+                todo.append(f'{name}: {problem}')
+    return todo + rules.rule_problems(questions, arms)
+
+
+def timer_default_problem(q, data):
+    """Why an arm-question's "if time runs out" answer can't be recorded, or None.
+    An empty default is fine: the answer is then recorded as blank, marked timed out."""
+    if not data.get('timer_seconds'):
+        return None
+    default = (data.get('timer_default') or '').strip()
+    if not default:
+        return None
+    qtype = q['question_type']
+    if qtype in ('multiple_choice', 'multiple_answer'):
+        options = [o.strip() for o in data.get('options', []) if o.strip()]
+        if default not in options:
+            return f'the answer recorded when time runs out ("{default}") must be one of the options, or left empty.'
+    elif qtype in ('numeric', 'slider'):
+        try:
+            value = float(default)
+        except ValueError:
+            return f'the answer recorded when time runs out ("{default}") must be a number, or left empty.'
+        if qtype == 'slider':
+            lo, hi = q.get('slider_min', 0) or 0, q.get('slider_max', 100) or 100
+            if not lo <= value <= hi:
+                return f'the answer recorded when time runs out ({default}) must be between {lo:g} and {hi:g}.'
+    return None
+
+
+def survey_incomplete(survey):
+    """missing_parts() for a survey dict from get_survey(), plus the two-part split and the
+    reminder plan (models/reminders.py); [] for other-platform surveys."""
+    if not survey or survey.get('external'):
+        return []
+    from models import reminders
+    classroom = get_db().execute('SELECT * FROM classroom WHERE id=?', (survey['classroom_id'],)).fetchone()
+    arms = sorted(survey.get('arms', []), key=lambda a: a['arm_index'])
+    by_position = {a['arm_index']: i for i, a in enumerate(arms)}
+    questions = [{'question_type': q['question_type'],
+                  'slider_min': q.get('slider_min'), 'slider_max': q.get('slider_max'),
+                  'show_arms': q.get('show_arms'), 'cond_question': q.get('cond_question'),
+                  'cond_values': q.get('cond_values') or [],
+                  'arms': {by_position[k]: v for k, v in q.get('arms', {}).items() if k in by_position}}
+                 for q in survey.get('questions', [])]
+    return (missing_parts(arms, questions) + reminders.part_problems(survey)
+            + reminders.plan_problems(survey, dict(classroom) if classroom else None))
+
+
+def with_todo(surveys):
+    """Add each survey's missing_parts() as 'todo' (for the host's survey lists)."""
+    for s in surveys:
+        s['todo'] = survey_incomplete(get_survey(s['id']))
+    return surveys
 
 
 def respondent_count(survey_id):
@@ -102,9 +187,11 @@ def create_survey(classroom_id, title, group_number, arms, questions, members):
     # Create questions with per-arm texts and options
     for qi, question in enumerate(questions):
         q_cursor = db.execute(
-            'INSERT INTO survey_question (survey_id, question_index, question_type, label, slider_min, slider_max, slider_step) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO survey_question (survey_id, question_index, question_type, label, slider_min, slider_max, '
+            'slider_step, show_arms, cond_question, cond_values) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             (survey_id, qi, question['question_type'], question.get('label', ''),
-             question.get('slider_min'), question.get('slider_max'), question.get('slider_step')),
+             question.get('slider_min'), question.get('slider_max'), question.get('slider_step'),
+             *rules.to_columns(question)),
         )
         question_id = q_cursor.lastrowid
 
@@ -112,9 +199,15 @@ def create_survey(classroom_id, title, group_number, arms, questions, members):
             arm_data = question.get('arms', {}).get(ai, {})
             q_text = arm_data.get('question_text', '')
             image_filename = arm_data.get('image_filename')
+            allow_other = 1 if (arm_data.get('allow_other')
+                                and question['question_type'] in ('multiple_choice', 'multiple_answer')) else 0
+            timer = arm_data.get('timer_seconds')
             aq_cursor = db.execute(
-                'INSERT INTO arm_question (arm_id, question_id, question_text, image_filename) VALUES (?, ?, ?, ?)',
-                (arm_id, question_id, q_text, image_filename),
+                'INSERT INTO arm_question (arm_id, question_id, question_text, image_filename, allow_other, '
+                'timer_seconds, timer_display, timer_default) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                (arm_id, question_id, q_text, image_filename, allow_other,
+                 timer, (arm_data.get('timer_display') or 'both') if timer else None,
+                 arm_data.get('timer_default', '') if timer else None),
             )
             aq_id = aq_cursor.lastrowid
 
@@ -166,6 +259,8 @@ def update_survey(survey_id, title, group_number, arms, questions):
     # Delete old data -- responses must go first since they reference arms/questions
     # without ON DELETE CASCADE
     db.execute('DELETE FROM response WHERE survey_id=?', (survey_id,))
+    db.execute('DELETE FROM reminder_action WHERE survey_id=?', (survey_id,))
+    db.execute('DELETE FROM push_subscription WHERE survey_id=?', (survey_id,))
     db.execute('DELETE FROM survey_question WHERE survey_id=?', (survey_id,))
     db.execute('DELETE FROM survey_arm WHERE survey_id=?', (survey_id,))
 
@@ -184,9 +279,11 @@ def update_survey(survey_id, title, group_number, arms, questions):
     # Recreate questions
     for qi, question in enumerate(questions):
         q_cursor = db.execute(
-            'INSERT INTO survey_question (survey_id, question_index, question_type, label, slider_min, slider_max, slider_step) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO survey_question (survey_id, question_index, question_type, label, slider_min, slider_max, '
+            'slider_step, show_arms, cond_question, cond_values) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             (survey_id, qi, question['question_type'], question.get('label', ''),
-             question.get('slider_min'), question.get('slider_max'), question.get('slider_step')),
+             question.get('slider_min'), question.get('slider_max'), question.get('slider_step'),
+             *rules.to_columns(question)),
         )
         question_id = q_cursor.lastrowid
 
@@ -194,9 +291,15 @@ def update_survey(survey_id, title, group_number, arms, questions):
             arm_data = question.get('arms', {}).get(ai, {})
             q_text = arm_data.get('question_text', '')
             image_filename = arm_data.get('image_filename')
+            allow_other = 1 if (arm_data.get('allow_other')
+                                and question['question_type'] in ('multiple_choice', 'multiple_answer')) else 0
+            timer = arm_data.get('timer_seconds')
             aq_cursor = db.execute(
-                'INSERT INTO arm_question (arm_id, question_id, question_text, image_filename) VALUES (?, ?, ?, ?)',
-                (arm_id, question_id, q_text, image_filename),
+                'INSERT INTO arm_question (arm_id, question_id, question_text, image_filename, allow_other, '
+                'timer_seconds, timer_display, timer_default) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                (arm_id, question_id, q_text, image_filename, allow_other,
+                 timer, (arm_data.get('timer_display') or 'both') if timer else None,
+                 arm_data.get('timer_default', '') if timer else None),
             )
             aq_id = aq_cursor.lastrowid
 
@@ -252,6 +355,7 @@ def get_survey(survey_id):
     survey['questions'] = []
     for q in questions:
         q_dict = dict(q)
+        q_dict.update(rules.from_row(q))
         q_dict['arms'] = {}
         for arm in arms:
             aq = db.execute(
@@ -267,12 +371,17 @@ def get_survey(survey_id):
                     'question_text': aq['question_text'],
                     'options': [o['option_text'] for o in options],
                     'image_filename': aq['image_filename'],
+                    'allow_other': bool(aq['allow_other']),
+                    'timer_seconds': aq['timer_seconds'],
+                    'timer_display': aq['timer_display'],
+                    'timer_default': aq['timer_default'],
                 }
             else:
                 q_dict['arms'][arm['arm_index']] = {
                     'question_text': '',
                     'options': [],
                     'image_filename': None,
+                    'allow_other': False,
                 }
         survey['questions'].append(q_dict)
 
@@ -293,7 +402,9 @@ def list_surveys(classroom_id):
             (SELECT COUNT(*) FROM survey_question sq WHERE sq.survey_id = s.id) AS question_count,
             (SELECT GROUP_CONCAT(DISTINCT sq.question_type)
              FROM survey_question sq WHERE sq.survey_id = s.id) AS question_types,
-            (SELECT GROUP_CONCAT(gm.name, '; ') FROM group_member gm WHERE gm.survey_id = s.id) AS member_names
+            (SELECT GROUP_CONCAT(gm.name, '; ') FROM group_member gm WHERE gm.survey_id = s.id) AS member_names,
+            (SELECT COUNT(*) FROM group_member gm WHERE gm.survey_id = s.id) AS member_count,
+            (SELECT COUNT(*) FROM team_invite ti WHERE ti.survey_id = s.id) AS invite_count
            FROM survey s
            WHERE s.classroom_id=?
            ORDER BY s.group_number''',

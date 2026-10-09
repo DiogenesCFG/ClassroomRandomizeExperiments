@@ -32,21 +32,33 @@
                 <span class="badge bg-primary" id="participant-badge">0 students</span>
             </div>
             <div class="list-group list-group-flush survey-list" id="survey-list">
+                {% if single %}
+                <div class="list-group-item small text-muted">Launching one survey on its own.
+                    <a href="{{ url_for('host.dashboard', code=classroom.code) }}">Full live session</a></div>
+                {% endif %}
                 {% for s in surveys %}
                 {% if s.external %}
                 <div class="list-group-item text-muted" title="This group runs its survey on another platform: they present, but there are no live results.">
                     <strong>#{{ s.group_number }}</strong> {{ s.title }}
                     <br><small>Other platform &middot; presents without live results</small>
                 </div>
+                {% elif not s.run_part %}
+                <div class="list-group-item text-muted" title="Both parts run outside the live session: launch them from Manage Surveys.">
+                    <strong>#{{ s.group_number }}</strong> {{ s.title }}
+                    <br><small>Two-part: runs outside the live session</small>
+                </div>
                 {% else %}
                 <button class="list-group-item list-group-item-action survey-list-item"
-                        data-survey-id="{{ s.id }}" data-group-number="{{ s.group_number }}">
+                        data-survey-id="{{ s.id }}" data-part="{{ s.run_part }}" data-group-number="{{ s.group_number }}">
                     <strong>#{{ s.group_number }}</strong> {{ s.title }}
+                    {% if s.two_part %}<span class="badge text-bg-dark">part {{ s.run_part }}</span>{% endif %}
+                    {% if s.ran %}<span class="badge text-bg-secondary" title="Already ran: Next Survey skips it. Click to show it again.">&#10003; ran</span>{% endif %}
                     <br>
                     <small class="text-muted">
                         {{ s.question_count or 1 }} Q ({{ s.question_types or s.question_type }})
                     </small>
                     {% if s.early_open %}<span class="badge text-bg-info">open early until {{ s.early_deadline_label }}</span>{% endif %}
+                    {% if s.todo %}<span class="badge text-bg-warning" title="{{ s.todo|join(' ') }}">not finished</span>{% endif %}
                 </button>
                 {% endif %}
                 {% endfor %}
@@ -54,7 +66,7 @@
         </div>
 
         <div class="d-grid gap-2 mt-3">
-            <button class="btn btn-success btn-lg" id="btn-next">Next Survey</button>
+            {% if not single %}<button class="btn btn-success btn-lg" id="btn-next">Next Survey</button>{% endif %}
             <button class="btn btn-outline-danger btn-sm" id="btn-reset">Reset Session</button>
             <a href="{{ url_for('host.home', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">&larr; Instructor home</a>
         </div>
@@ -161,5 +173,5 @@
         colorLight: '#ffffff',
     });
 </script>
-<script src="{{ url_for('static', filename='js/host.js') }}?v=20261007"></script>
+<script src="{{ url_for('static', filename='js/host.js') }}?v=20261015"></script>
 {% endblock %}

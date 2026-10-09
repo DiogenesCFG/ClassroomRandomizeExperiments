@@ -4,6 +4,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, sessio
 
 from models.classroom import get_classroom_by_code
 from models.db import get_db
+from models.survey import get_survey
 from routes.account import get_signed_in_student, ensure_participant_session
 
 bp = Blueprint('student', __name__, url_prefix='/c/<code>/student')
@@ -14,6 +15,17 @@ def _get_classroom_or_404(code):
     if not classroom:
         abort(404)
     return classroom
+
+
+def _clean_seconds(value):
+    """Time on a question as reported by the phone: a number of seconds, rounded to 0.1, or None."""
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return None
+    if seconds != seconds or seconds < 0 or seconds > 24 * 3600:  # NaN or nonsense
+        return None
+    return round(seconds, 1)
 
 
 def _require_classroom_access(classroom):
@@ -88,19 +100,28 @@ def session_state(code):
         if is_designer:
             return jsonify({'ok': True, 'state': 'blocked_designer', 'survey_id': active['id']})
 
-    if _is_fully_answered(db, session['participant_id'], active['id']):
+    # A two-part survey runs one part at a time (the one the host launched)
+    from models import reminders
+    part = (active['active_part'] or 1) if reminders.is_two_part(dict(active)) else 1
+    if _is_fully_answered(db, session['participant_id'], active['id'], part):
         return jsonify({
             'ok': True,
             'state': 'submitted',
             'survey_id': active['id'],
         })
+    if part == 2 and not reminders.answered_part(db, session['participant_id'], dict(active), 1):
+        return jsonify({'ok': True, 'state': 'skip', 'survey_id': active['id'],
+                        'title': 'This survey is for classmates who answered its part 1',
+                        'message': "You didn't answer part 1 before class, so please wait for the next survey."})
 
     result = _get_survey_with_arms_and_questions(db, active['id'])
     if not result:
         return jsonify({'ok': False, 'error': 'survey_not_found'}), 404
 
     survey, arms, questions = result
-    payload = _build_assignment_payload(survey, arms, questions, session['student_id'])
+    payload = _build_assignment_payload(survey, arms, questions, session['student_id'], part=part)
+    if part == 2:
+        payload['title'] += ' (part 2)'
     return jsonify({
         'ok': True,
         'state': 'assignment',
@@ -134,19 +155,36 @@ def submit_answer_http(code):
     if not survey:
         return jsonify({'ok': False, 'error': 'survey_not_found'}), 404
 
-    # Only the survey running live, or one opened early (before its deadline), takes answers
+    # Part 1 (or a one-part survey): only while it runs live, or opened early before its deadline.
+    # Part 2 of a two-part survey: while its dates are open, for students who answered part 1.
     from models.feedback import early_survey_is_open
-    if not survey['is_active'] and not early_survey_is_open(dict(survey)):
+    from models import reminders
+    survey = dict(survey)
+    part = 1
+    if reminders.is_two_part(survey):
+        index_of = {r['id']: r['question_index'] for r in db.execute(
+            'SELECT id, question_index FROM survey_question WHERE survey_id=?', (survey_id,))}
+        parts = {reminders.question_part(survey, {'question_index': index_of[a.get('question_id')]})
+                 for a in answers if a.get('question_id') in index_of}
+        if len(parts) != 1:
+            return jsonify({'ok': False, 'error': 'missing_answer_data'}), 400
+        part = parts.pop()
+    if part == 2 and not reminders.answered_part(db, session['participant_id'], survey, 1):
+        return jsonify({'ok': False, 'error': 'part1_first'}), 403
+    running_live = survey['is_active'] and (survey['active_part'] or 1) == part
+    open_remote = part in reminders.remote_parts(survey) and reminders.part_window(get_survey(survey_id), part) == 'open'
+    open_early = part == 1 and not reminders.is_two_part(survey) and early_survey_is_open(survey)
+    if not (running_live or open_remote or open_early):
         return jsonify({'ok': False, 'error': 'survey_closed'}), 409
 
-    if _is_fully_answered(db, session['participant_id'], survey_id):
+    if _is_fully_answered(db, session['participant_id'], survey_id, part):
         return jsonify({'ok': True, 'status': 'already_answered'})
 
     try:
         for answer in answers:
             db.execute(
-                'INSERT INTO response (participant_id, survey_id, arm_id, question_id, answer_text, answer_index) '
-                'VALUES (?, ?, ?, ?, ?, ?)',
+                'INSERT INTO response (participant_id, survey_id, arm_id, question_id, answer_text, answer_index, '
+                'seconds, left_page, other_text, timed_out) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 (
                     session['participant_id'],
                     survey_id,
@@ -154,6 +192,10 @@ def submit_answer_http(code):
                     answer.get('question_id'),
                     str(answer.get('answer_text', '')),
                     answer.get('answer_index'),
+                    _clean_seconds(answer.get('seconds')),
+                    1 if answer.get('left_page') else 0,
+                    (str(answer.get('other_text') or '').strip()[:140] or None),
+                    1 if answer.get('timed_out') else 0,
                 ),
             )
         db.commit()

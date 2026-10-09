@@ -1,4 +1,5 @@
 import os
+import random
 import time
 import uuid
 
@@ -9,15 +10,17 @@ from werkzeug.utils import secure_filename
 
 from models.classroom import get_classroom_by_code
 from models.db import get_db
+from models.flow import survey_flows
 from models.preview import fake_responses
 from models.survey import (
     create_survey, get_survey, list_surveys, update_survey, delete_survey, next_group_number,
-    survey_warnings, respondent_count,
+    survey_warnings, respondent_count, missing_parts, survey_incomplete, with_todo,
 )
 from models import roster as roster_model
+from models import rules
 from routes.account import get_signed_in_student, tour_seen
 from models.download import (
-    export_survey_responses_csv, export_survey_responses_anon_csv, export_single_survey_config_csv,
+    export_survey_responses_csv, export_survey_responses_anon_csv, anon_responses_csv, export_single_survey_config_csv,
     export_single_survey_designers_csv, export_single_survey_participation_csv,
 )
 
@@ -107,6 +110,7 @@ def _parse_form(form, files=None):
             'question_type': q_type,
             'label': form.get(f'questions[{q_idx}][label]', '').strip(),
             'arms': {},
+            **rules.parse_rules(form, q_idx, len(arms)),
         }
         if q_type == 'slider':
             try:
@@ -151,11 +155,31 @@ def _parse_form(form, files=None):
                 'question_text': q_text,
                 'options': options,
                 'image_filename': image_filename,
+                'allow_other': form.get(f'questions[{q_idx}][arms][{ai}][allow_other]') == '1',
+                **_parse_timer(form, f'questions[{q_idx}][arms][{ai}]'),
             }
         questions.append(question)
         q_idx += 1
 
     return title, group_number, arms, questions
+
+
+TIMER_DISPLAYS = ('both', 'countdown', 'bar', 'hidden')
+MAX_TIMER_SECONDS = 600
+
+
+def _parse_timer(form, prefix):
+    """An arm-question's timer fields. timer_seconds is None when there's no timer;
+    timer_seconds_raw keeps what was typed so a bad value can be shown back."""
+    raw = form.get(f'{prefix}[timer_seconds]', '').strip()
+    display = form.get(f'{prefix}[timer_display]', 'both')
+    seconds = int(raw) if raw.isdigit() else None
+    return {
+        'timer_seconds': seconds if form.get(f'{prefix}[timer_on]') == '1' else None,
+        'timer_seconds_raw': raw if form.get(f'{prefix}[timer_on]') == '1' else '',
+        'timer_display': display if display in TIMER_DISPLAYS else 'both',
+        'timer_default': form.get(f'{prefix}[timer_default]', '').strip()[:140],
+    }
 
 
 def _parse_external(form):
@@ -164,11 +188,9 @@ def _parse_external(form):
 
 
 def _validate_external(title, group_number):
-    """A survey sent from another platform only needs a title; arms and questions are optional."""
+    """A survey sent from another platform needs nothing else; arms and questions are optional."""
     errors = []
-    if not title:
-        errors.append('Title is required.')
-    if group_number and not group_number.isdigit():
+    if group_number and not str(group_number).isdigit():
         errors.append('Group number must be a valid number.')
     return errors
 
@@ -192,27 +214,29 @@ def _question_limit_errors(classroom, questions):
     return []
 
 
+def _fill_defaults(title, arms, group_number):
+    """Unfinished surveys save too: a blank title or arm name gets a placeholder."""
+    for i, arm in enumerate(arms):
+        if not arm['label']:
+            arm['label'] = f'Arm {i + 1}'
+    return title or f'Group {group_number} survey'
+
+
 def _validate(title, group_number, arms, questions):
-    """Validate form data. Returns list of error messages."""
+    """Mistakes that block saving. Missing pieces (question text, options) don't block:
+    the survey saves as unfinished and they're listed by missing_parts()."""
     errors = []
-    if not title:
-        errors.append('Title is required.')
-    if group_number and not group_number.isdigit():
+    if group_number and not str(group_number).isdigit():
         errors.append('Group number must be a valid number.')
     if len(arms) < 1:
         errors.append('At least 1 arm is required.')
-    for i, arm in enumerate(arms):
-        if not arm['label']:
-            errors.append(f'Arm {i+1} needs a label.')
-    if not questions:
-        errors.append('At least one question is required.')
     for qi, q in enumerate(questions):
-        for ai in range(len(arms)):
-            arm_data = q.get('arms', {}).get(ai, {})
-            if not arm_data.get('question_text'):
-                errors.append(f'Question {qi+1}, Arm {ai+1} needs question text.')
-            if q['question_type'] in ('multiple_choice', 'multiple_answer') and len(arm_data.get('options', [])) < 2:
-                errors.append(f'Question {qi+1}, Arm {ai+1} needs at least 2 options.')
+        for ai, arm in enumerate(arms):
+            data = q.get('arms', {}).get(ai, {})
+            raw = data.get('timer_seconds_raw', '')
+            if raw and not (raw.isdigit() and 1 <= int(raw) <= MAX_TIMER_SECONDS):
+                errors.append(f'Question {qi+1}, {arm["label"] or f"Arm {ai+1}"}: the timer must be a whole number '
+                              f'of seconds between 1 and {MAX_TIMER_SECONDS}.')
         if q['question_type'] == 'slider':
             s_min = q.get('slider_min', 0)
             s_max = q.get('slider_max', 100)
@@ -233,7 +257,16 @@ def index(code):
     # Students see their own groups in the lobby; only the host sees the full list
     if not _is_classroom_host(classroom['id']):
         return redirect(url_for('classroom.lobby', code=code))
-    surveys = list_surveys(classroom['id'])
+    surveys = with_todo(list_surveys(classroom['id']))
+    from models import reminders
+    for s in surveys:
+        # How each part runs, and whether it already ran (for the Launch / Run again buttons)
+        s['runs'] = [{'part': p, 'when': reminders.part_when(s, p), 'ran': reminders.part_ran(s, p)}
+                     for p in ((1, 2) if reminders.is_two_part(s) else (1,))]
+        if s['reminder_plan'] or s['part2_from'] is not None:
+            full = get_survey(s['id'])
+            s['two_part'] = reminders.is_two_part(full)
+            s['reminder_approval'] = reminders.approval_state(full)
     return render_template('builder/list.html', surveys=surveys, is_host=True, classroom=classroom)
 
 
@@ -285,14 +318,12 @@ def _render_form(classroom, mode, student, **ctx):
     survey_id = ctx.get('survey_id')
     exclude = student['id'] if student else None
     survey = get_survey(survey_id) if survey_id else None
-    # First-visit tour, for students on an editable page only. The full tour runs on whichever
-    # page they open first; someone who saw it while creating gets the edit-page extras later.
+    # First-visit tour of the survey page, for students on an editable page only. Students
+    # who saw the full tour on the old create page get just the edit-page extras.
     tour_auto = tour_short = False
-    if student and not _is_classroom_host(classroom['id']) and not _locked_for(classroom, survey):
-        if not tour_seen(student, 'builder'):
-            tour_auto = True
-        elif mode == 'edit' and not tour_seen(student, 'builder_edit'):
-            tour_auto = tour_short = True
+    if student and not _is_classroom_host(classroom['id']) and not _locked_for(classroom, survey)             and mode == 'edit' and not tour_seen(student, 'builder_edit'):
+        tour_auto = True
+        tour_short = tour_seen(student, 'builder')
     ctx.setdefault('tour_auto', tour_auto)
     ctx.setdefault('tour_short', tour_short)
     return render_template(
@@ -305,9 +336,29 @@ def _render_form(classroom, mode, student, **ctx):
         members=survey['members'] if survey else [],
         pending_invites=roster_model.pending_invites_for_survey(survey_id) if survey_id else [],
         warnings=survey_warnings(survey) if survey else [],
+        todo=survey_incomplete(survey) if survey else [],
         response_count=respondent_count(survey_id) if survey_id else 0,
+        reminders_state=_reminders_state(classroom, survey) if survey else None,
         **{'external': bool(survey and survey['external']),
            'external_note': survey['external_note'] if survey else None, **ctx})
+
+
+def _reminders_state(classroom, survey):
+    """What the "Two-part survey" timing and the "Notifications" card start from (reminders-builder.js)."""
+    from datetime import date
+    from models import reminders
+    plan = reminders.load_plan(survey)
+    return {'plan': plan,
+            'parts': {str(p): {'when': survey.get(f'part{p}_when') or ('live' if p == 1 else 'remote'),
+                               'open_date': survey.get(f'part{p}_open_date') or '',
+                               'close_date': survey.get(f'part{p}_close_date') or ''} for p in (1, 2)},
+            'part2_time': survey.get('part2_time') or reminders.DEFAULT_TIME,
+            'approval': reminders.approval_state(survey),
+            'problems': reminders.plan_problems(survey, classroom),
+            'has_notifications': reminders.has_reminders(plan),
+            'today': date.today().isoformat(),
+            'limit_text': reminders.nice_date(reminders._date(classroom.get('reminders_until'))),
+            'max_rules': reminders.MAX_RULES_PER_ARM}
 
 
 def _form_values_from_survey(survey):
@@ -319,6 +370,9 @@ def _form_values_from_survey(survey):
             'question_type': q['question_type'],
             'label': q.get('label', ''),
             'arms': {},
+            'show_arms': q.get('show_arms'),
+            'cond_question': q.get('cond_question'),
+            'cond_values': q.get('cond_values') or [],
         }
         if q['question_type'] == 'slider':
             question['slider_min'] = q.get('slider_min', 0)
@@ -333,6 +387,10 @@ def _form_values_from_survey(survey):
                 'question_text': arm_data.get('question_text', ''),
                 'options': options,
                 'image_filename': arm_data.get('image_filename'),
+                'allow_other': arm_data.get('allow_other', False),
+                'timer_seconds': arm_data.get('timer_seconds'),
+                'timer_display': arm_data.get('timer_display') or 'both',
+                'timer_default': arm_data.get('timer_default') or '',
             }
         questions.append(question)
     return arms, questions
@@ -354,71 +412,51 @@ def new(code):
               "Leave a group first.", 'danger')
         return redirect(url_for('classroom.lobby', code=code))
 
+    # Creating a group only needs a name and teammates: the survey itself is built
+    # afterwards on its page, saving as it goes, even unfinished.
     if request.method == 'POST':
         invite_ids = [int(i) for i in request.form.getlist('invite_ids') if i.isdigit()]
-        title, group_number, arms, questions = _parse_form(request.form)
-        external, ext_note = _parse_external(request.form)
-        ext_ctx = {'external': external, 'external_note': ext_note}
+        title = request.form.get('title', '').strip()[:200]
+        group_number = request.form.get('group_number', '').strip()
+        if is_host and group_number and not group_number.isdigit():
+            flash('Group number must be a valid number.', 'danger')
+            return redirect(url_for('builder.new', code=code))
 
-        if external:
-            errors = _validate_external(title, group_number)
-        else:
-            errors = _validate(title, group_number, arms, questions) + _question_limit_errors(classroom, questions)
-        if errors:
-            for e in errors:
-                flash(e, 'danger')
-            return _render_form(classroom, 'new', student, title=title, group_number=group_number,
-                                arms=arms, questions=questions, invite_ids=invite_ids, **ext_ctx)
-
-        # Only store uploaded images once the form is valid
-        if external:
-            arms, questions = [], []
-        else:
-            title, group_number, arms, questions = _parse_form(request.form, request.files)
         members = []
-        if student:
+        if student and not is_host:
             members.append({'name': student['full_name'], 'sis_code': student['sis_id'],
                             'roster_student_id': student['id']})
+        number = int(group_number) if (is_host and group_number) else next_group_number(classroom['id'])
+        arms, questions = blank_design()
         try:
-            number = int(group_number) if (is_host and group_number) else next_group_number(classroom['id'])
-            survey_id = create_survey(classroom['id'], title, number, arms, questions, members)
-            _save_external(survey_id, external, ext_note)
+            survey_id = create_survey(classroom['id'], title or f'Group {number} survey', number,
+                                      arms, questions, members)
         except Exception as e:
-            flash(f'Error creating survey: {e}', 'danger')
-            return _render_form(classroom, 'new', student, title=title, group_number=group_number,
-                                arms=arms, questions=questions, invite_ids=invite_ids, **ext_ctx)
+            flash(f'Error creating your group: {e}', 'danger')
+            return redirect(url_for('builder.new', code=code))
 
+        sent = 0
         for invitee_id in invite_ids:
-            roster_model.invite(classroom['id'], survey_id, student['id'] if student else None, invitee_id)
-        msg = f'Survey created! You are Group {number}.' if student else f'Survey created as Group {number}.'
-        if invite_ids:
-            msg += f' {len(invite_ids)} invite(s) sent; teammates accept them from their lobby.'
-        msg += ' From now on your edits save automatically.'
+            if not roster_model.invite(classroom['id'], survey_id, student['id'] if student else None, invitee_id):
+                sent += 1
+        msg = f'Group {number} created!'
+        if sent:
+            msg += f' {sent} invite{"s" if sent != 1 else ""} sent; teammates accept from their lobby.'
+        msg += ' Build your survey below; it saves automatically, even unfinished.'
         flash(msg, 'success')
         return redirect(url_for('builder.edit', code=code, survey_id=survey_id))
 
-    # GET - show empty form with defaults
-    default_arms = [
-        {'label': 'Control'},
-        {'label': 'Treatment'},
-    ]
-    default_questions = [{
-        'question_type': 'multiple_choice',
-        'label': '',
-        'arms': {
-            0: {'question_text': '', 'options': ['', ''], 'image_filename': None},
-            1: {'question_text': '', 'options': ['', ''], 'image_filename': None},
-        },
-    }]
-    return _render_form(classroom, 'new', student, title='', group_number='',
-                        arms=default_arms, questions=default_questions, invite_ids=[])
+    exclude = student['id'] if student else None
+    return render_template('builder/new_group.html', classroom=classroom, is_host=is_host,
+                           classmates=roster_model.classmates(classroom['id'], exclude_id=exclude))
 
 
 def _save_edit(classroom, survey):
     """Validate the posted form and update the survey.
 
-    Returns (errors, saved_questions). Images are only stored once the form is valid,
-    so repeated autosaves of an invalid form don't pile up files.
+    Returns (errors, saved_questions, todo). Only real mistakes (errors) block saving;
+    an unfinished survey saves and `todo` lists what it still needs. Images are only
+    stored once the form saves, so repeated autosaves of a blocked form don't pile up files.
     """
     is_host = _is_classroom_host(classroom['id'])
     title, group_number, arms, questions = _parse_form(request.form)
@@ -429,20 +467,31 @@ def _save_edit(classroom, survey):
         # Arms and questions stay as they were (unchecking the box brings them back)
         errors = _validate_external(title, group_number)
         if errors:
-            return errors, None
+            return errors, None, []
         db = get_db()
-        db.execute('UPDATE survey SET title=?, group_number=? WHERE id=?', (title, int(group_number), survey['id']))
+        db.execute('UPDATE survey SET title=?, group_number=? WHERE id=?',
+                   (title or f'Group {group_number} survey', int(group_number), survey['id']))
         db.commit()
         _save_external(survey['id'], True, ext_note)
-        return [], []
+        return [], [], []
     errors = _validate(title, group_number, arms, questions) + _question_limit_errors(classroom, questions)
     if errors:
-        return errors, None
+        return errors, None, []
     title, _, arms, questions = _parse_form(request.form, request.files)
+    title = _fill_defaults(title, arms, group_number)
     update_survey(survey['id'], title, int(group_number), arms, questions)
     _save_external(survey['id'], False, ext_note)
+    _save_part2_from(survey['id'], request.form)
     _cleanup_orphan_uploads()
-    return [], questions
+    return [], questions, survey_incomplete(get_survey(survey['id']))
+
+
+def _save_part2_from(survey_id, form):
+    """Two-part survey: the index of the question part 2 starts at ('' = one part)."""
+    raw = form.get('part2_from', '').strip()
+    db = get_db()
+    db.execute('UPDATE survey SET part2_from=? WHERE id=?', (int(raw) if raw.isdigit() else None, survey_id))
+    db.commit()
 
 
 @bp.route('/<int:survey_id>/edit', methods=['GET', 'POST'])
@@ -460,7 +509,7 @@ def edit(code, survey_id):
             flash('This survey is locked. Ask your instructor if you need to change it.', 'danger')
             return redirect(url_for('builder.edit', code=code, survey_id=survey_id))
         try:
-            errors, _ = _save_edit(classroom, survey)
+            errors, _, _ = _save_edit(classroom, survey)
         except Exception as e:
             errors = [f'Error updating survey: {e}']
         if errors:
@@ -496,7 +545,7 @@ def autosave(code, survey_id):
         return jsonify({'ok': False, 'reason': 'has_responses'})
 
     try:
-        errors, questions = _save_edit(classroom, survey)
+        errors, questions, todo = _save_edit(classroom, survey)
     except Exception as e:
         return jsonify({'ok': False, 'reason': 'error', 'errors': [str(e)]})
     if errors:
@@ -504,8 +553,43 @@ def autosave(code, survey_id):
 
     images = {f'{qi}_{ai}': data.get('image_filename')
               for qi, q in enumerate(questions) for ai, data in q['arms'].items()}
-    return jsonify({'ok': True, 'saved_at': time.strftime('%H:%M:%S'), 'images': images,
+    return jsonify({'ok': True, 'saved_at': time.strftime('%H:%M:%S'), 'images': images, 'todo': todo,
                     'warnings': survey_warnings(get_survey(survey_id))})
+
+
+def blank_design():
+    """The design a new group starts from: Control and Treatment, one empty multiple-choice question."""
+    arms = [{'label': 'Control'}, {'label': 'Treatment'}]
+    questions = [{'question_type': 'multiple_choice', 'label': '',
+                  'arms': {0: {'question_text': '', 'options': []}, 1: {'question_text': '', 'options': []}}}]
+    return arms, questions
+
+
+@bp.route('/<int:survey_id>/start-over', methods=['POST'])
+def start_over(code, survey_id):
+    """Wipe the design (arms, questions, images) back to the blank starting point.
+    The title, group and members stay. Refused once the survey has responses."""
+    classroom = _get_classroom_or_404(code)
+    student, denied = _require_classroom_access(classroom, code)
+    if denied:
+        return denied
+    survey, denied = _load_survey(classroom, code, survey_id, student)
+    if denied:
+        return denied
+    if _locked_for(classroom, survey):
+        flash('This survey is locked. Ask your instructor if you need to change it.', 'danger')
+    elif respondent_count(survey_id):
+        flash('This survey already has responses, so it can\'t be cleared. Ask your instructor.', 'danger')
+    else:
+        arms, questions = blank_design()
+        update_survey(survey_id, survey['title'], survey['group_number'], arms, questions)
+        db = get_db()
+        db.execute('UPDATE survey SET part2_from=NULL WHERE id=?', (survey_id,))  # one question left: one part
+        db.commit()
+        _cleanup_orphan_uploads()
+        flash('Survey cleared. Start your design again below. (Changed your mind? "Discard all changes from '
+              'this session" brings the old version back, in the same browser tab.)', 'success')
+    return redirect(url_for('builder.edit', code=code, survey_id=survey_id))
 
 
 @bp.route('/<int:survey_id>/delete', methods=['POST'])
@@ -560,11 +644,15 @@ def preview_survey(code, survey_id):
         flash('You can look at other groups\' surveys once they are deployed.', 'danger')
         return redirect(url_for('classroom.lobby', code=code))
     arm = min(max(request.args.get('arm', 0, type=int), 0), len(survey['arms']) - 1)
+    from models import reminders
+    part = 2 if request.args.get('part') == '2' and reminders.is_two_part(survey) else 1
+    from routes.reminders import parts_text
     return render_template('student/session.html', classroom=classroom, preview=True,
-                           survey=survey, preview_arm=arm,
+                           survey=survey, preview_arm=arm, preview_part=part,
+                           two_part=reminders.is_two_part(survey), part_texts=parts_text(survey),
                            participant_id=0, student_id='preview',
                            student_name=student['full_name'] if student else 'Instructor',
-                           state_url=url_for('builder.preview_state', code=code, survey_id=survey_id, arm=arm),
+                           state_url=url_for('builder.preview_state', code=code, survey_id=survey_id, arm=arm, part=part),
                            submit_url=url_for('builder.preview_submit', code=code, survey_id=survey_id))
 
 
@@ -582,8 +670,11 @@ def preview_state(code, survey_id):
         return jsonify({'ok': False}), 403
     survey, arms, questions = parts
     arm = min(max(request.args.get('arm', 0, type=int), 0), len(arms) - 1)
-    return jsonify({'ok': True, 'state': 'assignment',
-                    'assignment': _build_assignment_payload(survey, arms, questions, 'preview', arm_position=arm)})
+    payload = _build_assignment_payload(survey, arms, questions, 'preview', arm_position=arm,
+                                        part=2 if request.args.get('part') == '2' else 1)
+    if payload['part'] == 2:
+        payload['title'] += ' (part 2)'
+    return jsonify({'ok': True, 'state': 'assignment', 'assignment': payload})
 
 
 @bp.route('/<int:survey_id>/preview/submit', methods=['POST'])
@@ -602,10 +693,20 @@ def preview_dashboard(code, survey_id):
     survey, denied = _load_survey(classroom, code, survey_id, student)
     if denied:
         return denied
+    return render_template('builder/preview_dashboard.html', **preview_dashboard_context(classroom, survey))
+
+
+def preview_dashboard_context(classroom, survey):
+    """Template values for the dashboard preview (also the instructor's demo dashboard)."""
+    code, survey_id = classroom['code'], survey['id']
     n = min(max(request.args.get('n', 30, type=int), 1), 500)
-    return render_template('builder/preview_dashboard.html', classroom=classroom, survey=survey, n=n,
-                           state_url=url_for('builder.preview_dashboard_state', code=code,
-                                             survey_id=survey_id, n=n))
+    # One seed per sample, so the charts and the example download show the same made-up answers
+    seed = request.args.get('seed', type=int) or random.randint(1, 10**9)
+    return dict(classroom=classroom, survey=survey, n=n, seed=seed,
+                state_url=url_for('builder.preview_dashboard_state', code=code, survey_id=survey_id, n=n, seed=seed),
+                example_url=url_for('builder.preview_example_csv', code=code, survey_id=survey_id, n=n, seed=seed),
+                example_long_url=url_for('builder.preview_example_csv', code=code, survey_id=survey_id, n=n, seed=seed,
+                                         format='long'))
 
 
 @bp.route('/<int:survey_id>/preview-dashboard/state')
@@ -620,9 +721,57 @@ def preview_dashboard_state(code, survey_id):
         return jsonify({'ok': False}), 404
     survey, arms, questions = parts
     n = min(max(request.args.get('n', 30, type=int), 1), 500)
-    results = _aggregate_responses(survey, arms, questions, fake_responses(arms, questions, n))
+    seed = request.args.get('seed', type=int)
+    results = _aggregate_responses(survey, arms, questions, fake_responses(arms, questions, n, seed=seed))
     results['participant_count'] = n
     return jsonify({'ok': True, 'active_survey_id': survey_id, 'participant_count': n, 'results': results})
+
+
+@bp.route('/<int:survey_id>/flow')
+def flow_chart(code, survey_id):
+    """The survey drawn as a flow chart, one column per arm (who sees which questions, in what
+    order, with follow-ups and timers). Same access as the respondent preview."""
+    classroom = _get_classroom_or_404(code)
+    student, denied = _require_classroom_access(classroom, code)
+    if denied:
+        return denied
+    survey = get_survey(survey_id)
+    if not survey or survey['classroom_id'] != classroom['id'] or not _can_preview(classroom, student, survey):
+        flash("You can look at other groups' surveys once they are deployed.", 'danger')
+        return redirect(url_for('classroom.lobby', code=code))
+    if _can_edit(classroom, student, survey_id):
+        base, back = url_for('builder.edit', code=code, survey_id=survey_id), 'edit'
+    else:
+        base, back = url_for('feedback.view_survey', code=code, survey_id=survey_id), 'view'
+    flows = survey_flows(survey, link=lambda qi: f'{base}#q-{qi + 1}')
+    return render_template('builder/flow.html', classroom=classroom, survey=survey, flows=flows,
+                           back_url=base, back=back)
+
+
+@bp.route('/<int:survey_id>/preview-dashboard/example.csv')
+def preview_example_csv(code, survey_id):
+    """The dashboard preview's made-up answers in the exact format of the real anonymized
+    download, so groups can prepare their analysis before class."""
+    classroom = _get_classroom_or_404(code)
+    student, denied = _require_classroom_access(classroom, code)
+    if denied or not _can_edit(classroom, student, survey_id):
+        abort(403)
+    parts = _survey_parts(survey_id)
+    if not parts or parts[0]['classroom_id'] != classroom['id']:
+        abort(404)
+    survey, arms, questions = parts
+    n = min(max(request.args.get('n', 30, type=int), 1), 500)
+    seed = request.args.get('seed', type=int)
+    rows = [dict(r, participant_id=r['respondent'], anon_id=f'EXAMPLE-{r["respondent"]:03d}')
+            for r in fake_responses(arms, questions, n, seed=seed)]
+    from models import reminders
+    from models.download import anon_responses_long_csv
+    long = request.args.get('format') == 'long'
+    writer = anon_responses_long_csv if long else anon_responses_csv
+    csv_text = writer(questions, rows, part2_from=reminders.part2_start(survey))
+    name = 'EXAMPLE_responses_long' if long else 'EXAMPLE_responses'
+    return Response(csv_text, mimetype='text/csv',
+                    headers={'Content-Disposition': f'attachment; filename={_group_filename(survey_id, name)}'})
 
 
 # --- Per-survey download routes ---
@@ -654,8 +803,9 @@ def download_responses(code, survey_id):
         csv_data = export_survey_responses_csv(survey_id, classroom['id'])
         filename = _group_filename(survey_id, 'responses_with_names')
     else:
-        csv_data = export_survey_responses_anon_csv(survey_id, classroom['id'])
-        filename = _group_filename(survey_id, 'responses')
+        long = request.args.get('format') == 'long'
+        csv_data = export_survey_responses_anon_csv(survey_id, classroom['id'], long=long)
+        filename = _group_filename(survey_id, 'responses_long' if long else 'responses')
     return Response(csv_data, mimetype='text/csv',
                     headers={'Content-Disposition': f'attachment; filename={filename}'})
 
