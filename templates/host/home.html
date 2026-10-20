@@ -23,82 +23,109 @@
 {% endif %}
 
 <div class="row g-3">
-    <!-- Class phase -->
-    <div class="col-lg-5">
-        {% set steps = ['Building', 'Locked', 'Feedback open', 'Feedback closed'] %}
-        <div class="card h-100" id="phase">
-            <div class="card-header"><strong>Class phase</strong></div>
-            <div class="card-body">
-                <ol class="list-unstyled mb-3">
-                    {% for s in steps %}
-                    <li class="{% if loop.index0 == phase %}fw-bold text-primary{% elif loop.index0 < phase %}text-muted{% endif %}">
-                        {% if loop.index0 < phase %}&#10003;{% elif loop.index0 == phase %}&#9654;{% else %}&#9675;{% endif %} {{ s }}
-                    </li>
-                    {% endfor %}
-                </ol>
-                {% if phase < 3 %}
-                {% set next_msgs = [
-                    'Lock all surveys and groups? Students will see which groups they must comment on.',
-                    'Open comments? Students can send feedback to other groups.',
-                    'Close comments? Students can no longer send or edit them, and groups will see the comments they received.'] %}
-                <form method="POST" action="{{ url_for('feedback.set_phase', code=classroom.code) }}"
-                      onsubmit="return confirm({{ next_msgs[phase]|tojson|forceescape }})">
-                    <input type="hidden" name="action" value="next">
-                    <button type="submit" class="btn btn-primary w-100 mb-3">Next step: {{ steps[phase + 1] }} &rarr;</button>
+    <!-- Surveys lock and peer comment rounds -->
+    <div class="col-12" id="phase">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <strong>Peer comments and survey lock</strong>
+                <form method="POST" action="{{ url_for('feedback.set_phase', code=classroom.code) }}" class="form-check form-switch mb-0">
+                    <input type="hidden" name="action" value="surveys_locked">
+                    <input type="hidden" name="value" value="{{ 0 if classroom.surveys_locked else 1 }}">
+                    <input class="form-check-input" type="checkbox" id="sw-surveys_locked" {% if classroom.surveys_locked %}checked{% endif %}
+                           onchange="if (this.checked && !confirm('Lock all surveys and groups? Students can still preview and download their responses.')) { this.checked = false; return; } this.form.submit()">
+                    <label class="form-check-label" for="sw-surveys_locked">Lock survey edits &amp; groups</label>
                 </form>
-                {% endif %}
-
-                {% for key, label, help in [
-                    ('surveys_locked', 'Lock survey edits & groups', 'Students can still preview and download their responses.'),
-                    ('feedback_open', 'Accept comments', 'Students can send and edit feedback.'),
-                    ('feedback_released', 'Show comments to groups', 'Groups see the (anonymous) comments they received.')] %}
-                <form method="POST" action="{{ url_for('feedback.set_phase', code=classroom.code) }}" class="form-check form-switch mb-1">
-                    <input type="hidden" name="action" value="{{ key }}">
-                    <input type="hidden" name="value" value="{{ 0 if classroom[key] else 1 }}">
-                    <input class="form-check-input" type="checkbox" id="sw-{{ key }}" {% if classroom[key] %}checked{% endif %}
-                           onchange="this.form.submit()">
-                    <label class="form-check-label" for="sw-{{ key }}">{{ label }}</label>
-                    <div class="form-text mt-0">{{ help }}</div>
-                </form>
-                {% endfor %}
-
-                {% if classroom.feedback_open and not classroom.surveys_locked %}
-                <div class="alert alert-warning small p-2 mt-2 mb-0">Comments are open while surveys and groups can still change. Lock them so feedback is about the final versions.</div>
-                {% endif %}
-                {% if classroom.feedback_open and classroom.feedback_released %}
-                <div class="alert alert-warning small p-2 mt-2 mb-0">Groups can already read comments while classmates are still writing.</div>
-                {% endif %}
-                {% if not classroom.surveys_locked and has_assignments %}
-                <div class="alert alert-secondary small p-2 mt-2 mb-0">Surveys are unlocked but reviewers were already assigned. Assignments and comments are kept; anyone who joins a group they were assigned to gets a different group.</div>
-                {% endif %}
             </div>
-        </div>
-    </div>
-
-    <!-- Feedback -->
-    <div class="col-lg-7">
-        <div class="card h-100">
-            <div class="card-header"><strong>Peer feedback</strong></div>
             <div class="card-body">
-                <form method="POST" action="{{ url_for('feedback.set_phase', code=classroom.code) }}" class="d-flex align-items-center gap-2 mb-3">
-                    <input type="hidden" name="action" value="reviews_required">
-                    <label for="reviews_required" class="text-nowrap">Required comments per student</label>
-                    <input type="number" class="form-control form-control-sm" id="reviews_required" name="reviews_required"
-                           value="{{ classroom.reviews_required }}" min="0" max="20" style="width: 70px;">
-                    <button type="submit" class="btn btn-outline-primary btn-sm">Set</button>
-                </form>
-                {% if has_assignments %}
-                <p class="mb-1"><strong>{{ feedback_done }}</strong> of {{ feedback_students }} students sent all required comments.</p>
-                {% if feedback_students %}
-                <div class="progress mb-3" role="progressbar" aria-valuenow="{{ feedback_done }}" aria-valuemin="0" aria-valuemax="{{ feedback_students }}">
-                    <div class="progress-bar" style="width: {{ (100 * feedback_done / feedback_students)|round }}%"></div>
+                <div class="row g-3">
+                    {% for r in rounds %}
+                    {% set title = 'Comments on presentations' if r.key == 'sketch' else 'Comments on surveys' %}
+                    <div class="col-lg-6">
+                        <div class="border rounded p-3 h-100 {% if r.state == 'open' %}border-success{% endif %}">
+                            <form method="POST" action="{{ url_for('feedback.set_phase', code=classroom.code) }}" class="form-check form-switch mb-1">
+                                <input type="hidden" name="action" value="round_on">
+                                <input type="hidden" name="round" value="{{ r.key }}">
+                                <input type="hidden" name="value" value="{{ 0 if r.on else 1 }}">
+                                <input class="form-check-input" type="checkbox" id="sw-round-{{ r.key }}" {% if r.on %}checked{% endif %} onchange="this.form.submit()">
+                                <label class="form-check-label fw-semibold" for="sw-round-{{ r.key }}">{{ title }}</label>
+                            </form>
+                            <p class="small text-muted mb-2">
+                                {% if r.key == 'sketch' %}On each group's presentation (its experiment sketch), before the surveys run. Students comment on any group
+                                    without seeing its survey, which stays hidden until it runs.
+                                {% else %}On each group's survey, once it has run in class (or early): students can view all its arms then.{% endif %}
+                                When on, it's required for each student's assigned groups.</p>
+                            {% if r.on %}
+                            <p class="mb-2">
+                                {% if r.state == 'open' %}<span class="badge text-bg-success">Open</span>{% if r.close_at %} until <time data-utc="{{ r.close_at }}">{{ r.close_at }}</time>{% endif %}
+                                {% elif r.state == 'upcoming' %}<span class="badge text-bg-info">Scheduled</span> opens <time data-utc="{{ r.open_at }}">{{ r.open_at }}</time>{% if r.close_at %}, closes <time data-utc="{{ r.close_at }}">{{ r.close_at }}</time>{% endif %}
+                                {% elif r.state == 'closed' %}<span class="badge text-bg-secondary">Closed</span> <time data-utc="{{ r.close_at }}">{{ r.close_at }}</time>; groups can read these comments
+                                {% else %}<span class="badge text-bg-light border">Not scheduled</span>{% endif %}
+                            </p>
+                            <form method="POST" action="{{ url_for('feedback.set_phase', code=classroom.code) }}" class="round-schedule row g-2 align-items-end mb-2">
+                                <input type="hidden" name="action" value="round_schedule">
+                                <input type="hidden" name="round" value="{{ r.key }}">
+                                <input type="hidden" name="open_utc"><input type="hidden" name="close_utc">
+                                <div class="col-sm-5">
+                                    <label class="form-label small mb-0">Opens</label>
+                                    <input type="datetime-local" class="form-control form-control-sm sched-open" data-utc="{{ r.open_at or '' }}">
+                                </div>
+                                <div class="col-sm-5">
+                                    <label class="form-label small mb-0">Closes</label>
+                                    <input type="datetime-local" class="form-control form-control-sm sched-close" data-utc="{{ r.close_at or '' }}">
+                                </div>
+                                <div class="col-sm-2"><button type="submit" class="btn btn-outline-primary btn-sm w-100">Save</button></div>
+                            </form>
+                            <div class="d-flex gap-2 flex-wrap mb-2">
+                                {% if r.state != 'open' %}
+                                <form method="POST" action="{{ url_for('feedback.set_phase', code=classroom.code) }}"
+                                      onsubmit="return confirm('Open comments now? Students can send them right away (reviewers are assigned if they aren\'t yet).')">
+                                    <input type="hidden" name="action" value="round_open_now"><input type="hidden" name="round" value="{{ r.key }}">
+                                    <button type="submit" class="btn btn-success btn-sm">Open now</button>
+                                </form>
+                                {% else %}
+                                <form method="POST" action="{{ url_for('feedback.set_phase', code=classroom.code) }}"
+                                      onsubmit="return confirm('Close comments now? Students can no longer send or edit them, and groups will see the comments they received.')">
+                                    <input type="hidden" name="action" value="round_close_now"><input type="hidden" name="round" value="{{ r.key }}">
+                                    <button type="submit" class="btn btn-outline-danger btn-sm">Close now</button>
+                                </form>
+                                {% endif %}
+                            </div>
+                            {% if has_assignments %}
+                            <p class="small mb-1"><strong>{{ r.done }}</strong> of {{ r.students }} students sent all required comments.</p>
+                            {% if r.students %}
+                            <div class="progress" style="height: 6px;" role="progressbar" aria-valuenow="{{ r.done }}" aria-valuemin="0" aria-valuemax="{{ r.students }}">
+                                <div class="progress-bar" style="width: {{ (100 * r.done / r.students)|round }}%"></div>
+                            </div>
+                            {% endif %}
+                            {% endif %}
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
                 </div>
-                {% endif %}
-                <a href="{{ url_for('feedback.download_feedback', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">Comments CSV</a>
-                <a href="{{ url_for('feedback.download_feedback_summary', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">Summary CSV (for grading)</a>
-                {% else %}
-                <p class="text-muted mb-0">Reviewers are assigned automatically when you lock surveys and groups. Students then see which groups they'll comment on.</p>
-                {% endif %}
+
+                <div class="d-flex align-items-center gap-3 flex-wrap mt-3">
+                    <form method="POST" action="{{ url_for('feedback.set_phase', code=classroom.code) }}" class="d-flex align-items-center gap-2">
+                        <input type="hidden" name="action" value="reviews_required">
+                        <label for="reviews_required" class="text-nowrap small">Assigned groups per student</label>
+                        <input type="number" class="form-control form-control-sm" id="reviews_required" name="reviews_required"
+                               value="{{ classroom.reviews_required }}" min="0" max="20" style="width: 70px;">
+                        <button type="submit" class="btn btn-outline-primary btn-sm">Set</button>
+                    </form>
+                    <form method="POST" action="{{ url_for('feedback.set_phase', code=classroom.code) }}"
+                          onsubmit="return confirm({{ ('Assign reviewers now? Each student gets ' ~ classroom.reviews_required ~ ' groups to comment on (never their own), the same groups in both rounds. Existing assignments are kept; students without enough get more.')|tojson|forceescape }})">
+                        <input type="hidden" name="action" value="assign_reviewers">
+                        <button type="submit" class="btn btn-primary btn-sm">{% if has_assignments %}Assign reviewers to students who still need them{% else %}Assign reviewers now{% endif %}</button>
+                    </form>
+                    {% if has_assignments %}
+                    <a href="{{ url_for('feedback.download_feedback', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">Comments CSV</a>
+                    <a href="{{ url_for('feedback.download_feedback_summary', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">Summary CSV (for grading)</a>
+                    {% endif %}
+                </div>
+                <p class="small text-muted mb-0 mt-2">
+                    {% if has_assignments %}Reviewers are assigned: students see their groups in their lobby, the same groups in both rounds.
+                    {% else %}Reviewers are assigned when you click the button above, when a round opens, or when you lock surveys. Assign them once groups are settled.{% endif %}
+                    Times are in your computer's time zone.</p>
             </div>
         </div>
     </div>
@@ -196,6 +223,21 @@
 
 {% block scripts %}
 <script>
+    // Round schedules: the date-time boxes are in this computer's time zone; they're sent as UTC
+    document.querySelectorAll('.round-schedule').forEach(function(form) {
+        function pad(n) { return (n < 10 ? '0' : '') + n; }
+        form.querySelectorAll('input[type=datetime-local]').forEach(function(input) {
+            if (!input.dataset.utc) return;
+            var d = new Date(input.dataset.utc);
+            if (!isNaN(d)) input.value = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+        });
+        form.addEventListener('submit', function() {
+            var toUtc = function(v) { return v ? new Date(v).toISOString().replace(/\.\d{3}Z$/, 'Z') : ''; };
+            form.open_utc.value = toUtc(form.querySelector('.sched-open').value);
+            form.close_utc.value = toUtc(form.querySelector('.sched-close').value);
+        });
+    });
+
     // Host password prompt for destructive actions
     function promptHostPassword(form, message) {
         var pw = prompt(message);

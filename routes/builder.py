@@ -625,9 +625,9 @@ def delete(code, survey_id):
 def _can_preview(classroom, student, survey):
     """Group members and the host always; classmates once the survey has gone live
     (so nobody sees the arms before answering), so they can write feedback."""
-    from models.feedback import survey_commentable
+    from models.feedback import survey_viewable
     return _can_edit(classroom, student, survey['id']) or (
-        student is not None and survey_commentable(classroom, survey))
+        student is not None and survey_viewable(classroom, survey))
 
 
 def _survey_parts(survey_id):

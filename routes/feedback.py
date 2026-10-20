@@ -35,28 +35,17 @@ def _lobby_feedback(code):
     return redirect(url_for('classroom.lobby', code=code) + '#feedback')
 
 
-def class_phase(classroom):
-    """0 Building, 1 Locked, 2 Feedback open, 3 Feedback closed (comments shown to groups)."""
-    if classroom['feedback_released'] and not classroom['feedback_open']:
-        return 3
-    if classroom['feedback_open']:
-        return 2
-    if classroom['surveys_locked']:
-        return 1
-    return 0
-
-
 # --- Viewing other groups' surveys ---
 
 def can_view_survey(classroom, survey, student):
-    """Classmates can look at a survey once it has gone live (see survey_commentable)."""
+    """Classmates can look at a survey once it has gone live (see survey_viewable)."""
     if _is_host(classroom):
         return True
     if not student:
         return False
     if fb.is_own_survey(survey['id'], student['id']):
         return True
-    return fb.survey_commentable(classroom, survey)
+    return fb.survey_viewable(classroom, survey)
 
 
 @bp.route('/survey/<int:survey_id>/view')
@@ -79,11 +68,14 @@ def view_survey(code, survey_id):
 
 # --- Writing comments ---
 
-def _check_target(classroom, student, survey_id):
+def _check_target(classroom, student, survey_id, rnd=None):
+    """The group a student comments on: not their own, and (with a round) commentable in that round now."""
     survey = get_survey(survey_id)
     if not survey or survey['classroom_id'] != classroom['id']:
         abort(404)
-    if fb.is_own_survey(survey_id, student['id']) or not fb.survey_commentable(classroom, survey):
+    if fb.is_own_survey(survey_id, student['id']):
+        abort(403)
+    if rnd is not None and not fb.can_draft(classroom, survey, rnd):
         abort(403)
     return survey
 
@@ -94,19 +86,20 @@ def save_comment(code, survey_id):
     student, denied = _student_or_redirect(classroom)
     if denied:
         return denied
-    _check_target(classroom, student, survey_id)
+    rnd = request.form.get('round') if request.form.get('round') in fb.ROUNDS else 'survey'
+    _check_target(classroom, student, survey_id, rnd)
     body = request.form.get('body', '').strip()[:MAX_COMMENT_LENGTH]
     send = request.form.get('action') == 'send'
-    existing = fb.get_feedback(survey_id, student['id'])
+    existing = fb.get_feedback(survey_id, student['id'], rnd)
 
     if send or (existing and existing['sent_at']):
-        if not classroom['feedback_open']:
-            flash('Comments are not open right now.', 'danger')
+        if fb.round_state(classroom, rnd) != 'open':
+            flash(f'Comments on {fb.ROUND_NAMES[rnd]}s are not open right now.', 'danger')
             return _lobby_feedback(code)
         if not body:
             flash('Write something before sending.', 'danger')
             return _lobby_feedback(code)
-    fb.save_feedback(survey_id, student['id'], body, send=send or bool(existing and existing['sent_at']))
+    fb.save_feedback(survey_id, student['id'], body, send=send or bool(existing and existing['sent_at']), rnd=rnd)
     flash('Comment sent.' if send else 'Draft saved (only you can see it).', 'success')
     return _lobby_feedback(code)
 
@@ -119,13 +112,14 @@ def save_note(code, survey_id):
     if not student:
         return jsonify({'ok': False}), 401
     survey = get_survey(survey_id)
-    if not survey or survey['classroom_id'] != classroom['id'] or fb.is_own_survey(survey_id, student['id'])             or not fb.survey_commentable(classroom, survey):
+    if not survey or survey['classroom_id'] != classroom['id'] or fb.is_own_survey(survey_id, student['id']) \
+            or not fb.can_draft(classroom, survey, 'survey'):
         return jsonify({'ok': False}), 403
-    existing = fb.get_feedback(survey_id, student['id'])
+    existing = fb.get_feedback(survey_id, student['id'], 'survey')
     if existing and existing['sent_at']:
         return jsonify({'ok': False, 'reason': 'already_sent'})
     body = ((request.get_json(silent=True) or {}).get('body') or '').strip()[:MAX_COMMENT_LENGTH]
-    fb.save_feedback(survey_id, student['id'], body, send=False)
+    fb.save_feedback(survey_id, student['id'], body, send=False, rnd='survey')
     return jsonify({'ok': True})
 
 
@@ -136,11 +130,12 @@ def get_note(code, survey_id):
     if not student:
         return jsonify({'ok': False}), 401
     survey = get_survey(survey_id)
-    if not survey or survey['classroom_id'] != classroom['id'] or not fb.survey_commentable(classroom, survey):
+    # The note becomes a draft of the comment on this survey, so it needs the survey round
+    if not survey or survey['classroom_id'] != classroom['id'] or not fb.can_draft(classroom, survey, 'survey'):
         return jsonify({'ok': False, 'reason': 'not_live'})  # the page then hides the note box
     if fb.is_own_survey(survey_id, student['id']):
         return jsonify({'ok': True, 'own': True})
-    existing = fb.get_feedback(survey_id, student['id']) or {}
+    existing = fb.get_feedback(survey_id, student['id'], 'survey') or {}
     return jsonify({'ok': True, 'body': existing.get('body', ''), 'sent': bool(existing.get('sent_at'))})
 
 
@@ -151,9 +146,12 @@ def add_extra(code):
     if denied:
         return denied
     survey_id = request.form.get('survey_id', type=int)
-    _check_target(classroom, student, survey_id)
-    if not fb.get_feedback(survey_id, student['id']):
-        fb.save_feedback(survey_id, student['id'], '', send=False)
+    survey = _check_target(classroom, student, survey_id)
+    rnd = next((r for r in fb.ROUNDS if fb.can_draft(classroom, survey, r)), None)
+    if rnd is None:
+        abort(403)
+    if not fb.get_feedback(survey_id, student['id'], rnd):
+        fb.save_feedback(survey_id, student['id'], '', send=False, rnd=rnd)
     return _lobby_feedback(code)
 
 
@@ -167,10 +165,11 @@ def delete_comment(code, survey_id):
     if fb.is_required(classroom, survey_id, student['id']):
         flash('Required comments can be edited but not removed.', 'danger')
         return _lobby_feedback(code)
-    existing = fb.get_feedback(survey_id, student['id'])
-    if existing and existing['sent_at'] and not classroom['feedback_open']:
-        flash('Comments are closed, so sent comments can no longer be removed.', 'danger')
-        return _lobby_feedback(code)
+    for rnd in fb.ROUNDS:
+        existing = fb.get_feedback(survey_id, student['id'], rnd)
+        if existing and existing['sent_at'] and fb.round_state(classroom, rnd) != 'open':
+            flash('Comments are closed, so sent comments can no longer be removed.', 'danger')
+            return _lobby_feedback(code)
     fb.delete_feedback(survey_id, student['id'])
     flash('Comment removed.', 'success')
     return _lobby_feedback(code)
@@ -261,23 +260,48 @@ def _host_classroom(code):
     return classroom
 
 
+def _now_iso():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
 @bp.route('/host/phase', methods=['POST'])
 def set_phase(code):
-    """Class phase: the 'Next step' button or individual switches. Nothing is ever deleted."""
+    """Locking surveys, the comment rounds (on/off, schedule, open/close now), the required count,
+    and other class settings. Nothing is ever deleted."""
     classroom = _host_classroom(code)
     db = get_db()
     action = request.form.get('action', '')
+    rnd = request.form.get('round') if request.form.get('round') in fb.ROUNDS else None
     fields = {}
-    if action == 'next':
-        step = class_phase(classroom)
-        if step == 0:
-            fields = {'surveys_locked': 1}
-        elif step == 1:
-            fields = {'feedback_open': 1}
-        elif step == 2:
-            fields = {'feedback_open': 0, 'feedback_released': 1}
-    elif action in ('surveys_locked', 'feedback_open', 'feedback_released'):
+    if action == 'surveys_locked':
         fields = {action: 1 if request.form.get('value') == '1' else 0}
+    elif action == 'round_on' and rnd:
+        fields = {f'fb_{rnd}_on': 1 if request.form.get('value') == '1' else 0}
+    elif action == 'round_schedule' and rnd:
+        opens, closes = request.form.get('open_utc', '').strip(), request.form.get('close_utc', '').strip()
+        if (opens and not fb.parse_utc(opens)) or (closes and not fb.parse_utc(closes)):
+            flash('Choose valid dates and times.', 'danger')
+            return redirect(url_for('host.home', code=code) + '#phase')
+        if opens and closes and fb.parse_utc(closes) <= fb.parse_utc(opens):
+            flash('The closing time must be after the opening time.', 'danger')
+            return redirect(url_for('host.home', code=code) + '#phase')
+        fields = {f'fb_{rnd}_open_at': opens or None, f'fb_{rnd}_close_at': closes or None}
+        flash(f'Comments on {fb.ROUND_NAMES[rnd]}s: schedule saved.', 'success')
+    elif action == 'round_open_now' and rnd:
+        fields = {f'fb_{rnd}_open_at': _now_iso()}
+        if fb.round_state(classroom, rnd) == 'closed':
+            fields[f'fb_{rnd}_close_at'] = None  # reopening: no end until a new one is set
+        flash(f'Comments on {fb.ROUND_NAMES[rnd]}s are open.', 'success')
+    elif action == 'round_close_now' and rnd:
+        fields = {f'fb_{rnd}_close_at': _now_iso()}
+        if not classroom[f'fb_{rnd}_open_at']:
+            fields[f'fb_{rnd}_open_at'] = fields[f'fb_{rnd}_close_at']
+        flash(f'Comments on {fb.ROUND_NAMES[rnd]}s are closed; groups can now read them.', 'success')
+    elif action == 'assign_reviewers':
+        fb.ensure_assignments(classroom)
+        flash('Reviewers assigned: students see, in their lobby, the groups they will comment on.', 'success')
+        return redirect(url_for('host.home', code=code) + '#phase')
     elif action == 'reviews_required':
         n = request.form.get('reviews_required', type=int)
         if n is None or n < 0 or n > 20:
@@ -306,10 +330,11 @@ def set_phase(code):
     db.commit()
 
     classroom = _classroom(code)
-    # Assign reviewers as soon as groups are final, so students know whose surveys to watch
-    if fb.feedback_started(classroom):
-        if fields.get('surveys_locked') or fields.get('feedback_open') or 'reviews_required' in fields:
-            fb.ensure_assignments(classroom)
+    # Assign reviewers once groups are final (surveys locked) or a round opens, so students know
+    # whose presentations or surveys to watch; a new required count tops everyone up
+    if fields.get('surveys_locked') or action == 'round_open_now' or (
+            'reviews_required' in fields and fb.assignments_exist(classroom['id'])):
+        fb.ensure_assignments(classroom)
     return redirect(url_for('host.home', code=code) + '#phase')
 
 

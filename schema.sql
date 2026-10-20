@@ -14,6 +14,14 @@ CREATE TABLE IF NOT EXISTS classroom (
     reviews_required        INTEGER NOT NULL DEFAULT 2,  -- required comments per student
     max_questions_per_survey INTEGER DEFAULT 3,          -- NULL = no limit (host is exempt)
     reminders_until         TEXT DEFAULT NULL,           -- yyyy-mm-dd: latest date for reminders and part 2 (NULL = no limit)
+    -- Peer comment rounds: on each group's presentation (sketch) and/or on its survey after it runs.
+    -- Each round is on/off and open between its times (ISO UTC; NULL open = not scheduled, NULL close = no end).
+    fb_sketch_on            INTEGER NOT NULL DEFAULT 0,
+    fb_sketch_open_at       TEXT DEFAULT NULL,
+    fb_sketch_close_at      TEXT DEFAULT NULL,
+    fb_survey_on            INTEGER NOT NULL DEFAULT 1,
+    fb_survey_open_at       TEXT DEFAULT NULL,
+    fb_survey_close_at      TEXT DEFAULT NULL,
     created_at              TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -197,9 +205,11 @@ CREATE TABLE IF NOT EXISTS feedback (
     roster_student_id INTEGER NOT NULL REFERENCES roster_student(id) ON DELETE CASCADE,
     body              TEXT NOT NULL DEFAULT '',
     sent_at           TEXT DEFAULT NULL,
-    updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    round             TEXT NOT NULL DEFAULT 'survey'   -- 'sketch' (on the presentation) | 'survey' (after it runs)
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_unique ON feedback(survey_id, roster_student_id);
+-- One comment per student, survey and round: the unique index on (survey_id, roster_student_id, round)
+-- is created by the migrations in models/db.py (older databases get the round column there first).
 
 -- Calendar reminders: each download of the .ics file, tap on a Google Calendar link, or "Done"
 CREATE TABLE IF NOT EXISTS reminder_action (

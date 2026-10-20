@@ -51,7 +51,7 @@ their own guide (<code>docs/student-guide.pdf</code>).</p>
     <li>Creating the classroom</li>
     <li>The instructor home</li>
     <li>The roster</li>
-    <li>Class phases</li>
+    <li>Peer comments and the survey lock</li>
     <li>Managing surveys</li>
     <li>Two-part surveys and notifications</li>
     <li>The demo dashboard</li>
@@ -75,7 +75,7 @@ their own guide (<code>docs/student-guide.pdf</code>).</p>
 their first name and choose a password, so names and IDs in your data always match the roster.</p>
 
 <h2 class="page-break">2. The instructor home</h2>
-<p>Everything between classes is on the instructor home: the class phase, the roster, the surveys and the data.
+<p>Everything between classes is on the instructor home: peer comments and the survey lock, the roster, the surveys and the data.
 <b>Start live session</b> opens the page you project in class.</p>
 <figure><img src="img/01_home.png" alt="Instructor home"></figure>
 <ul>
@@ -105,16 +105,26 @@ opt in are shown; students leave the list once they join a group, get an invite 
     <li><b>Max members per group</b> and <b>Max groups per student</b>: lowering them never removes anyone; full groups just can't take more.</li>
 </ul>
 
-<h2>4. Class phases</h2>
-<p>The <b>Class phase</b> card moves the class through four steps with <b>Next step</b>, or with individual switches:</p>
-<table>
-    <tr><th style="width: 22%">Phase</th><th>What students can do</th></tr>
-    <tr><td>Building</td><td>Create groups, invite teammates, build and edit surveys.</td></tr>
-    <tr><td>Locked</td><td>Surveys and groups are frozen (you can still edit). Each student sees the groups they'll comment on. Previews and downloads keep working.</td></tr>
-    <tr><td>Feedback open</td><td>Students send their comments on other groups (each group opens for comments once its survey has run).</td></tr>
-    <tr><td>Feedback closed</td><td>Comments are final; groups read the comments they received, anonymized.</td></tr>
-</table>
-<p>Set <b>Required comments per student</b> before locking; assignments are balanced so every group gets about the same number of reviewers, never their own.</p>
+<h2>4. Peer comments and the survey lock</h2>
+<p>The <b>Peer comments and survey lock</b> card has the lock switch and the two comment rounds.</p>
+<figure><img src="img/07_rounds.png" alt="Peer comments and survey lock card"><figcaption>Presentations open until Wednesday; surveys scheduled for next month.</figcaption></figure>
+<ul>
+    <li><b>Lock survey edits &amp; groups</b>: surveys and groups are frozen (you can still edit). Previews and downloads keep working. Lock before the surveys run.</li>
+    <li><b>Comments on presentations</b> (off by default): on each group's experiment sketch, before the surveys run. Students comment on any group without
+        seeing its survey, which stays hidden from classmates until it runs, so nobody sees the treatment before answering.</li>
+    <li><b>Comments on surveys</b> (on by default): on each group's survey once it has run in class or early; students can view all its arms then.</li>
+</ul>
+<p>Each round that is on is required for each student's assigned groups (<b>Assigned groups per student</b>, same groups in both rounds). For each round:</p>
+<ul>
+    <li><b>Opens / Closes</b>: set the dates and times (in your computer's time zone) and <b>Save</b>. The round opens and closes on its own; students see the
+        times in their lobby and can save drafts before it opens. Leave <b>Closes</b> empty for no end.</li>
+    <li><b>Open now</b> / <b>Close now</b> for manual control (reopening a closed round removes its end time).</li>
+    <li>When a round closes, the groups read its comments, anonymized as "Reviewer 1, 2..." (the same number in both rounds).</li>
+    <li>Progress shows how many students sent all their required comments in that round.</li>
+</ul>
+<p><b>Assign reviewers now</b> gives every student their groups (never their own; about the same number of reviewers per group). Do it once groups are settled,
+e.g. before the presentations. Reviewers are also assigned automatically when a round opens or when you lock surveys; clicking again only tops up students
+who still need groups (e.g. after a merge or a late roster addition). <b>Comments CSV</b> and <b>Summary CSV</b> have a round column / per-round counts for grading.</p>
 
 <h2 class="page-break">5. Managing surveys</h2>
 <p><b>Manage surveys</b> lists every group's survey with its members (count, "alone" and "full" badges, pending invites), status and badges
@@ -173,9 +183,9 @@ without going live. Use it to check the surveys before class or to walk the clas
 </ul>
 
 <h2>9. Peer feedback</h2>
-<p>When you lock surveys, each student is assigned groups to comment on. Comments are drafts until sent; students can jot private notes right after answering
-a live survey. Groups read the comments as "Reviewer 1, Reviewer 2"; you see names. <b>Feedback comments</b> and <b>Feedback summary</b> (required sent
-per student) are in the Data card for grading.</p>
+<p>See section 4 for the rounds and their schedules. Comments are drafts until sent; students can jot private notes right after answering a live survey,
+which become drafts in the survey round. Groups read the comments as "Reviewer 1, Reviewer 2" once each round closes; you see names. <b>Feedback comments</b>
+and <b>Feedback summary</b> (per round) are in the Data card and the peer comments card, for grading.</p>
 
 <h2>10. Data and downloads</h2>
 <p><b>Download everything (.zip)</b> on the home page has every file plus the uploaded images:</p>

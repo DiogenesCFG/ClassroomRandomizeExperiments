@@ -6,19 +6,87 @@ from datetime import datetime, timezone
 from models.db import get_db
 
 
+# --- Comment rounds ---
+# 'sketch': comments on each group's presentation (its experiment sketch), before the surveys run;
+# any group can be commented on, without seeing its survey. 'survey': comments on each group's
+# survey, once it has run. Each round is on/off (classroom.fb_<round>_on; on = required for the
+# student's assigned groups) and open between fb_<round>_open_at and fb_<round>_close_at (ISO UTC).
+# A round's comments are shown to the groups once it closes. Both rounds use the same assignments.
+
+ROUNDS = ('sketch', 'survey')
+ROUND_NAMES = {'sketch': 'presentation', 'survey': 'survey'}
+
+
+def _utc(value):
+    try:
+        return datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+    except (TypeError, ValueError):
+        return None
+
+
+def round_on(classroom, rnd):
+    return bool(classroom[f'fb_{rnd}_on'])
+
+
+def round_state(classroom, rnd, now=None):
+    """'off', 'unscheduled' (on, no opening time), 'upcoming', 'open' or 'closed'."""
+    if not round_on(classroom, rnd):
+        return 'off'
+    opens, closes = _utc(classroom[f'fb_{rnd}_open_at']), _utc(classroom[f'fb_{rnd}_close_at'])
+    now = now or datetime.now(timezone.utc)
+    if closes and now > closes:
+        return 'closed'
+    if not opens:
+        return 'unscheduled'
+    return 'open' if now >= opens else 'upcoming'
+
+
+def rounds_info(classroom):
+    """Both rounds for the pages: key, name, on, state, open_at, close_at."""
+    return [{'key': r, 'name': ROUND_NAMES[r], 'on': round_on(classroom, r), 'state': round_state(classroom, r),
+             'open_at': classroom[f'fb_{r}_open_at'], 'close_at': classroom[f'fb_{r}_close_at']} for r in ROUNDS]
+
+
+def active_rounds(classroom):
+    return [r for r in ROUNDS if round_on(classroom, r)]
+
+
+def released(classroom, rnd):
+    """Groups read a round's comments once it has closed."""
+    return round_state(classroom, rnd) == 'closed'
+
+
+def any_round_started(classroom):
+    return any(round_state(classroom, r) in ('open', 'closed') for r in ROUNDS)
+
+
 def feedback_started(classroom):
-    """Review assignments are made (and shown) once surveys are locked; while groups
-    are still building, the list of groups isn't settled."""
-    return bool(classroom['surveys_locked'] or classroom['feedback_open'] or classroom['feedback_released'])
+    """Review assignments are shown once they exist: made when surveys are locked, when a round
+    opens, or when the host assigns them (e.g. for presentations, while groups are still building)."""
+    return bool(classroom['surveys_locked'] or any_round_started(classroom) or assignments_exist(classroom['id']))
+
+
+def survey_viewable(classroom, survey):
+    """Classmates can look at a survey (View survey, previews) once it has gone live: run in a
+    live session at least once (it stays open after the host moves on) or opened early, so
+    nobody sees the arms before answering. Other-platform surveys can't go live here, so they
+    open when surveys are locked or a comment round has started."""
+    if survey['went_live'] or survey['early_open']:
+        return True
+    return bool(survey['external'] and (classroom['surveys_locked'] or any_round_started(classroom)))
+
+
+def can_draft(classroom, survey, rnd):
+    """A comment in this round can be written (draft) now: the round is on and not closed, and
+    for the survey round, the survey has run (presentations can be commented on any time)."""
+    if round_state(classroom, rnd) in ('off', 'closed'):
+        return False
+    return rnd == 'sketch' or survey_viewable(classroom, survey)
 
 
 def survey_commentable(classroom, survey):
-    """Classmates can look at a survey and comment on it once it has gone live: run in a
-    live session at least once (it stays open after the host moves on) or opened early.
-    Other-platform surveys can't go live here, so they open when surveys are locked."""
-    if survey['went_live'] or survey['early_open']:
-        return True
-    return bool(survey['external'] and feedback_started(classroom))
+    """Some comment on this group is possible now (in either round)."""
+    return any(can_draft(classroom, survey, r) for r in ROUNDS)
 
 
 def commentable_ids(classroom):
@@ -200,24 +268,31 @@ def assignments_exist(classroom_id):
 
 def student_feedback(classroom, roster_student_id):
     """The student's feedback cards: required groups first (oldest assignments up to
-    reviews_required), then other assigned or extra groups they've written about."""
+    reviews_required), then other assigned or extra groups they've written about. Each card has
+    'rounds': {round: {feedback_id, body, sent_at, updated_at}} for the comments written so far."""
     db = get_db()
     rows = db.execute('''
-        SELECT s.id AS survey_id, s.group_number, s.title,
-               ra.id AS assignment_id, ra.created_at AS assigned_at,
-               f.id AS feedback_id, f.body, f.sent_at, f.updated_at
+        SELECT s.id AS survey_id, s.group_number, s.title, s.went_live, s.early_open, s.external,
+               ra.id AS assignment_id, ra.created_at AS assigned_at
         FROM survey s
         LEFT JOIN review_assignment ra ON ra.survey_id = s.id AND ra.roster_student_id = ?
-        LEFT JOIN feedback f ON f.survey_id = s.id AND f.roster_student_id = ?
-        WHERE s.classroom_id = ? AND (ra.id IS NOT NULL OR f.id IS NOT NULL)
+        WHERE s.classroom_id = ? AND (ra.id IS NOT NULL OR EXISTS (
+            SELECT 1 FROM feedback f WHERE f.survey_id = s.id AND f.roster_student_id = ?))
         ORDER BY ra.id IS NULL, ra.id, s.group_number
-    ''', (roster_student_id, roster_student_id, classroom['id'])).fetchall()
+    ''', (roster_student_id, classroom['id'], roster_student_id)).fetchall()
+    comments = {}
+    for f in db.execute('SELECT f.* FROM feedback f JOIN survey s ON f.survey_id = s.id '
+                        'WHERE f.roster_student_id = ? AND s.classroom_id = ?', (roster_student_id, classroom['id'])):
+        comments.setdefault(f['survey_id'], {})[f['round']] = {
+            'feedback_id': f['id'], 'body': f['body'], 'sent_at': f['sent_at'], 'updated_at': f['updated_at']}
     cards, required_left = [], classroom['reviews_required'] or 0
     for r in rows:
         card = dict(r)
         card['required'] = r['assignment_id'] is not None and required_left > 0
         if card['required']:
             required_left -= 1
+        card['rounds'] = comments.get(r['survey_id'], {})
+        card['has_comment'] = bool(card['rounds'])
         cards.append(card)
     return cards
 
@@ -236,11 +311,11 @@ def is_own_survey(survey_id, roster_student_id):
                             (survey_id, roster_student_id)).fetchone() is not None
 
 
-def save_feedback(survey_id, roster_student_id, body, send):
-    """Save a draft (send=False) or send/update a comment (send=True)."""
+def save_feedback(survey_id, roster_student_id, body, send, rnd='survey'):
+    """Save a draft (send=False) or send/update a comment (send=True) in a round."""
     db = get_db()
-    existing = db.execute('SELECT id, sent_at FROM feedback WHERE survey_id=? AND roster_student_id=?',
-                          (survey_id, roster_student_id)).fetchone()
+    existing = db.execute('SELECT id, sent_at FROM feedback WHERE survey_id=? AND roster_student_id=? AND round=?',
+                          (survey_id, roster_student_id, rnd)).fetchone()
     if existing:
         if send:
             db.execute("UPDATE feedback SET body=?, sent_at=COALESCE(sent_at, datetime('now')), "
@@ -248,19 +323,20 @@ def save_feedback(survey_id, roster_student_id, body, send):
         else:
             db.execute("UPDATE feedback SET body=?, updated_at=datetime('now') WHERE id=?", (body, existing['id']))
     else:
-        db.execute("INSERT INTO feedback (survey_id, roster_student_id, body, sent_at) "
-                   "VALUES (?, ?, ?, CASE WHEN ? THEN datetime('now') END)",
-                   (survey_id, roster_student_id, body, 1 if send else 0))
+        db.execute("INSERT INTO feedback (survey_id, roster_student_id, body, sent_at, round) "
+                   "VALUES (?, ?, ?, CASE WHEN ? THEN datetime('now') END, ?)",
+                   (survey_id, roster_student_id, body, 1 if send else 0, rnd))
     db.commit()
 
 
-def get_feedback(survey_id, roster_student_id):
-    row = get_db().execute('SELECT * FROM feedback WHERE survey_id=? AND roster_student_id=?',
-                           (survey_id, roster_student_id)).fetchone()
+def get_feedback(survey_id, roster_student_id, rnd='survey'):
+    row = get_db().execute('SELECT * FROM feedback WHERE survey_id=? AND roster_student_id=? AND round=?',
+                           (survey_id, roster_student_id, rnd)).fetchone()
     return dict(row) if row else None
 
 
 def delete_feedback(survey_id, roster_student_id):
+    """Remove a student's (extra) comments on a group, in every round."""
     db = get_db()
     db.execute('DELETE FROM feedback WHERE survey_id=? AND roster_student_id=?', (survey_id, roster_student_id))
     db.commit()
@@ -271,22 +347,33 @@ def is_required(classroom, survey_id, roster_student_id):
                for c in student_feedback(classroom, roster_student_id))
 
 
-def received_feedback(survey_id):
-    """Sent comments on a survey, anonymized as Reviewer 1, 2, ... (stable order)."""
-    rows = get_db().execute('SELECT body, sent_at FROM feedback WHERE survey_id=? AND sent_at IS NOT NULL '
+def received_feedback(classroom, survey_id):
+    """Sent comments on a group from the rounds that have closed, anonymized as Reviewer 1, 2, ...
+    (the same reviewer keeps their number across rounds): [{'round', 'name', 'comments': [...]}]."""
+    rows = get_db().execute('SELECT roster_student_id, body, round FROM feedback WHERE survey_id=? AND sent_at IS NOT NULL '
                             "AND TRIM(body) != '' ORDER BY id", (survey_id,)).fetchall()
-    return [{'reviewer': f'Reviewer {i}', 'body': r['body']} for i, r in enumerate(rows, start=1)]
+    numbers = {}
+    for r in rows:
+        numbers.setdefault(r['roster_student_id'], len(numbers) + 1)
+    out = []
+    for rnd in ROUNDS:
+        if not released(classroom, rnd):
+            continue
+        out.append({'round': rnd, 'name': ROUND_NAMES[rnd],
+                    'comments': [{'reviewer': f'Reviewer {numbers[r["roster_student_id"]]}', 'body': r['body']}
+                                 for r in rows if r['round'] == rnd]})
+    return out
 
 
-def feedback_progress(classroom):
-    """(students who sent all required comments, active students)."""
+def feedback_progress(classroom, rnd):
+    """(students who sent all their required comments in this round, active students)."""
     db = get_db()
     students = [r['id'] for r in db.execute(
         'SELECT id FROM roster_student WHERE classroom_id=? AND hidden=0', (classroom['id'],))]
     done = 0
     for rid in students:
         cards = [c for c in student_feedback(classroom, rid) if c['required']]
-        if cards and all(c['sent_at'] for c in cards):
+        if cards and all((c['rounds'].get(rnd) or {}).get('sent_at') for c in cards):
             done += 1
     return done, len(students)
 

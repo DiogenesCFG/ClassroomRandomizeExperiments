@@ -196,24 +196,24 @@
                     {% for w in g.warnings %}
                     <tr class="table-warning"><td></td><td colspan="5" class="small">&#9888; {{ w }}</td></tr>
                     {% endfor %}
-                    {% if classroom.feedback_released %}
+                    {% for rf in g.received %}
                     <tr>
                         <td></td>
                         <td colspan="5">
-                            <details {% if g.received %}open{% endif %}>
-                                <summary class="small fw-semibold">Feedback received ({{ g.received|length }})</summary>
-                                {% for c in g.received %}
+                            <details open>
+                                <summary class="small fw-semibold">Feedback received on your {{ rf.name }} ({{ rf.comments|length }})</summary>
+                                {% for c in rf.comments %}
                                 <div class="border-start border-3 ps-2 my-2 small">
                                     <div class="text-muted">{{ c.reviewer }}</div>
                                     <div style="white-space: pre-wrap;">{{ c.body }}</div>
                                 </div>
                                 {% else %}
-                                <div class="small text-muted my-1">No comments yet.</div>
+                                <div class="small text-muted my-1">No comments.</div>
                                 {% endfor %}
                             </details>
                         </td>
                     </tr>
-                    {% endif %}
+                    {% endfor %}
                     {% endfor %}
                 </tbody>
             </table>
@@ -426,77 +426,98 @@
     </div>
     {% endif %}
 
-    <!-- Peer feedback (a stand-in until surveys are locked, unless a survey already ran early) -->
+    <!-- Peer feedback: one comment box per active round (presentation, survey) for each group -->
+    {% set sketch_on = rounds|selectattr('key', 'equalto', 'sketch')|list %}
     {% if not feedback_started and not feedback_cards and not can_add_feedback %}
     <div class="card mb-4" id="feedback">
         <div class="card-header"><strong>Feedback for other groups</strong></div>
         <div class="card-body">
-            <p class="small text-muted mb-0">Once your instructor locks the surveys, you'll be assigned the groups you'll comment on, and they'll appear here. Nothing to do yet.</p>
+            <p class="small text-muted mb-0">{% if sketch_on %}Your instructor will assign the groups whose presentations you'll comment on, and they'll appear here.{% else %}Once your instructor locks the surveys, you'll be assigned the groups you'll comment on, and they'll appear here.{% endif %} Nothing to do yet.</p>
         </div>
     </div>
-    {% else %}
-    {% set closed = not classroom.feedback_open %}
-    <div class="card mb-4 {% if classroom.feedback_open and required_sent < required_total %}border-primary{% endif %}" id="feedback">
+    {% elif rounds %}
+    {% set any_open = rounds|selectattr('state', 'equalto', 'open')|list %}
+    <div class="card mb-4 {% if any_open %}border-primary{% endif %}" id="feedback">
         <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
             <strong>Feedback for other groups</strong>
             {% if required_total %}
-            <span class="badge {% if required_sent >= required_total %}text-bg-success{% else %}text-bg-primary{% endif %}">
-                {{ required_sent }} of {{ required_total }} required sent</span>
+            <span class="d-flex gap-1 flex-wrap">
+                {% for r in rounds %}
+                <span class="badge {% if required_sent[r.key] >= required_total %}text-bg-success{% else %}text-bg-primary{% endif %}">
+                    {{ r.name|capitalize }}s: {{ required_sent[r.key] }} of {{ required_total }} sent</span>
+                {% endfor %}
+            </span>
             {% endif %}
         </div>
         <div class="card-body">
+            <ul class="small mb-3 ps-3">
+                {% for r in rounds %}
+                <li><b>Comments on {{ r.name }}s</b>{% if r.key == 'sketch' %} (what each group wants to test, how, and what they expect to find){% endif %}:
+                    {% if r.state == 'open' %}<span class="text-success fw-semibold">open</span>{% if r.close_at %} until <time data-utc="{{ r.close_at }}">{{ r.close_at }}</time>{% endif %}.
+                    {% elif r.state == 'upcoming' %}open <time data-utc="{{ r.open_at }}">{{ r.open_at }}</time>{% if r.close_at %} to <time data-utc="{{ r.close_at }}">{{ r.close_at }}</time>{% endif %}. You can save drafts before then.
+                    {% elif r.state == 'closed' %}closed; groups can read them now.
+                    {% else %}not open yet. You can save drafts.{% endif %}
+                </li>
+                {% endfor %}
+            </ul>
             {% if not feedback_started %}
-            <p class="small mb-3">Once your instructor locks the surveys, you'll be assigned the groups you'll comment on. Meanwhile you can start private drafts on surveys that already ran early.</p>
-            {% elif not classroom.feedback_open and not classroom.feedback_released %}
-            <p class="small mb-3">Comments aren't open yet. <strong>These are the groups you'll comment on</strong>, so pay close attention to their surveys when they run. You can save private drafts once a survey has run.</p>
-            {% elif classroom.feedback_open %}
-            <p class="small mb-3">Write at least one comment for each required group. Comments are <strong>anonymous</strong> to the groups, and they'll see them after feedback closes. You can edit sent comments until then.</p>
+            <p class="small mb-3">Your instructor hasn't assigned your groups yet. Meanwhile you can start comments on groups below.</p>
             {% else %}
-            <p class="small mb-3 text-muted">Feedback is closed.</p>
+            <p class="small mb-3">{% if required_total %}<strong>These are the groups you'll comment on</strong>{% if sketch_on %}: pay close attention to their presentations{% endif %}.{% endif %}
+                Comments are <strong>anonymous</strong> to the groups, who read them after each round closes. You can edit sent comments until then.</p>
             {% endif %}
 
             {% for c in feedback_cards %}
-            <div class="border rounded p-3 mb-3 {% if c.required and not c.sent_at and classroom.feedback_open %}border-primary{% endif %}">
+            <div class="border rounded p-3 mb-3">
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
                     <div>
                         <strong>Group {{ c.group_number }}:</strong> {{ c.title }}
                         {% if c.required %}<span class="badge text-bg-light border">required</span>{% else %}<span class="badge text-bg-light border">extra</span>{% endif %}
-                        {% if c.sent_at %}<span class="badge text-bg-success">&#10003; sent</span>
-                        {% elif c.body %}<span class="badge text-bg-secondary">draft</span>{% endif %}
                     </div>
-                    {% if c.open %}
+                    {% if c.viewable %}
                     <a href="{{ url_for('feedback.view_survey', code=classroom.code, survey_id=c.survey_id) }}" target="_blank" class="btn btn-outline-secondary btn-sm">View survey</a>
                     {% endif %}
                 </div>
-                {% if not c.open %}
-                <p class="small text-muted mb-0">You can view this survey and comment on it once it runs in class.</p>
-                {% else %}
-                <form method="POST" action="{{ url_for('feedback.save_comment', code=classroom.code, survey_id=c.survey_id) }}">
-                    <textarea class="form-control mb-2" name="body" rows="3" maxlength="3000"
-                              placeholder="What worked? What could be improved: the design, the treatment, the questions, the wording?"
-                              {% if closed and (c.sent_at or classroom.feedback_released) %}disabled{% endif %}>{{ c.body or '' }}</textarea>
-                    {% if not (closed and (c.sent_at or classroom.feedback_released)) %}
-                    <div class="d-flex gap-2 flex-wrap">
-                        {% if classroom.feedback_open %}
-                        <button type="submit" name="action" value="send" class="btn btn-primary btn-sm">{% if c.sent_at %}Update{% else %}Send{% endif %}</button>
-                        {% endif %}
-                        {% if not c.sent_at %}
-                        <button type="submit" name="action" value="draft" class="btn btn-outline-secondary btn-sm">Save draft</button>
-                        {% endif %}
+                {% for r in rounds %}
+                {% set mine = c.rounds.get(r.key) or {} %}
+                {% set closed = r.state == 'closed' %}
+                <div class="{% if not loop.first %}border-top pt-2 mt-2{% endif %}">
+                    <div class="small fw-semibold mb-1">On the {{ r.name }}
+                        {% if mine.sent_at %}<span class="badge text-bg-success">&#10003; sent</span>
+                        {% elif mine.body %}<span class="badge text-bg-secondary">draft</span>{% endif %}
                     </div>
+                    {% if closed %}
+                    {% if mine.sent_at %}<div class="small border-start border-3 ps-2" style="white-space: pre-wrap;">{{ mine.body }}</div>
+                    {% else %}<p class="small text-muted mb-0">Closed{% if c.required %}: not sent{% endif %}.</p>{% endif %}
+                    {% elif not c.can[r.key] %}
+                    <p class="small text-muted mb-0">You can view this survey and comment on it once it runs in class.</p>
+                    {% else %}
+                    <form method="POST" action="{{ url_for('feedback.save_comment', code=classroom.code, survey_id=c.survey_id) }}">
+                        <input type="hidden" name="round" value="{{ r.key }}">
+                        <textarea class="form-control mb-2" name="body" rows="3" maxlength="3000"
+                                  placeholder="{% if r.key == 'sketch' %}What's promising? What could be improved: the question, the treatment, how they'll measure it, what they expect to find?{% else %}What worked? What could be improved: the design, the treatment, the questions, the wording?{% endif %}">{{ mine.body or '' }}</textarea>
+                        <div class="d-flex gap-2 flex-wrap">
+                            {% if r.state == 'open' %}
+                            <button type="submit" name="action" value="send" class="btn btn-primary btn-sm">{% if mine.sent_at %}Update{% else %}Send{% endif %}</button>
+                            {% endif %}
+                            {% if not mine.sent_at %}
+                            <button type="submit" name="action" value="draft" class="btn btn-outline-secondary btn-sm">Save draft</button>
+                            {% endif %}
+                        </div>
+                    </form>
                     {% endif %}
-                </form>
-                {% endif %}
-                {% if not c.required and not (c.sent_at and closed) %}
+                </div>
+                {% endfor %}
+                {% if not c.required %}
                 <form method="POST" action="{{ url_for('feedback.delete_comment', code=classroom.code, survey_id=c.survey_id) }}" class="mt-2"
-                      onsubmit="return confirm('Remove your comment on Group {{ c.group_number }}?')">
+                      onsubmit="return confirm('Remove your comments on Group {{ c.group_number }}?')">
                     <button type="submit" class="btn btn-link btn-sm text-danger p-0">Remove</button>
                 </form>
                 {% endif %}
             </div>
             {% endfor %}
 
-            {% if can_add_feedback and not (closed and classroom.feedback_released) %}
+            {% if can_add_feedback %}
             <form method="POST" action="{{ url_for('feedback.add_extra', code=classroom.code) }}" class="d-flex gap-2 align-items-center flex-wrap">
                 <select name="survey_id" class="form-select form-select-sm" style="max-width: 320px;" required>
                     <option value="">Comment on another group&hellip;</option>

@@ -59,8 +59,10 @@ SHOTS = [
     ('28_flow_chart', 'sofia', '/c/ECON101/builder/1/flow', DESK, '', ['body > .container'], 3.5),
     ('12_preview_dashboard', 'sofia', '/c/ECON101/builder/1/preview-dashboard?n=40&seed=7', DESK, "Object.values(Chart.instances).forEach(function(c){c.options.animation=false;c.resize();c.update('none');});", ['body > .container'], 3.0),
     ('29_group_finder', 'henry', '/c/ECON101/lobby', DESK, '', ['#finder-card'], 1.2),
+    ('17_feedback', 'mateo', '/c/ECON101/lobby', DESK, '', ['#feedback'], 1.2),
     # Instructor guide
     ('i01_home', 'host', '/c/ECON101/host/home', DESK, '', ['body > .container'], 1.2),
+    ('i07_rounds', 'host', '/c/ECON101/host/home', DESK, '', ['#phase'], 1.2),
     ('i02_surveys', 'host', '/c/ECON101/builder/', DESK, '', ['body > .container'], 1.2),
     ('i03_roster_filter', 'host', '/c/ECON101/host/roster/', DESK,
      "var g=document.getElementById('f-group'); g.value='no'; g.dispatchEvent(new Event('change',{bubbles:true}));",

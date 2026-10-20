@@ -50,13 +50,17 @@ def home(code):
         return redirect(url_for('host.login', code=code))
 
     from models import feedback as fb
-    from routes.feedback import class_phase
     db = get_db()
+    # A round that opened on its schedule assigns reviewers if nobody has yet
+    if (classroom['surveys_locked'] or fb.any_round_started(classroom)) and not fb.assignments_exist(classroom['id']):
+        fb.ensure_assignments(classroom)
     surveys = list_surveys(classroom['id'])
     roster = db.execute('SELECT COUNT(*) AS n, SUM(password_hash IS NOT NULL) AS signed_up FROM roster_student '
                         'WHERE classroom_id=? AND hidden=0', (classroom['id'],)).fetchone()
     has_assignments = fb.assignments_exist(classroom['id'])
-    done, total = fb.feedback_progress(classroom) if has_assignments else (0, 0)
+    rounds = fb.rounds_info(classroom)
+    for r in rounds:
+        r['done'], r['students'] = fb.feedback_progress(classroom, r['key']) if has_assignments and r['on'] else (0, 0)
     from models import reminders
     from models.survey import get_survey
     to_approve = [s for s in surveys if (s['reminder_plan'] or s['part2_from'] is not None) and not s['external']
@@ -70,10 +74,9 @@ def home(code):
                                'SELECT COUNT(*) FROM (SELECT DISTINCT r.participant_id, r.survey_id FROM response r '
                                'JOIN survey s ON r.survey_id = s.id WHERE s.classroom_id=?)',
                                (classroom['id'],)).fetchone()[0],
-                           phase=class_phase(classroom),
+                           rounds=rounds,
                            to_approve=to_approve,
-                           has_assignments=has_assignments,
-                           feedback_done=done, feedback_students=total)
+                           has_assignments=has_assignments)
 
 
 @bp.route('/dashboard')

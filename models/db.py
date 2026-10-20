@@ -233,6 +233,11 @@ def init_db():
         ('survey', 'reminder_plan', 'TEXT DEFAULT NULL'),
         ('survey', 'reminders_approved', 'TEXT DEFAULT NULL'),
         ('classroom', 'reminders_until', 'TEXT DEFAULT NULL'),
+        ('classroom', 'fb_sketch_on', 'INTEGER NOT NULL DEFAULT 0'),
+        ('classroom', 'fb_sketch_open_at', 'TEXT DEFAULT NULL'),
+        ('classroom', 'fb_sketch_close_at', 'TEXT DEFAULT NULL'),
+        ('classroom', 'fb_survey_on', 'INTEGER NOT NULL DEFAULT 1'),
+        ('classroom', 'fb_survey_close_at', 'TEXT DEFAULT NULL'),
         ('roster_student', 'seeking_group', 'INTEGER NOT NULL DEFAULT 0'),
         ('roster_student', 'seeking_note', 'TEXT DEFAULT NULL'),
         ('survey', 'seeking_members', 'INTEGER NOT NULL DEFAULT 0'),
@@ -251,6 +256,24 @@ def init_db():
         db.commit()
     except sqlite3.OperationalError:
         pass  # Column already exists
+    try:
+        db.execute('ALTER TABLE classroom ADD COLUMN fb_survey_open_at TEXT DEFAULT NULL')
+        # The old "Accept comments" / "Show comments to groups" switches become the survey round's times
+        db.execute("UPDATE classroom SET fb_survey_open_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE feedback_open=1")
+        db.execute("UPDATE classroom SET fb_survey_open_at=strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
+                   "fb_survey_close_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE feedback_open=0 AND feedback_released=1")
+        db.commit()
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    try:
+        db.execute("ALTER TABLE feedback ADD COLUMN round TEXT NOT NULL DEFAULT 'survey'")
+        db.commit()
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    # One comment per student, survey and round (replaces the older one-per-survey index)
+    db.execute('DROP INDEX IF EXISTS idx_feedback_unique')
+    db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_round_unique ON feedback(survey_id, roster_student_id, round)')
+    db.commit()
     try:
         db.execute('ALTER TABLE survey ADD COLUMN part1_ran TEXT DEFAULT NULL')
         # Surveys that already ran live count as run, so the live sequence won't start them again

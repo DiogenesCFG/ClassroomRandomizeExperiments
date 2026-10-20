@@ -82,6 +82,12 @@
             window.addEventListener('resize', setNavHeight);
         })();
 
+        // <time data-utc="..."> shows that moment in the viewer's time zone, e.g. "Thu, Oct 23, 1:40 PM"
+        document.querySelectorAll('time[data-utc]').forEach(function(el) {
+            var d = new Date(el.dataset.utc);
+            if (!isNaN(d)) el.textContent = d.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        });
+
         // Hover boxes: elements with data-bs-toggle="tooltip" get a Bootstrap tooltip when first
         // hovered or focused (so rows added later work too). Text only; line breaks are kept.
         ['mouseover', 'focusin'].forEach(function(type) {

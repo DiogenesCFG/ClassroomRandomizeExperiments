@@ -119,6 +119,18 @@ host.post('/c/ECON101/host/reset')
 # Three students without a group list themselves in the group finder
 for i, note in ((18, 'Happy to do the data analysis'), (19, 'Interested in pricing or framing experiments'), (20, '')):
     S[i].post('/c/ECON101/group-finder', data={'listed': '1', 'note': note})
+# Comment rounds: presentations open until the day after tomorrow, surveys in a month; reviewers assigned
+later = lambda days: (datetime.now(timezone.utc) + timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%SZ')
+host.post('/c/ECON101/host/phase', data={'action': 'round_on', 'round': 'sketch', 'value': '1'})
+host.post('/c/ECON101/host/phase', data={'action': 'round_schedule', 'round': 'sketch', 'open_utc': later(-0.01), 'close_utc': later(2)})
+host.post('/c/ECON101/host/phase', data={'action': 'round_schedule', 'round': 'survey', 'open_utc': later(30), 'close_utc': later(37)})
+host.post('/c/ECON101/host/phase', data={'action': 'assign_reviewers'})
+with app.app_context():
+    target = get_db().execute('SELECT survey_id FROM review_assignment WHERE roster_student_id=? ORDER BY id LIMIT 1',
+                              (sis(7),)).fetchone()[0]
+S[7].post(f'/c/ECON101/feedback/{target}', data={'round': 'sketch', 'action': 'draft',
+                                                  'body': 'Clear question. How will you tell anchoring apart from simply guessing a round number?'})
+
 # ... and Group 4 (2 members) is looking for more
 S[10].post('/c/ECON101/team/4/seeking', data={'listed': '1', 'note': 'Testing default options in retirement savings; looking for 1-3 more'})
 print('done')

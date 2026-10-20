@@ -648,38 +648,60 @@ def _feedback_rows(classroom):
         yield s, student_feedback(classroom, s['id'])
 
 
+def _rounds_for_export(classroom):
+    """Rounds that are on, plus any round that has comments (e.g. switched off afterwards)."""
+    from models.feedback import ROUNDS, round_on
+    used = {r['round'] for r in get_db().execute(
+        'SELECT DISTINCT f.round FROM feedback f JOIN survey s ON f.survey_id = s.id WHERE s.classroom_id=?',
+        (classroom['id'],))}
+    return [r for r in ROUNDS if round_on(classroom, r) or r in used]
+
+
 def export_feedback_csv(classroom):
-    """One row per comment (sent or draft), plus a row for each required comment not started."""
+    """One row per comment (sent or draft) and round, plus a row for each required comment not started
+    in a round that is on. round: presentation (before the surveys ran) or survey (after it ran)."""
+    from models.feedback import ROUND_NAMES, round_on
+    rounds = _rounds_for_export(classroom)
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['reviewer_name', 'reviewer_student_id', 'group_number', 'survey_title', 'required',
+    writer.writerow(['reviewer_name', 'reviewer_student_id', 'group_number', 'survey_title', 'round', 'required',
                      'status', 'sent_at', 'last_edited', 'comment'])
     for s, cards in _feedback_rows(classroom):
         for c in cards:
-            if c['sent_at']:
-                status = 'sent'
-            elif c['body']:
-                status = 'draft (not sent)'
-            else:
-                status = 'not started'
-            if not c['required'] and status == 'not started':
-                continue
-            writer.writerow([s['full_name'], s['sis_id'], c['group_number'], c['title'],
-                             'yes' if c['required'] else 'no', status, c['sent_at'] or '',
-                             c['updated_at'] or '', c['body'] or ''])
+            for rnd in rounds:
+                mine = c['rounds'].get(rnd) or {}
+                if mine.get('sent_at'):
+                    status = 'sent'
+                elif mine.get('body'):
+                    status = 'draft (not sent)'
+                else:
+                    status = 'not started'
+                required = c['required'] and round_on(classroom, rnd)
+                if status == 'not started' and not required:
+                    continue
+                writer.writerow([s['full_name'], s['sis_id'], c['group_number'], c['title'], ROUND_NAMES[rnd],
+                                 'yes' if required else 'no', status, mine.get('sent_at') or '',
+                                 mine.get('updated_at') or '', mine.get('body') or ''])
     return '\ufeff' + output.getvalue()
 
 
 def export_feedback_summary_csv(classroom):
-    """One row per student: required comments sent out of required, and extra comments sent."""
+    """One row per student: for each round, required comments sent out of required, and extras sent."""
+    from models.feedback import ROUND_NAMES
+    rounds = _rounds_for_export(classroom)
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['name', 'student_id', 'required', 'required_sent', 'extra_sent', 'all_required_sent', 'removed'])
+    header = ['name', 'student_id', 'required']
+    for rnd in rounds:
+        n = ROUND_NAMES[rnd]
+        header += [f'{n}_required_sent', f'{n}_extra_sent', f'{n}_all_required_sent']
+    writer.writerow(header + ['removed'])
     for s, cards in _feedback_rows(classroom):
         required = [c for c in cards if c['required']]
-        sent_required = sum(1 for c in required if c['sent_at'])
-        extra_sent = sum(1 for c in cards if not c['required'] and c['sent_at'])
-        writer.writerow([s['full_name'], s['sis_id'], len(required), sent_required, extra_sent,
-                         'yes' if required and sent_required == len(required) else 'no',
-                         'yes' if s['hidden'] else ''])
+        row = [s['full_name'], s['sis_id'], len(required)]
+        for rnd in rounds:
+            sent_required = sum(1 for c in required if (c['rounds'].get(rnd) or {}).get('sent_at'))
+            extra_sent = sum(1 for c in cards if not c['required'] and (c['rounds'].get(rnd) or {}).get('sent_at'))
+            row += [sent_required, extra_sent, 'yes' if required and sent_required == len(required) else 'no']
+        writer.writerow(row + ['yes' if s['hidden'] else ''])
     return '\ufeff' + output.getvalue()

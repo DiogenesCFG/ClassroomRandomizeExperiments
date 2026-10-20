@@ -116,12 +116,14 @@ def lobby(code):
         g['warnings'] = survey_warnings(full)
         g['todo'] = survey_incomplete(full)
         g['responses'] = respondent_count(g['id'])
-        g['received'] = fb.received_feedback(g['id']) if classroom['feedback_released'] else []
+        g['received'] = fb.received_feedback(classroom, g['id'])  # rounds that have closed
     at_limit = roster_model.at_group_limit(classroom, student['id'])
 
-    # Assigned groups appear once surveys are locked (before that, only comments the student
-    # started on surveys that ran early). Each survey takes comments once it has gone live.
-    # Students added after reviewers were assigned get their groups on first visit.
+    # Assigned groups appear once reviewers are assigned: when surveys are locked, when a comment
+    # round opens (on a schedule, so the first lobby visit after that assigns them), or when the
+    # host assigns them. Students added later get their groups on their first visit.
+    if (classroom['surveys_locked'] or fb.any_round_started(classroom)) and not fb.assignments_exist(classroom['id']):
+        fb.ensure_assignments(classroom)
     started = fb.feedback_started(classroom)
     cards = fb.student_feedback(classroom, student['id'])
     if started and sum(1 for c in cards if c['assignment_id']) < (classroom['reviews_required'] or 0) \
@@ -129,10 +131,13 @@ def lobby(code):
         fb.ensure_assignments(classroom, only_student_id=student['id'])
         cards = fb.student_feedback(classroom, student['id'])
     if not started:
-        cards = [c for c in cards if c['feedback_id']]
+        cards = [c for c in cards if c['has_comment']]
     live_ids = fb.commentable_ids(classroom)
+    rounds = [r for r in fb.rounds_info(classroom) if r['on']]
     for c in cards:
         c['open'] = c['survey_id'] in live_ids
+        c['viewable'] = fb.survey_viewable(classroom, c)
+        c['can'] = {r['key']: fb.can_draft(classroom, c, r['key']) for r in rounds}
     carded = {c['survey_id'] for c in cards}
     can_add = [s for s in fb.commentable_surveys(classroom['id'], student['id'])
                if s['id'] not in carded and s['id'] in live_ids]
@@ -158,9 +163,10 @@ def lobby(code):
                            tour_auto=not tour_seen(student, 'lobby'),
                            open_surveys=fb.open_surveys_for_student(classroom, student['id'],
                                                                     session.get('participant_id')),
-                           feedback_started=started,
+                           feedback_started=started, rounds=rounds,
                            feedback_cards=cards, can_add_feedback=can_add,
-                           required_sent=sum(1 for c in cards if c['required'] and c['sent_at']),
+                           required_sent={r['key']: sum(1 for c in cards if c['required'] and (c['rounds'].get(r['key']) or {}).get('sent_at'))
+                                          for r in rounds},
                            required_total=sum(1 for c in cards if c['required']))
 
 
