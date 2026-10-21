@@ -553,3 +553,115 @@ def classmates(classroom_id, exclude_id=None):
         'ORDER BY full_name COLLATE NOCASE',
         (classroom_id, exclude_id or 0)).fetchall()
     return [dict(r) for r in rows]
+
+
+# --- Frozen groups: the instructor places students ---
+
+def groups_closed(classroom):
+    """Students can't change groups themselves: groups are frozen (survey editing goes on) or surveys are locked."""
+    return bool(classroom['groups_frozen'] or classroom['surveys_locked'])
+
+
+def survey_is_blank(survey_id):
+    """Nothing would be lost by deleting this survey: no responses, no comments from classmates, and its
+    design is still the empty starting point (no question text, options or images; one part; no notifications)."""
+    db = get_db()
+    s = db.execute('SELECT * FROM survey WHERE id=?', (survey_id,)).fetchone()
+    if not s or s['external'] or s['reminder_plan'] or s['part2_from'] is not None or s['early_open']:
+        return False
+    if db.execute('SELECT 1 FROM response WHERE survey_id=?', (survey_id,)).fetchone():
+        return False
+    if db.execute("SELECT 1 FROM feedback WHERE survey_id=? AND TRIM(body) != ''", (survey_id,)).fetchone():
+        return False
+    if db.execute('SELECT COUNT(*) FROM survey_question WHERE survey_id=?', (survey_id,)).fetchone()[0] > 1:
+        return False
+    filled = db.execute('''SELECT 1 FROM arm_question aq JOIN survey_arm sa ON aq.arm_id = sa.id
+                           WHERE sa.survey_id=? AND (TRIM(aq.question_text) != '' OR aq.image_filename IS NOT NULL
+                                 OR aq.config IS NOT NULL
+                                 OR EXISTS (SELECT 1 FROM arm_question_option o WHERE o.arm_question_id = aq.id))''',
+                        (survey_id,)).fetchone()
+    intro = db.execute("SELECT 1 FROM survey_arm WHERE survey_id=? AND TRIM(COALESCE(intro_text, '')) != ''",
+                       (survey_id,)).fetchone()
+    return not filled and not intro
+
+
+def new_solo_group(classroom, student):
+    """A new group (blank survey, next group number) whose only member is this student."""
+    from models.survey import create_survey, next_group_number
+    from routes.builder import blank_design
+    number = next_group_number(classroom['id'])
+    arms, questions = blank_design()
+    survey_id = create_survey(classroom['id'], f'Group {number} survey', number, arms, questions,
+                              [{'name': student['full_name'], 'sis_code': student['sis_id'], 'roster_student_id': student['id']}])
+    return survey_id, number
+
+
+def place_student(classroom, student, target_id=None):
+    """The instructor puts a student in a group (target_id) or in a new group of their own (None), taking
+    them out of any other group. Works while groups are frozen and may go over the size limit.
+
+    A group the student leaves keeps its other members. If they were its only member, its survey is
+    deleted only when nothing would be lost (survey_is_blank); otherwise nothing changes and an error
+    explains why. Returns (message, error)."""
+    from models.survey import delete_survey, get_survey
+    db = get_db()
+    current = [r['survey_id'] for r in db.execute(
+        'SELECT gm.survey_id FROM group_member gm JOIN survey s ON gm.survey_id = s.id '
+        'WHERE gm.roster_student_id=? AND s.classroom_id=?', (student['id'], classroom['id']))]
+    number = lambda sid: db.execute('SELECT group_number FROM survey WHERE id=?', (sid,)).fetchone()[0]
+    if target_id is not None:
+        target = get_survey(target_id)
+        if not target or target['classroom_id'] != classroom['id']:
+            return None, 'That group does not exist.'
+        if current == [target_id]:
+            return None, f'{student["full_name"]} is already in Group {target["group_number"]}.'
+    to_delete = []
+    for sid in current:
+        if sid != target_id and member_count(sid) <= 1:
+            if not survey_is_blank(sid):
+                n = number(sid)
+                return None, (f'{student["full_name"]} is the only member of Group {n}, which already has survey work, '
+                              f'responses or comments from classmates, so nothing was changed. To move them anyway, '
+                              f'download what you need, delete Group {n} in Manage Surveys, then place them again.')
+            to_delete.append(sid)
+    if target_id is None:
+        target_id, target_number = new_solo_group(classroom, student)
+    else:
+        add_member(target_id, student)
+        target_number = target['group_number']
+    left = []
+    for sid in current:
+        if sid != target_id:
+            left.append(number(sid))
+            db.execute('DELETE FROM group_member WHERE survey_id=? AND roster_student_id=?', (sid, student['id']))
+    db.execute('DELETE FROM team_invite WHERE roster_student_id=?', (student['id'],))
+    db.execute('UPDATE roster_student SET seeking_group=0 WHERE id=?', (student['id'],))
+    db.commit()
+    deleted = []
+    for sid in to_delete:
+        deleted.append(number(sid))
+        delete_survey(sid)  # blank: no images to clean up
+    after_join(classroom, target_id, student['id'])
+    msg = f'{student["full_name"]} is now in Group {target_number}'
+    if left:
+        msg += f' (moved out of Group {", ".join(map(str, left))}'
+        msg += f'; that empty group was deleted)' if deleted else ')'
+    limit = classroom['max_group_size']
+    size = member_count(target_id)
+    if limit and size > limit:
+        msg += f'. Group {target_number} now has {size} members, more than the limit of {limit}'
+    return msg + '.', None
+
+
+def students_without_group(classroom_id):
+    """Visible students in no group, split into (signed up with no pending invite, signed up with an invite,
+    not signed up)."""
+    db = get_db()
+    rows = db.execute('''SELECT rs.*, (SELECT COUNT(*) FROM team_invite ti WHERE ti.roster_student_id = rs.id) AS invites
+                         FROM roster_student rs WHERE rs.classroom_id=? AND rs.hidden=0
+                         AND NOT EXISTS (SELECT 1 FROM group_member gm WHERE gm.roster_student_id = rs.id)
+                         ORDER BY rs.full_name COLLATE NOCASE''', (classroom_id,)).fetchall()
+    ready = [dict(r) for r in rows if r['registered_at'] and not r['invites']]
+    invited = [dict(r) for r in rows if r['registered_at'] and r['invites']]
+    absent = [dict(r) for r in rows if not r['registered_at']]
+    return ready, invited, absent

@@ -87,7 +87,7 @@
             <li class="d-flex align-items-center gap-2 flex-wrap mt-1">
                 {% if jr.from_group %}Group {{ jr.from_group.number }} ({{ jr.from_group.members|join('; ') }}) <span class="badge text-bg-info">wants to merge in; their survey would be deleted</span>
                 {% else %}{{ jr.full_name }} <span class="badge text-bg-info">asked to join</span>{% endif %}
-                {% if student and members|selectattr('roster_student_id', 'equalto', student.id)|list and not groups_locked %}
+                {% if student and members|selectattr('roster_student_id', 'equalto', student.id)|list and not team_locked %}
                 <form method="POST" action="{{ url_for('account.respond_request', code=classroom.code, request_id=jr.id, action='accept') }}" class="d-inline">
                     <input type="hidden" name="back" value="edit"><button type="submit" class="btn btn-sm btn-primary py-0">Accept</button></form>
                 <form method="POST" action="{{ url_for('account.respond_request', code=classroom.code, request_id=jr.id, action='decline') }}" class="d-inline">
@@ -97,9 +97,9 @@
             {% endfor %}
         </ul>
         {% set group_is_full = classroom.max_group_size and members|length >= classroom.max_group_size %}
-        {% if group_is_full and not groups_locked %}
+        {% if group_is_full and not team_locked %}
         <p class="small text-muted mb-0">Your group is full (at most {{ classroom.max_group_size }} members).</p>
-        {% elif not groups_locked and student and members|selectattr('roster_student_id', 'equalto', student.id)|list %}
+        {% elif not team_locked and student and members|selectattr('roster_student_id', 'equalto', student.id)|list %}
         <form method="POST" action="{{ url_for('account.invite', code=classroom.code, survey_id=survey_id) }}"
               class="invite-picker" data-mode="single">
             <input type="hidden" name="back" value="edit">

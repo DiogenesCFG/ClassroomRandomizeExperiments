@@ -16,9 +16,15 @@
         </div>
     </div>
 
+    {% set groups_closed = classroom.surveys_locked or classroom.groups_frozen %}
     {% if classroom.surveys_locked %}
     <div class="alert alert-secondary">
         &#128274; Survey editing and group changes are locked by your instructor. You can still preview your survey and download its responses.
+    </div>
+    {% elif classroom.groups_frozen %}
+    <div class="alert alert-secondary">
+        &#128274; Groups are frozen: you can keep working on your survey, but group changes now go through your instructor.
+        If you still need a group or want to change groups, email your instructor.
     </div>
     {% endif %}
 
@@ -53,7 +59,7 @@
                     </div>
                     <div class="d-flex gap-2">
                         <form method="POST" action="{{ url_for('account.respond_invite', code=classroom.code, invite_id=inv.id, action='accept') }}">
-                            <button type="submit" class="btn btn-primary btn-sm" {% if at_limit or classroom.surveys_locked or (classroom.max_group_size and inv.member_count >= classroom.max_group_size) %}disabled{% endif %}>Accept</button>
+                            <button type="submit" class="btn btn-primary btn-sm" {% if at_limit or groups_closed or (classroom.max_group_size and inv.member_count >= classroom.max_group_size) %}disabled{% endif %}>Accept</button>
                         </form>
                         <form method="POST" action="{{ url_for('account.respond_invite', code=classroom.code, invite_id=inv.id, action='decline') }}">
                             <button type="submit" class="btn btn-outline-secondary btn-sm">Decline</button>
@@ -131,7 +137,7 @@
     <div class="card mb-4" id="my-group-card">
         <div class="card-header d-flex justify-content-between align-items-center">
             <strong>My group{% if classroom.max_groups_per_student != 1 %}s{% endif %}</strong>
-            {% if groups and not at_limit and not classroom.surveys_locked %}
+            {% if groups and not at_limit and not groups_closed %}
             <a href="{{ url_for('builder.new', code=classroom.code) }}" class="btn btn-sm btn-outline-primary">+ New group</a>
             {% endif %}
         </div>
@@ -185,7 +191,7 @@
                             <a href="{{ url_for('builder.flow_chart', code=classroom.code, survey_id=g.id) }}" class="btn btn-outline-secondary btn-sm"
                                title="See the survey as a flow chart, one column per arm">Flow</a>
                             {% endif %}
-                            {% if not classroom.surveys_locked %}
+                            {% if not groups_closed %}
                             <form method="POST" action="{{ url_for('account.leave', code=classroom.code, survey_id=g.id) }}" class="d-inline"
                                   onsubmit="return confirm('Leave Group {{ g.group_number }}? You will no longer be able to edit this survey unless someone invites you back.')">
                                 <button type="submit" class="btn btn-outline-danger btn-sm" {% if g.member_count <= 1 %}disabled title="You're the only member. Invite someone first, or delete the survey."{% endif %}>Leave</button>
@@ -223,6 +229,8 @@
             <p class="mb-3">You're not in a group yet.</p>
             {% if classroom.surveys_locked %}
             <p class="text-muted small mb-0">Survey creation is closed.</p>
+            {% elif classroom.groups_frozen %}
+            <p class="text-muted small mb-0">Groups are frozen, so new groups can't be created here. Email your instructor: they will place you in a group.</p>
             {% elif not at_limit %}
             <a href="{{ url_for('builder.new', code=classroom.code) }}" class="btn btn-primary btn-lg" id="create-survey-btn">Create your group</a>
             <p class="text-muted small mt-3 mb-0">Only one person per group needs to do this: pick a name, invite your teammates, then build the survey together. Everyone else waits for an invite to show up here.</p>

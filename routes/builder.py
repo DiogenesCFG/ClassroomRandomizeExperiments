@@ -414,6 +414,8 @@ def _render_form(classroom, mode, student, **ctx):
         is_host=_is_classroom_host(classroom['id']), student=student,
         locked=_locked_for(classroom, survey),
         groups_locked=_locked_for(classroom),
+        # Inviting and accepting requests: also closed while the instructor has frozen groups
+        team_locked=_locked_for(classroom) or (not _is_classroom_host(classroom['id']) and bool(classroom.get('groups_frozen'))),
         survey=survey,
         classmates=roster_model.classmates(classroom['id'], exclude_id=exclude),
         members=survey['members'] if survey else [],
@@ -494,6 +496,9 @@ def new(code):
 
     if _locked_for(classroom):
         flash('Survey editing is locked by your instructor.', 'danger')
+        return redirect(url_for('classroom.lobby', code=code))
+    if classroom.get('groups_frozen') and not is_host:
+        flash('Groups are frozen by your instructor. If you still need a group, email your instructor.', 'danger')
         return redirect(url_for('classroom.lobby', code=code))
     if student and not is_host and roster_model.at_group_limit(classroom, student['id']):
         flash("You're already in the maximum number of groups, so you can't create a new survey. "

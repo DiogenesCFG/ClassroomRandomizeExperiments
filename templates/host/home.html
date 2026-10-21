@@ -28,6 +28,16 @@
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <strong>Peer comments and survey lock</strong>
+                <span class="d-flex flex-wrap gap-3">
+                <form method="POST" action="{{ url_for('feedback.set_phase', code=classroom.code) }}" class="form-check form-switch mb-0"
+                      title="Students can no longer create, join, leave or merge groups, but keep editing their surveys. You place students yourself on the roster page.">
+                    <input type="hidden" name="action" value="groups_frozen">
+                    <input type="hidden" name="value" value="{{ 0 if classroom.groups_frozen else 1 }}">
+                    <input class="form-check-input" type="checkbox" id="sw-groups_frozen" {% if classroom.groups_frozen %}checked{% endif %}
+                           onchange="if (this.checked && !confirm('Freeze groups? Students keep editing their surveys but can no longer create, join, leave or merge groups. You can still place students in groups from the roster page.')) { this.checked = false; return; } this.form.submit()">
+                    <label class="form-check-label" for="sw-groups_frozen">Freeze groups</label>
+                    {% if classroom.groups_frozen %}<a href="{{ url_for('roster.index', code=classroom.code) }}#place-card" class="small ms-1">place students</a>{% endif %}
+                </form>
                 <form method="POST" action="{{ url_for('feedback.set_phase', code=classroom.code) }}" class="form-check form-switch mb-0">
                     <input type="hidden" name="action" value="surveys_locked">
                     <input type="hidden" name="value" value="{{ 0 if classroom.surveys_locked else 1 }}">
@@ -35,6 +45,7 @@
                            onchange="if (this.checked && !confirm('Lock all surveys and groups? Students can still preview and download their responses.')) { this.checked = false; return; } this.form.submit()">
                     <label class="form-check-label" for="sw-surveys_locked">Lock survey edits &amp; groups</label>
                 </form>
+                </span>
             </div>
             <div class="card-body">
                 <div class="row g-3">

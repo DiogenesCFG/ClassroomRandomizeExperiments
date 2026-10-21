@@ -250,6 +250,7 @@ def init_db():
         ('survey_arm', 'intro_text', 'TEXT DEFAULT NULL'),
         ('response', 'display_order', 'TEXT DEFAULT NULL'),
         ('response', 'position', 'INTEGER DEFAULT NULL'),
+        ('classroom', 'groups_frozen', 'INTEGER NOT NULL DEFAULT 0'),  # students can't change groups; the host places them
     ):
         try:
             db.execute(f'ALTER TABLE {table} ADD COLUMN {col} {col_def}')

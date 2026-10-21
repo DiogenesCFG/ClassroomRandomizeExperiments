@@ -146,7 +146,7 @@ def lobby(code):
     from routes.reminders import followups_for_student
     # Group finder: shown to students without a group, or whose group still has room
     open_group = next((g for g in groups if not (classroom['max_group_size'] and g['member_count'] >= classroom['max_group_size'])), None)
-    show_finder = not classroom['surveys_locked'] and (not groups or open_group is not None)
+    show_finder = not roster_model.groups_closed(classroom) and (not groups or open_group is not None)
     return render_template('classroom/lobby.html', classroom=classroom, student=student,
                            show_finder=show_finder, open_group=open_group,
                            finder=roster_model.group_finder(classroom['id'], exclude_id=student['id']) if show_finder else [],

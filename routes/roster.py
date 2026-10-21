@@ -114,8 +114,63 @@ def index(code):
     last_import = session.get('last_import')
     if not last_import or last_import.get('classroom_id') != classroom['id']:
         last_import = None
+    ready, invited, absent = roster_model.students_without_group(classroom['id'])
+    from models.survey import list_surveys
     return render_template('host/roster.html', classroom=classroom, students=students, last_import=last_import,
-                           **roster_model.teams_overview(classroom['id']))
+                           all_groups=list_surveys(classroom['id']), solo_ready=ready, solo_invited=invited,
+                           solo_absent=absent, **roster_model.teams_overview(classroom['id']))
+
+
+def _after_group_change(classroom):
+    """Once reviewers exist: drop assignments to a student's own group, top everyone up, and give new
+    groups their share (only assignments nobody has written on move). Returns how many moved."""
+    from models import feedback as fb
+    if not fb.assignments_exist(classroom['id']):
+        return 0
+    fb.ensure_assignments(classroom)
+    return fb.rebalance_assignments(classroom)
+
+
+@bp.route('/place', methods=['POST'])
+def place(code):
+    """Put a student in a group, or in a new group of their own (works while groups are frozen)."""
+    classroom = _get_host_classroom(code)
+    student = roster_model.get_student(classroom['id'], request.form.get('student_id', type=int))
+    target = request.form.get('target', '')
+    if not student or student['hidden']:
+        flash('Choose a student.', 'danger')
+    elif target != 'solo' and not target.isdigit():
+        flash('Choose a group.', 'danger')
+    else:
+        msg, error = roster_model.place_student(classroom, student, None if target == 'solo' else int(target))
+        if error:
+            flash(error, 'danger')
+        else:
+            _after_group_change(classroom)
+            flash(msg, 'success')
+    return redirect(url_for('roster.index', code=code) + '#place-card')
+
+
+@bp.route('/solo-groups', methods=['POST'])
+def solo_groups(code):
+    """A group of their own for every signed-up student who is in no group and has no pending invite."""
+    classroom = _get_host_classroom(code)
+    ready, invited, absent = roster_model.students_without_group(classroom['id'])
+    made = []
+    for s in ready:
+        _, number = roster_model.new_solo_group(classroom, s)
+        made.append(f'{s["full_name"]} (Group {number})')
+    if not made:
+        flash('Every signed-up student without a pending invite is already in a group.', 'info')
+        return redirect(url_for('roster.index', code=code) + '#place-card')
+    moved = _after_group_change(classroom)
+    msg = f'{len(made)} solo group(s) created: {"; ".join(made)}.'
+    if moved:
+        msg += f' {moved} reviewer assignment(s) nobody had written on yet were moved to these groups, so they get reviewers too.'
+    if invited:
+        msg += f' Not included (they have a pending invite; place them yourself): {"; ".join(s["full_name"] for s in invited)}.'
+    flash(msg, 'success')
+    return redirect(url_for('roster.index', code=code) + '#place-card')
 
 
 @bp.route('/upload', methods=['POST'])

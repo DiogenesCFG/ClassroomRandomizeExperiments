@@ -95,6 +95,60 @@
 </div>
 
 {% if active %}
+{# Placing students: works while groups are frozen #}
+<div class="card mb-4 {% if classroom.groups_frozen %}border-primary{% endif %}" id="place-card">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <strong>Place students in groups</strong>
+        <span class="small {% if classroom.groups_frozen %}text-primary{% else %}text-muted{% endif %}">
+            {% if classroom.surveys_locked %}Surveys and groups are locked: students can't change groups.
+            {% elif classroom.groups_frozen %}&#128274; Groups are frozen: only you can change them.
+            {% else %}Students can still form and change groups themselves. <a href="{{ url_for('host.home', code=classroom.code) }}#phase">Freeze groups</a>{% endif %}</span>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('roster.place', code=classroom.code) }}" class="row g-2 align-items-end mb-1">
+            <div class="col-md-5">
+                <label class="form-label small mb-0" for="place-student">Student</label>
+                <select class="form-select form-select-sm" name="student_id" id="place-student" required>
+                    <option value="">Choose a student...</option>
+                    {% for s in active %}
+                    <option value="{{ s.id }}">{{ s.full_name }}{% if s.group_numbers %} (Group {{ s.group_numbers }}){% else %} (no group{% if not s.registered_at %}, not signed up{% endif %}){% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-5">
+                <label class="form-label small mb-0" for="place-target">Put them in</label>
+                <select class="form-select form-select-sm" name="target" id="place-target" required>
+                    <option value="">Choose a group...</option>
+                    <option value="solo">A new group of their own</option>
+                    {% for g in all_groups %}
+                    <option value="{{ g.id }}">Group {{ g.group_number }}: {{ g.member_names or 'no members' }} ({{ g.member_count }}{% if classroom.max_group_size %}/{{ classroom.max_group_size }}{% endif %})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-primary btn-sm w-100">Place</button>
+            </div>
+        </form>
+        <p class="small text-muted mb-3">Moves the student out of any other group (that group keeps its other members). A group left with
+            no members is deleted only if its survey is still blank, with no responses or comments; otherwise nothing changes and you're told why.
+            You can go over the group size limit. Pending invites to the student are cancelled.</p>
+
+        <h6 class="mb-1">Students without a group</h6>
+        <ul class="small mb-2">
+            <li><strong>{{ solo_ready|length }}</strong> signed up, no pending invite{% if solo_ready %}: {{ solo_ready|map(attribute='full_name')|join('; ') }}{% endif %}</li>
+            <li><strong>{{ solo_invited|length }}</strong> signed up, with a pending invite (place them yourself){% if solo_invited %}: {{ solo_invited|map(attribute='full_name')|join('; ') }}{% endif %}</li>
+            <li><strong>{{ solo_absent|length }}</strong> not signed up (no group is made for them; place them if they show up){% if solo_absent %}: {{ solo_absent|map(attribute='full_name')|join('; ') }}{% endif %}</li>
+        </ul>
+        {% if solo_ready %}
+        <form method="POST" action="{{ url_for('roster.solo_groups', code=classroom.code) }}"
+              data-msg="Create a group of their own for each of these {{ solo_ready|length }} student(s)?&#10;&#10;{% for s in solo_ready %}{{ s.full_name }}&#10;{% endfor %}&#10;Each gets a blank survey and the next group number. If reviewers are already assigned, assignments nobody has written on yet are moved so these groups get reviewers too."
+              onsubmit="return confirm(this.dataset.msg)">
+            <button type="submit" class="btn btn-outline-primary btn-sm">Make solo groups for the {{ solo_ready|length }} signed-up student{{ 's' if solo_ready|length != 1 }} without a group</button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
 {# Filters (all in the browser): name/ID, signed up, in a group, size of their group #}
 <div class="card mb-2">
     <div class="card-body py-2 d-flex flex-wrap align-items-center gap-2" id="roster-filters">
@@ -172,6 +226,7 @@
                           title="Asked to join Group {{ g.number }}: {{ g.title }}&#10;Members: {{ g.members|join('; ') or 'none' }}">asked to join {{ g.number }}</span>
                     {% endif %}</td>
                 <td class="text-end text-nowrap">
+                    <a href="#place-card" class="btn btn-sm btn-outline-primary place-link" data-id="{{ s.id }}">Place</a>
                     {% if s.registered_at %}
                     <form method="POST" action="{{ url_for('roster.reset_password', code=classroom.code, student_id=s.id) }}" class="d-inline">
                         <button type="submit" class="btn btn-sm btn-outline-warning">Reset password</button>
@@ -250,5 +305,13 @@
         });
         apply();
     })();
+
+    // "Place" on a roster row: pick that student in the Place card
+    document.querySelectorAll('.place-link').forEach(function(link) {
+        link.addEventListener('click', function() {
+            document.getElementById('place-student').value = link.dataset.id;
+            setTimeout(function() { document.getElementById('place-target').focus(); }, 300);
+        });
+    });
 </script>
 {% endblock %}

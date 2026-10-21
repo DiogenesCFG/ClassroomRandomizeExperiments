@@ -274,7 +274,7 @@ def set_phase(code):
     action = request.form.get('action', '')
     rnd = request.form.get('round') if request.form.get('round') in fb.ROUNDS else None
     fields = {}
-    if action == 'surveys_locked':
+    if action in ('surveys_locked', 'groups_frozen'):
         fields = {action: 1 if request.form.get('value') == '1' else 0}
     elif action == 'round_on' and rnd:
         fields = {f'fb_{rnd}_on': 1 if request.form.get('value') == '1' else 0}
@@ -300,7 +300,10 @@ def set_phase(code):
         flash(f'Comments on {fb.ROUND_NAMES[rnd]}s are closed; groups can now read them.', 'success')
     elif action == 'assign_reviewers':
         fb.ensure_assignments(classroom)
-        flash('Reviewers assigned: students see, in their lobby, the groups they will comment on.', 'success')
+        moved = fb.rebalance_assignments(classroom)  # groups formed since the last assignment get their share
+        flash('Reviewers assigned: students see, in their lobby, the groups they will comment on.'
+              + (f' {moved} assignment(s) nobody had written on yet were moved to newer groups, so every group has '
+                 f'about the same number of reviewers.' if moved else ''), 'success')
         return redirect(url_for('host.home', code=code) + '#phase')
     elif action == 'reviews_required':
         n = request.form.get('reviews_required', type=int)

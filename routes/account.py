@@ -196,6 +196,10 @@ def _back_to(survey_id, code):
     return redirect(url_for('classroom.lobby', code=code))
 
 
+GROUPS_CLOSED = ('Groups are frozen by your instructor. If you still need a group or want to change groups, '
+                 'email your instructor.')
+
+
 @bp.route('/team/<int:survey_id>/invite', methods=['POST'])
 def invite(code, survey_id):
     classroom = _get_roster_classroom(code)
@@ -204,8 +208,8 @@ def invite(code, survey_id):
         return denied
     if not roster_model.is_member(survey_id, student['id']):
         abort(403)
-    if classroom['surveys_locked']:
-        flash('Groups are locked by your instructor.', 'danger')
+    if roster_model.groups_closed(classroom):
+        flash(GROUPS_CLOSED, 'danger')
         return _back_to(survey_id, code)
     if roster_model.group_full(classroom, survey_id):
         flash(f'Your group is full: groups can have at most {classroom["max_group_size"]} members.', 'danger')
@@ -227,8 +231,8 @@ def group_finder(code):
     student, denied = _require_student(classroom)
     if denied:
         return denied
-    if classroom['surveys_locked']:
-        flash('Groups are locked by your instructor.', 'danger')
+    if roster_model.groups_closed(classroom):
+        flash(GROUPS_CLOSED, 'danger')
     else:
         listed = request.form.get('listed') == '1'
         roster_model.set_seeking(student['id'], listed, request.form.get('note', ''))
@@ -246,8 +250,8 @@ def group_seeking(code, survey_id):
         return denied
     if not roster_model.is_member(survey_id, student['id']):
         abort(403)
-    if classroom['surveys_locked']:
-        flash('Groups are locked by your instructor.', 'danger')
+    if roster_model.groups_closed(classroom):
+        flash(GROUPS_CLOSED, 'danger')
     elif roster_model.group_full(classroom, survey_id):
         flash('Your group is full, so it is not listed.', 'danger')
     else:
@@ -264,8 +268,8 @@ def ask_to_join(code, survey_id):
     student, denied = _require_student(classroom)
     if denied:
         return denied
-    if classroom['surveys_locked']:
-        flash('Groups are locked by your instructor.', 'danger')
+    if roster_model.groups_closed(classroom):
+        flash(GROUPS_CLOSED, 'danger')
     else:
         error = roster_model.request_join(classroom, survey_id, student, request.form.get('note', ''))
         flash(error or 'Request sent. Any member of the group can accept it; you will see the group in your lobby '
@@ -301,8 +305,8 @@ def respond_request(code, request_id, action):
         return _accept_merge(classroom, req, code)
     elif action == 'accept':
         requester = roster_model.get_student(classroom['id'], req['roster_student_id'])
-        if classroom['surveys_locked']:
-            flash('Groups are locked by your instructor.', 'danger')
+        if roster_model.groups_closed(classroom):
+            flash(GROUPS_CLOSED, 'danger')
         elif not requester or requester['hidden']:
             roster_model.delete_join_request(request_id)
             flash('That student is no longer in the class.', 'danger')
@@ -329,8 +333,8 @@ def propose_merge(code, survey_id):
         return denied
     if not roster_model.is_member(survey_id, student['id']):
         abort(403)
-    if classroom['surveys_locked']:
-        flash('Groups are locked by your instructor.', 'danger')
+    if roster_model.groups_closed(classroom):
+        flash(GROUPS_CLOSED, 'danger')
     else:
         error = roster_model.propose_merge(classroom, survey_id, request.form.get('target_id', type=int), student,
                                            request.form.get('note', ''))
@@ -348,8 +352,8 @@ def _accept_merge(classroom, req, code):
     other = get_survey(from_id)
     limit = classroom['max_group_size']
     together = roster_model.member_count(from_id) + roster_model.member_count(target_id)
-    if classroom['surveys_locked']:
-        flash('Groups are locked by your instructor.', 'danger')
+    if roster_model.groups_closed(classroom):
+        flash(GROUPS_CLOSED, 'danger')
     elif not other:
         roster_model.delete_join_request(req['id'])
         flash('That group no longer exists.', 'danger')
@@ -379,8 +383,8 @@ def leave(code, survey_id):
     student, denied = _require_student(classroom)
     if denied:
         return denied
-    if classroom['surveys_locked']:
-        flash('Groups are locked by your instructor.', 'danger')
+    if roster_model.groups_closed(classroom):
+        flash(GROUPS_CLOSED, 'danger')
         return redirect(url_for('classroom.lobby', code=code))
     error = roster_model.leave_group(survey_id, student['id'])
     if error:
@@ -405,8 +409,8 @@ def respond_invite(code, invite_id, action):
         roster_model.delete_invite(invite_id)
         flash('Invite declined.', 'success')
     elif action == 'accept':
-        if classroom['surveys_locked']:
-            flash('Groups are locked by your instructor.', 'danger')
+        if roster_model.groups_closed(classroom):
+            flash(GROUPS_CLOSED, 'danger')
         elif roster_model.at_group_limit(classroom, student['id']):
             flash("You can't accept this invite: you're already in the maximum number of groups. "
                   "Leave a group first.", 'danger')

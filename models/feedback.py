@@ -410,3 +410,69 @@ def open_surveys_for_student(classroom, roster_student_id, participant_id):
             'SELECT 1 FROM response WHERE survey_id=? AND participant_id=?', (s['id'], participant_id)).fetchone() is not None
         out.append(s)
     return out
+
+
+def rebalance_assignments(classroom):
+    """Give groups formed after reviewers were assigned (e.g. solo groups) their share of reviewers.
+
+    ensure_assignments() never reshuffles, so a new group would get none. This moves assignments from
+    the most-reviewed groups to the least-reviewed ones, but only assignments the student hasn't written
+    anything on yet (no draft or comment in any round), and never to the student's own group or a group
+    they already review. Each moved assignment keeps its id, so it stays required (or optional).
+    Returns the number of assignments moved."""
+    db = get_db()
+    cid = classroom['id']
+    members = _group_members(db, cid)
+    surveys = [r['id'] for r in db.execute('SELECT id FROM survey WHERE classroom_id=?', (cid,))]
+    rows = [dict(r) for r in db.execute('SELECT ra.id, ra.roster_student_id, ra.survey_id FROM review_assignment ra '
+                                        'JOIN survey s ON ra.survey_id = s.id WHERE s.classroom_id=?', (cid,))]
+    if not rows or len(surveys) < 2:
+        return 0
+    written = {(r['roster_student_id'], r['survey_id']) for r in db.execute(
+        "SELECT f.roster_student_id, f.survey_id FROM feedback f JOIN survey s ON f.survey_id = s.id "
+        "WHERE s.classroom_id=? AND TRIM(f.body) != ''", (cid,))}
+    load = {sid: 0 for sid in surveys}
+    assigned = {}
+    for r in rows:
+        load[r['survey_id']] = load.get(r['survey_id'], 0) + 1
+        assigned.setdefault(r['roster_student_id'], set()).add(r['survey_id'])
+    teammates = {}
+    for group in members.values():
+        for rid in group:
+            teammates.setdefault(rid, set()).update(group - {rid})
+    moved = 0
+    stuck = set()
+    while True:
+        open_targets = [s for s in surveys if s not in stuck]
+        if not open_targets:
+            break
+        low = min(open_targets, key=lambda s: load[s])
+        best = None
+        for src in sorted(surveys, key=lambda s: -load[s]):
+            if load[src] - load[low] < 2:
+                break
+            for r in rows:
+                rid = r['roster_student_id']
+                if r['survey_id'] != src or (rid, src) in written or rid in members.get(low, set()) \
+                        or low in assigned.get(rid, set()):
+                    continue
+                overlap = sum(1 for t in teammates.get(rid, ()) if low in assigned.get(t, ()))
+                if best is None or overlap < best[1]:
+                    best = (r, overlap)
+                if overlap == 0:
+                    break
+            if best:
+                break
+        if not best:
+            stuck.add(low)
+            continue
+        r = best[0]
+        db.execute('UPDATE review_assignment SET survey_id=? WHERE id=?', (low, r['id']))
+        assigned[r['roster_student_id']].discard(r['survey_id'])
+        assigned[r['roster_student_id']].add(low)
+        load[r['survey_id']] -= 1
+        load[low] += 1
+        r['survey_id'] = low
+        moved += 1
+    db.commit()
+    return moved
