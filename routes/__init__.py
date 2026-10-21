@@ -21,6 +21,9 @@ def register_blueprints(app):
     app.register_blueprint(feedback_bp)
     app.register_blueprint(reminders_bp)
 
+    from models import qtypes
+    app.jinja_env.globals['qtypes'] = qtypes  # question type names and helpers for the templates
+
     @app.context_processor
     def nav_links():
         """Navbar links for pages inside a classroom: the student's lobby + sign out,

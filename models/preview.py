@@ -2,7 +2,7 @@
 import json
 import random
 
-from models import rules
+from models import qtypes, rules
 
 # Typed answers for a sample respondent who picks "Other"
 SAMPLE_OTHER = ['(sample) it depends', '(sample) none of these', '(sample) somewhere in between']
@@ -69,7 +69,10 @@ def fake_responses(arms, questions, n, seed=None):
             t = tilt[(arm['id'], q['id'])]
             qtype = q['question_type']
             answer_text, answer_index, other_text = '', None, None
-            if qtype == 'multiple_choice':
+            settings = q.get('settings') or qtypes.settings_of(q)
+            if not settings['required'] and rng.random() < 0.05:
+                pass  # an optional question this sample respondent skipped (stored blank)
+            elif qtype in ('multiple_choice', 'picture_choice'):
                 opts = _choices(info)
                 if not opts:
                     continue
@@ -93,6 +96,10 @@ def fake_responses(arms, questions, n, seed=None):
                 answer_text = str(_snap(rng.gauss(mid, (hi - lo) / 6), lo, hi, step))
             elif qtype == 'short_answer':
                 answer_text = f'(sample) {rng.choice(SAMPLE_TEXTS)}'
+            elif qtype in qtypes.JSON_TYPES or qtype == 'rating':
+                answer_text, answer_index = _sample_new_type(rng, qtype, settings, info, t)
+                if answer_text is None:
+                    continue
             else:  # numeric
                 answer_text = str(max(0, round(rng.gauss(50 + t['shift'] * 15, 15))))
             timed_out = 0
@@ -114,3 +121,57 @@ def fake_responses(arms, questions, n, seed=None):
                          'respondent': respondent, 'arm_label': arm['label'], 'arm_index': arm['arm_index'],
                          'seconds': seconds, 'left_page': 1 if rng.random() < 0.04 else 0})
     return rows
+
+
+def _sample_new_type(rng, qtype, settings, info, t):
+    """A made-up answer for the newer types, tilted per arm (t['shift'] in -1..1). (None, None) = can't answer yet."""
+    options = list(info.get('options', []))
+    config = qtypes.config_of(info)
+    if qtype == 'rating':
+        values = qtypes.scale_values(settings)
+        mid = (len(values) - 1) / 2 + t['shift'] * len(values) / 4
+        k = min(max(round(rng.gauss(mid, len(values) / 4)), 0), len(values) - 1)
+        return str(values[k]), k
+    if qtype == 'rating_grid':
+        if not options:
+            return None, None
+        values = qtypes.scale_values(settings)
+        out = {}
+        for r, row in enumerate(options):
+            mid = (len(values) - 1) / 2 + (t['shift'] + 0.3 * ((r % 3) - 1)) * len(values) / 4
+            out[row] = values[min(max(round(rng.gauss(mid, len(values) / 4)), 0), len(values) - 1)]
+        return json.dumps(out), None
+    if qtype == 'ranking':
+        if not options:
+            return None, None
+        weights = [w + 0.3 * t['shift'] * (i - len(options) / 2) for i, w in enumerate(t['weights'][:len(options)] or [1] * len(options))]
+        weights = [max(w, 0.05) for w in weights] + [1.0] * (len(options) - len(weights))
+        left = list(range(len(options)))
+        order = []
+        while left:
+            pick = rng.choices(left, weights=[weights[i] for i in left])[0]
+            order.append(options[pick])
+            left.remove(pick)
+        return json.dumps(order), None
+    if qtype == 'budget':
+        if not options:
+            return None, None
+        total = settings['total'] or 100
+        raw = [rng.random() + (0.5 + 0.5 * t['shift'] if i == 0 else 0) for i in range(len(options))]
+        shares = [total * r / sum(raw) for r in raw]
+        if settings['budget_integer']:
+            amounts = [int(x) for x in shares]
+            amounts[shares.index(max(shares))] += int(round(total)) - sum(amounts)
+        else:
+            amounts = [round(x, 2) for x in shares]
+            amounts[-1] = round(total - sum(amounts[:-1]), 2)
+        return json.dumps(dict(zip(options, amounts))), None
+    if qtype in qtypes.LIST_TYPES:
+        rows = qtypes.list_rows(qtype, config)
+        if not rows:
+            return None, None
+        n = len(rows)
+        switch = min(max(round(rng.gauss(n / 2 + t['shift'] * n / 4, n / 6)), 0), n)
+        choices = ['A' if i < switch else 'B' for i in range(n)]
+        return json.dumps(choices), switch
+    return None, None

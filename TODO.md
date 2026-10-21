@@ -1,6 +1,6 @@
 # Ideas for next quarter
 
-Improvements to the interface and functionality, roughly in order of impact. None of these are started.
+Improvements to the interface and functionality, roughly in order of impact. The top priorities below are not started.
 Top three for next quarter: **1, 4 and 5**: they'd make building easier, make the data better, and make class day more instructive.
 
 ## Top priorities
@@ -30,23 +30,13 @@ Top three for next quarter: **1, 4 and 5**: they'd make building easier, make th
    - Projector mode: large type, no controls.
    - Optional auto-refresh with a live response counter.
 
-## New question types (most econ-relevant first)
+## Done (October 2026)
 
-- Multiple price list (a choice at each of several prices): the standard way to measure willingness to pay
-- Lottery choices (Holt-Laury style) for risk preferences
-- Budget split (share $100 between options)
-- Likert / rating scales with labeled ends, and grids of them
-- Ranking
-- Choices shown as images
-
-## Rules students could set per question or survey
-
-- Required or optional
-- Number limits (min / max, whole numbers only)
-- Shuffled option order per respondent (to rule out order effects)
-- Shuffled question order
-- Attention checks
-- An intro or consent screen before the questions
+- **New question types**: ranking, rating scales and grids, picture choice, budget split, price lists, Holt-Laury lottery choices.
+- **Question rules**: required or optional, number limits, shuffled options, attention checks. **Survey options**: shuffled question order,
+  an intro or consent screen. See CLAUDE.md, "Newer question types and rules".
+- Possible follow-ups: "rank only the top N", several pictures per answer, a matrix of choice questions, excluding failed attention checks
+  from the dashboard with one click.
 
 ## Smaller friction
 

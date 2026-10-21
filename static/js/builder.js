@@ -100,13 +100,55 @@ document.addEventListener('DOMContentLoaded', function() {
             });
             var advTitle = qBlock.querySelector('.q-adv-title');
             if (advTitle) advTitle.textContent = 'Question ' + (qi + 1);
+            renameFields(qBlock, qi);
+        });
+        // Intro screen texts (Survey options), one per arm
+        document.querySelectorAll('#survey-options-modal .intro-row').forEach(function(row, ai) {
+            row.dataset.armIndex = ai;
+            row.querySelector('.intro-arm-name').textContent = armLabels[ai] || 'Arm ' + (ai + 1);
+            row.querySelector('.intro-text').name = 'arms[' + ai + '][intro_text]';
         });
         refreshRules();
     }
 
+    // Give every field in a question its current question / arm / list position:
+    // questions[q][...] for the question, questions[q][arms][a][...] inside an arm's version or timer row,
+    // and [scale_labels][k] / [pictures][k] by their row.
+    function renameFields(qBlock, qi) {
+        qBlock.querySelectorAll('[name^="questions["]').forEach(function(el) {
+            var armBox = el.closest('.question-arm-block, .timer-row');
+            var rest;
+            var m = /^questions\[\d+\]\[arms\]\[\d+\](.*)$/.exec(el.name);
+            if (m && armBox) {
+                rest = m[1];
+                var siblings = armBox.parentElement.querySelectorAll(':scope > .' + (armBox.classList.contains('timer-row') ? 'timer-row' : 'question-arm-block'));
+                el.name = 'questions[' + qi + '][arms][' + Array.prototype.indexOf.call(siblings, armBox) + ']' + rest;
+            } else {
+                el.name = el.name.replace(/^questions\[\d+\]/, 'questions[' + qi + ']');
+            }
+        });
+        qBlock.querySelectorAll('.question-arm-block').forEach(function(aBlock) {
+            aBlock.querySelectorAll('.scale-label-row input').forEach(function(input, k) {
+                input.name = input.name.replace(/\[scale_labels\]\[\d+\]/, '[scale_labels][' + k + ']');
+            });
+            aBlock.querySelectorAll('.picture-row').forEach(function(row, k) {
+                row.querySelector('.picture-number').textContent = k + 1;
+                row.querySelectorAll('[name]').forEach(function(input) {
+                    input.name = input.name.replace(/\[pictures\]\[\d+\]/, '[pictures][' + k + ']');
+                });
+            });
+        });
+    }
+
     // --- One-line summary in each question's header (visible even when collapsed) ---
     var TYPE_NAMES = { multiple_choice: 'Multiple choice', multiple_answer: 'Multiple answer',
-                       numeric: 'Number', short_answer: 'Short answer', slider: 'Slider' };
+                       numeric: 'Number', short_answer: 'Short answer', slider: 'Slider',
+                       ranking: 'Ranking', rating: 'Rating scale', rating_grid: 'Rating grid',
+                       picture_choice: 'Picture choice', budget: 'Budget split', price_list: 'Price list',
+                       lottery: 'Lottery choices' };
+    var OPTION_TYPES = ['multiple_choice', 'multiple_answer', 'ranking', 'rating_grid', 'budget'];
+    var CHOICE_TYPES = ['multiple_choice', 'multiple_answer', 'picture_choice'];
+    var OTHER_TYPES = ['multiple_choice', 'multiple_answer'];
     function badge(text, cls, title) {
         var span = document.createElement('span');
         span.className = 'badge rounded-pill ' + (cls || 'text-bg-light border');
@@ -151,8 +193,31 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (typeHasOptions(type) && other && other.value === '1') withOther.push(armLabels[ai]);
             });
             if (withOther.length) holder.appendChild(badge('+ Other' + (withOther.length < armLabels.length ? ' (' + withOther.join(', ') + ')' : '')));
+            var on = function(cls) { var el = qBlock.querySelector('.' + cls); return !!(el && el.checked && isShown(el)); };
+            if (!on('rule-required')) holder.appendChild(badge('Optional', 'text-bg-secondary'));
+            if (on('rule-shuffle')) holder.appendChild(badge('\u21c4 Shuffled', 'text-bg-light border'));
+            if (on('rule-attention')) holder.appendChild(badge('\u2713 Attention check', 'text-bg-success'));
+            if (on('rule-keep-place') && document.getElementById('shuffle-questions') && document.getElementById('shuffle-questions').checked) {
+                holder.appendChild(badge('Keeps its place', 'text-bg-light border'));
+            }
+            if (type === 'numeric') {
+                var lo = qBlock.querySelector('[name$="[num_min]"]'), hi = qBlock.querySelector('[name$="[num_max]"]');
+                if ((lo && lo.value !== '') || (hi && hi.value !== '')) {
+                    holder.appendChild(badge((lo.value !== '' ? lo.value : '\u2026') + ' to ' + (hi.value !== '' ? hi.value : '\u2026'), 'text-bg-light border'));
+                }
+            }
             if (qBlock.dataset.part === '2') holder.appendChild(badge('Part 2', 'text-bg-dark'));
         });
+    }
+
+    // An element inside a [data-types] block counts only if that block is shown for the current type
+    function isShown(el) {
+        var box = el.closest('[data-types]');
+        while (box) {
+            if (box.style.display === 'none') return false;
+            box = box.parentElement && box.parentElement.closest('[data-types]');
+        }
+        return true;
     }
 
     // --- Two-part survey ---
@@ -265,11 +330,11 @@ document.addEventListener('DOMContentLoaded', function() {
     questionsContainer.addEventListener('keydown', openAdvanced);
     // "Done" and the close cross are links (buttons would be disabled on a locked page)
     document.addEventListener('click', function(e) {
-        if (e.target.closest('.q-advanced-modal [data-bs-dismiss="modal"]')) e.preventDefault();
+        if (e.target.closest('.q-advanced-modal [data-bs-dismiss="modal"], #survey-options-modal [data-bs-dismiss="modal"]')) e.preventDefault();
     });
     // Timer edits update the header badges
     questionsContainer.addEventListener('input', function(e) {
-        if (e.target.closest('.timer-row') || (e.target.name || '').indexOf('[label]') !== -1) updateSummaries();
+        if (e.target.closest('.timer-row, .answer-rules') || (e.target.name || '').indexOf('[label]') !== -1) updateSummaries();
     });
 
     // --- (i) info tips: hover on a computer, tap on a phone ---
@@ -295,6 +360,21 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     function choiceAnswers(qBlock) {
         var values = [];
+        if (typeOf(qBlock) === 'picture_choice') {
+            qBlock.querySelectorAll('.question-arm-block').forEach(function(aBlock) {
+                aBlock.querySelectorAll('.picture-row').forEach(function(row, k) {
+                    var v = row.querySelector('.picture-caption').value.trim() || 'Picture ' + (k + 1);
+                    if (values.indexOf(v) === -1) values.push(v);
+                });
+            });
+            return values;
+        }
+        if (typeOf(qBlock) === 'rating') {
+            var start = parseInt(qBlock.querySelector('.scale-start-input').value, 10) || 0;
+            var points = parseInt(qBlock.querySelector('.scale-points-input').value, 10) || 5;
+            for (var v = start; v < start + points; v++) values.push(String(v));
+            return values;
+        }
         qBlock.querySelectorAll('.question-arm-block').forEach(function(aBlock) {
             aBlock.querySelectorAll('.q-option-row input').forEach(function(input) {
                 var v = input.value.trim();
@@ -306,7 +386,37 @@ document.addEventListener('DOMContentLoaded', function() {
         return values;
     }
     function isChoiceBlock(qBlock) {
-        return typeHasOptions(qBlock.querySelector('.question-type-select').value);
+        return CHOICE_TYPES.indexOf(typeOf(qBlock)) !== -1;
+    }
+
+    // Attention check: tick the correct answer(s) among the question's own answers
+    function refreshAttention(qBlock, qi) {
+        var section = qBlock.querySelector('.attention-section');
+        if (!section) return;
+        var holder = section.querySelector('.attention-values');
+        // The ticked answers are remembered on the section, so switching the type away and back keeps them
+        var checked = JSON.parse(section.dataset.values || '[]');
+        var values = choiceAnswers(qBlock).filter(function(v) { return v !== 'Other'; });
+        var key = values.join('\u0001');
+        if (holder.dataset.key !== key) {
+            holder.dataset.key = key;
+            holder.innerHTML = '';
+            values.forEach(function(v) {
+                var label = document.createElement('label');
+                label.className = 'me-2';
+                var input = document.createElement('input');
+                input.type = 'checkbox';
+                input.className = 'form-check-input attention-value-input';
+                input.value = v;
+                input.checked = checked.indexOf(v) !== -1;
+                label.appendChild(input);
+                label.appendChild(document.createTextNode(' ' + v));
+                holder.appendChild(label);
+            });
+            if (!values.length) holder.innerHTML = '<em class="text-muted">(add the answers first)</em>';
+        }
+        holder.querySelectorAll('input').forEach(function(input) { input.name = 'questions[' + qi + '][attention_values]'; });
+        section.querySelector('.attention-values-wrap').style.display = section.querySelector('.rule-attention').checked ? '' : 'none';
     }
     var rulesReady = false;
     function refreshRules() {
@@ -399,6 +509,7 @@ document.addEventListener('DOMContentLoaded', function() {
             valuesHolder.querySelectorAll('.cond-value-input').forEach(function(input) {
                 input.name = 'questions[' + qi + '][cond_values]';
             });
+            refreshAttention(qBlock, qi);
         });
         rulesReady = true;
         refreshParts();
@@ -415,20 +526,23 @@ document.addEventListener('DOMContentLoaded', function() {
             e.target.dataset.uid = e.target.value;
             refreshRules();
             e.target.form && e.target.form.dispatchEvent(new Event('change'));  // autosave the new hidden value
-        } else if (e.target.classList.contains('show-arm-input') || e.target.classList.contains('question-type-select')) {
+        } else if (e.target.classList.contains('show-arm-input') || e.target.classList.contains('question-type-select')
+                   || e.target.classList.contains('rule-attention') || e.target.classList.contains('scale-points-input')
+                   || e.target.classList.contains('scale-start-input')) {
             refreshRules();
         }
     });
     // Option texts and labels feed the condition lists
     questionsContainer.addEventListener('input', function(e) {
-        if (e.target.closest('.q-option-row') || (e.target.name || '').indexOf('[label]') !== -1) refreshRulesSoon();
+        if (e.target.closest('.q-option-row, .picture-row') || (e.target.name || '').indexOf('[label]') !== -1) refreshRulesSoon();
     });
     armsContainer.addEventListener('input', refreshRulesSoon);
 
     // --- Build an arm block HTML for inside a question ---
     function typeHasOptions(questionType) {
-        return questionType === 'multiple_choice' || questionType === 'multiple_answer';
+        return OPTION_TYPES.indexOf(questionType) !== -1;
     }
+    function typeOf(qBlock) { return qBlock.querySelector('.question-type-select').value; }
 
     // New questions, arm versions and timer rows are copied from the page's <template>s
     // (rendered by the same Jinja macros as the existing ones); reindexAll() then gives
@@ -443,13 +557,10 @@ document.addEventListener('DOMContentLoaded', function() {
         var count = armsContainer.querySelectorAll('.arm-label-block').length;
         var armsDiv = qBlock.querySelector('.question-arms');
         var timerRows = qBlock.querySelector('.timer-rows');
-        var showOptions = typeHasOptions(qBlock.querySelector('.question-type-select').value);
         while (armsDiv.querySelectorAll('.question-arm-block').length > count) armsDiv.lastElementChild.remove();
-        while (armsDiv.querySelectorAll('.question-arm-block').length < count) {
-            var arm = fromTemplate('tpl-arm');
-            arm.querySelector('.question-options-section').style.display = showOptions ? '' : 'none';
-            armsDiv.appendChild(arm);
-        }
+        while (armsDiv.querySelectorAll('.question-arm-block').length < count) armsDiv.appendChild(fromTemplate('tpl-arm'));
+        applyType(qBlock);
+        syncScaleLabels(qBlock);
         if (timerRows) {
             while (timerRows.querySelectorAll('.timer-row').length > count) timerRows.lastElementChild.remove();
             while (timerRows.querySelectorAll('.timer-row').length < count) timerRows.appendChild(fromTemplate('tpl-timer-row'));
@@ -558,30 +669,188 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // --- Per-question type toggle ---
+    // Every part marked data-types="..." is shown only for those question types
+    var OPTION_WORDS = { ranking: ['item', 'items'], budget: ['item', 'items'], rating_grid: ['statement', 'statements'],
+                         picture_choice: ['picture', 'pictures'] };
+    function applyType(qBlock) {
+        var qtype = typeOf(qBlock);
+        qBlock.querySelectorAll('[data-types]').forEach(function(el) {
+            el.style.display = el.dataset.types.split(' ').indexOf(qtype) !== -1 ? '' : 'none';
+        });
+        var slider = qBlock.querySelector('.slider-config-section');
+        if (slider) slider.style.display = qtype === 'slider' ? '' : 'none';
+        var words = OPTION_WORDS[qtype] || ['option', 'options'];
+        qBlock.querySelectorAll('.add-option-word').forEach(function(el) { el.textContent = words[0]; });
+        qBlock.querySelectorAll('.shuffle-word').forEach(function(el) { el.textContent = words[1]; });
+        qBlock.querySelectorAll('.lottery-section').forEach(updateLotteryPreview);
+    }
     questionsContainer.addEventListener('change', function(e) {
         if (e.target.classList.contains('question-type-select')) {
-            var qtype = e.target.value;
-            var showOptions = typeHasOptions(qtype);
-            var showSlider = qtype === 'slider';
-            var qBlock = e.target.closest('.question-block');
-            qBlock.querySelectorAll('.question-options-section').forEach(function(section) {
-                section.style.display = showOptions ? '' : 'none';
-            });
-            var sliderSection = qBlock.querySelector('.slider-config-section');
-            if (sliderSection) sliderSection.style.display = showSlider ? '' : 'none';
+            applyType(e.target.closest('.question-block'));
+            updateSummaries();
         }
     });
+
+    // --- Rating scales: one label per point, in every arm ---
+    var PRESETS = {
+        agree: ['Strongly disagree', 'Disagree', 'Somewhat disagree', 'Neither agree nor disagree', 'Somewhat agree', 'Agree', 'Strongly agree'],
+        likely: ['Extremely unlikely', 'Very unlikely', 'Somewhat unlikely', 'Neither likely nor unlikely', 'Somewhat likely', 'Very likely', 'Extremely likely'],
+        satisfied: ['Very dissatisfied', 'Dissatisfied', 'Somewhat dissatisfied', 'Neither satisfied nor dissatisfied', 'Somewhat satisfied', 'Satisfied', 'Very satisfied'],
+        important: ['Not at all important', 'Slightly important', 'Moderately important', 'Very important', 'Extremely important'],
+        often: ['Never', 'Rarely', 'Sometimes', 'Often', 'Always'],
+    };
+    // A preset's labels for n points: the full list when it fits, otherwise its ends (and middle)
+    function presetLabels(name, n) {
+        var full = PRESETS[name];
+        var out = [];
+        for (var k = 0; k < n; k++) out.push('');
+        if (name === 'ends') { out[0] = 'Not at all'; out[n - 1] = 'Completely'; return out; }
+        if (!full) return out;
+        if (n === full.length) return full.slice();
+        if (n === 5 && full.length === 7) return [full[0], full[1], full[3], full[5], full[6]];
+        if (n === 3 && full.length >= 5) return [full[0], full[Math.floor(full.length / 2)], full[full.length - 1]];
+        out[0] = full[0]; out[n - 1] = full[full.length - 1];
+        if (n % 2 === 1 && full.length % 2 === 1) out[(n - 1) / 2] = full[(full.length - 1) / 2];
+        return out;
+    }
+    function syncScaleLabels(qBlock) {
+        var points = parseInt(qBlock.querySelector('.scale-points-input').value, 10) || 5;
+        var start = parseInt(qBlock.querySelector('.scale-start-input').value, 10) || 0;
+        qBlock.querySelectorAll('.scale-labels-container').forEach(function(box) {
+            var rows = box.querySelectorAll('.scale-label-row');
+            var proto = rows[0];
+            for (var k = rows.length; k < points; k++) {
+                var row = proto.cloneNode(true);
+                row.querySelector('input').value = '';
+                box.appendChild(row);
+            }
+            box.querySelectorAll('.scale-label-row').forEach(function(row, k) {
+                if (k >= points) { row.remove(); return; }
+                row.querySelector('.scale-value').textContent = start + k;
+                row.querySelector('input').placeholder = (k === 0 || k === points - 1) ? 'Label (needed)' : 'Label (optional)';
+            });
+        });
+        reindexAll();
+    }
+    questionsContainer.addEventListener('change', function(e) {
+        var qBlock = e.target.closest('.question-block');
+        if (e.target.classList.contains('scale-points-input') || e.target.classList.contains('scale-start-input')) {
+            syncScaleLabels(qBlock);
+        } else if (e.target.classList.contains('scale-preset') && e.target.value) {
+            var points = parseInt(qBlock.querySelector('.scale-points-input').value, 10) || 5;
+            var labels = presetLabels(e.target.value, points);
+            qBlock.querySelectorAll('.scale-labels-container').forEach(function(box) {
+                box.querySelectorAll('.scale-label-row input').forEach(function(input, k) { input.value = labels[k] || ''; });
+            });
+            e.target.value = '';
+            e.target.form && e.target.form.dispatchEvent(new Event('change'));
+        } else if (e.target.classList.contains('attention-value-input')) {
+            var att = e.target.closest('.attention-section');
+            att.dataset.values = JSON.stringify(Array.prototype.map.call(att.querySelectorAll('.attention-value-input:checked'), function(i) { return i.value; }));
+        } else if (e.target.classList.contains('rule-shuffle')) {
+            var row = e.target.closest('.answer-rules').querySelector('.keep-last-row');
+            if (row) row.style.display = e.target.checked ? '' : 'none';
+        }
+    });
+
+    // --- Picture choice: rows of picture + caption ---
+    function pictureRowsChanged(container) {
+        var rows = container.querySelectorAll('.picture-row');
+        rows.forEach(function(row) { row.querySelector('.remove-picture-btn').style.display = rows.length > 2 ? '' : 'none'; });
+        reindexAll();
+    }
+    questionsContainer.addEventListener('click', function(e) {
+        if (e.target.classList.contains('add-picture-btn')) {
+            var container = e.target.closest('.pictures-section').querySelector('.pictures-container');
+            var rows = container.querySelectorAll('.picture-row');
+            if (rows.length >= 8) { alert('Maximum 8 pictures.'); return; }
+            var row = rows[rows.length - 1].cloneNode(true);
+            row.querySelectorAll('.picture-thumb-link, .picture-existing').forEach(function(el) { el.remove(); });
+            row.querySelector('.picture-image-input').value = '';
+            row.querySelector('.picture-caption').value = '';
+            container.appendChild(row);
+            pictureRowsChanged(container);
+        } else if (e.target.classList.contains('remove-picture-btn')) {
+            var container2 = e.target.closest('.pictures-container');
+            if (container2.querySelectorAll('.picture-row').length <= 2) return;
+            e.target.closest('.picture-row').remove();
+            pictureRowsChanged(container2);
+        }
+    });
+    // Show a picture once it is on the server (after a save) instead of the file picker's name
+    function setPictureImage(row, filename) {
+        row.querySelectorAll('.picture-thumb-link, .picture-existing').forEach(function(el) { el.remove(); });
+        if (!filename) return;
+        var link = document.createElement('a');
+        link.className = 'picture-thumb-link';
+        link.target = '_blank';
+        link.href = '/uploads/' + encodeURIComponent(filename);
+        link.innerHTML = '<img alt="" class="rounded picture-thumb" style="height: 48px;">';
+        link.querySelector('img').src = link.href;
+        var hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.className = 'picture-existing';
+        hidden.name = row.querySelector('.picture-caption').name.replace('[caption]', '[existing]');
+        hidden.value = filename;
+        var number = row.querySelector('.picture-number');
+        number.after(link);
+        link.after(hidden);
+    }
+
+    // --- Price list: fill the values from a range ---
+    questionsContainer.addEventListener('click', function(e) {
+        if (!e.target.classList.contains('pl-fill-btn')) return;
+        var section = e.target.closest('.price-list-section');
+        var from = parseFloat(section.querySelector('.pl-from').value);
+        var to = parseFloat(section.querySelector('.pl-to').value);
+        var step = Math.abs(parseFloat(section.querySelector('.pl-step').value));
+        if (isNaN(from) || isNaN(to) || !step) { alert('Type a start, an end and a step.'); return; }
+        var values = [], dir = to >= from ? 1 : -1;
+        for (var v = from; dir > 0 ? v <= to + 1e-9 : v >= to - 1e-9; v += dir * step) {
+            values.push(String(Math.round(v * 100) / 100));
+            if (values.length > 20) break;
+        }
+        if (values.length > 20) { alert('That makes more than 20 rows. Use a bigger step.'); return; }
+        section.querySelector('.pl-values').value = values.join(', ');
+        section.querySelector('.pl-values').dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    // --- Lottery choices: the classic amounts, and a preview of the first and last rows ---
+    var LOTTERY_DEFAULT = { a_high: '2.00', a_low: '1.60', b_high: '3.85', b_low: '0.10', rows: '10', unit: '$' };
+    function updateLotteryPreview(section) {
+        var box = section.querySelector('.lot-preview');
+        if (!box || section.style.display === 'none') return;
+        var v = {};
+        section.querySelectorAll('.lot-input').forEach(function(input) { v[input.dataset.key] = input.value.trim(); });
+        var n = Math.min(Math.max(parseInt(v.rows, 10) || 10, 2), 20);
+        function money(x) { var f = parseFloat(x); return v.unit + (isNaN(f) ? x : f.toFixed(2)); }
+        function opt(k, hi, lo) { return k === n ? money(hi) + ' for sure' : k + '/' + n + ' chance of ' + money(hi) + ', ' + (n - k) + '/' + n + ' chance of ' + money(lo); }
+        box.textContent = 'Row 1: A = ' + opt(1, v.a_high, v.a_low) + ' or B = ' + opt(1, v.b_high, v.b_low)
+            + '. \u2026 Row ' + n + ': A = ' + opt(n, v.a_high, v.a_low) + ' or B = ' + opt(n, v.b_high, v.b_low) + '.';
+    }
+    questionsContainer.addEventListener('input', function(e) {
+        if (e.target.classList.contains('lot-input')) updateLotteryPreview(e.target.closest('.lottery-section'));
+    });
+    questionsContainer.addEventListener('click', function(e) {
+        if (!e.target.classList.contains('lot-reset')) return;
+        var section = e.target.closest('.lottery-section');
+        section.querySelectorAll('.lot-input').forEach(function(input) { input.value = LOTTERY_DEFAULT[input.dataset.key]; });
+        updateLotteryPreview(section);
+        section.querySelector('.lot-input').dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    questionsContainer.querySelectorAll('.lottery-section').forEach(updateLotteryPreview);
 
     // --- Add option within a question arm ---
     questionsContainer.addEventListener('click', function(e) {
         if (e.target.classList.contains('add-q-option-btn')) {
             var container = e.target.closest('.question-options-section').querySelector('.question-options-container');
             var optCount = container.querySelectorAll('.q-option-row').length;
-            if (optCount >= 5) {
-                alert('Maximum 5 options.');
+            var qBlock = e.target.closest('.question-block');
+            var limit = OTHER_TYPES.indexOf(typeOf(qBlock)) !== -1 ? 5 : 8;
+            if (optCount >= limit) {
+                alert('Maximum ' + limit + '.');
                 return;
             }
-            var qBlock = e.target.closest('.question-block');
             var aBlock = e.target.closest('.question-arm-block');
             var qi = parseInt(qBlock.dataset.questionIndex);
             var ai = parseInt(aBlock.dataset.armIndex);
@@ -648,6 +917,32 @@ document.addEventListener('DOMContentLoaded', function() {
             dstTimer.checked = srcRow.querySelector('.timer-on-input').checked;
             dstRow.querySelector('.timer-fields').style.display = dstTimer.checked ? '' : 'none';
         }
+
+        // Scale labels, price list and lottery fields (same rows in every arm)
+        var dstLabels = target.querySelectorAll('.scale-label-row input');
+        source.querySelectorAll('.scale-label-row input').forEach(function(input, k) { if (dstLabels[k]) dstLabels[k].value = input.value; });
+        ['.pl-a', '.pl-b', '.pl-values'].forEach(function(sel) {
+            if (source.querySelector(sel)) target.querySelector(sel).value = source.querySelector(sel).value;
+        });
+        var dstLot = target.querySelectorAll('.lot-input');
+        source.querySelectorAll('.lot-input').forEach(function(input, k) { dstLot[k].value = input.value; });
+        // Pictures: the same saved pictures and captions (files not saved yet can't be copied)
+        var srcPics = source.querySelectorAll('.picture-row');
+        var dstBox = target.querySelector('.pictures-container');
+        if (srcPics.length && dstBox) {
+            var proto = dstBox.querySelector('.picture-row');
+            dstBox.innerHTML = '';
+            srcPics.forEach(function(srcRow) {
+                var row = proto.cloneNode(true);
+                row.querySelector('.picture-image-input').value = '';
+                row.querySelector('.picture-caption').value = srcRow.querySelector('.picture-caption').value;
+                dstBox.appendChild(row);
+                var existing = srcRow.querySelector('.picture-existing');
+                setPictureImage(row, existing ? existing.value : null);
+            });
+            pictureRowsChanged(dstBox);
+        }
+        updateLotteryPreview(target.querySelector('.lottery-section'));
 
         // The "Other" choice
         var srcOther = source.querySelector('.allow-other-input');
@@ -718,8 +1013,69 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    // --- Survey options (pop-up from the Questions card) ---
+    var optionsModal = document.getElementById('survey-options-modal');
+    function updateSurveyBadges() {
+        var holder = document.getElementById('survey-option-badges');
+        if (!holder || !optionsModal) return;
+        holder.innerHTML = '';
+        if (document.getElementById('shuffle-questions').checked) holder.appendChild(badge('\u21c4 Question order shuffled', 'text-bg-info'));
+        if (document.getElementById('intro-on').checked) {
+            holder.appendChild(badge(optionsModal.querySelector('[name="consent"]').checked ? 'Consent screen' : 'Intro screen', 'text-bg-info'));
+        }
+    }
+    function syncIntroRows() {
+        if (!optionsModal) return;
+        var box = optionsModal.querySelector('.intro-rows');
+        var count = armsContainer.querySelectorAll('.arm-label-block').length;
+        var rows = box.querySelectorAll('.intro-row');
+        for (var k = rows.length; k < count; k++) {
+            var row = rows[0].cloneNode(true);
+            row.querySelector('.intro-text').value = '';
+            box.appendChild(row);
+        }
+        box.querySelectorAll('.intro-row').forEach(function(row, k) { if (k >= count) row.remove(); });
+    }
+    if (optionsModal) {
+        var openOptions = function(e) {
+            if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+            e.preventDefault();
+            bootstrap.Modal.getOrCreateInstance(optionsModal).show();
+        };
+        document.getElementById('survey-options-btn').addEventListener('click', openOptions);
+        document.getElementById('survey-options-btn').addEventListener('keydown', openOptions);
+        optionsModal.addEventListener('change', function(e) {
+            if (e.target.id === 'intro-on') document.getElementById('intro-fields').style.display = e.target.checked ? '' : 'none';
+            updateSurveyBadges();
+            updateSummaries();
+        });
+        document.getElementById('intro-copy').addEventListener('click', function() {
+            var texts = optionsModal.querySelectorAll('.intro-text');
+            for (var k = 1; k < texts.length; k++) texts[k].value = texts[0].value;
+            if (texts.length) texts[0].dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        optionsModal.querySelectorAll('.apply-all').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var on = btn.dataset.value === '1', changed = 0;
+                questionsContainer.querySelectorAll('.' + btn.dataset.rule).forEach(function(box) {
+                    if (!isShown(box)) return;  // e.g. shuffling doesn't apply to number questions
+                    if (box.checked !== on) { box.checked = on; changed++; box.dispatchEvent(new Event('change', { bubbles: true })); }
+                });
+                document.getElementById('apply-all-status').textContent = changed ? 'Changed ' + changed + ' question' + (changed > 1 ? 's' : '') + '.' : 'Nothing to change.';
+                updateSummaries();
+            });
+        });
+        document.addEventListener('arms-changed', function(e) {
+            var rows = optionsModal.querySelectorAll('.intro-row');
+            if (e.detail && e.detail.removed !== undefined && rows.length > 1 && rows[e.detail.removed]) rows[e.detail.removed].remove();
+            syncIntroRows();
+            reindexAll();
+        });
+    }
+
     // Fill in names, display-rule controls and summaries before autosave records the page's starting version
     reindexAll();
+    updateSurveyBadges();
     initCollapsing();
 
     // Drag questions (by their ⠿ handle) to reorder them. Display rules and the part-2 split
@@ -828,6 +1184,13 @@ document.addEventListener('DOMContentLoaded', function() {
                         fileInput.value = '';
                         setExistingImage(aBlock, images[qi + '_' + ai] || null);
                     }
+                    aBlock.querySelectorAll('.picture-row').forEach(function(row, k) {
+                        var input = row.querySelector('.picture-image-input');
+                        if (input && input.value) {
+                            input.value = '';
+                            setPictureImage(row, images[qi + '_' + ai + '_p' + k] || null);
+                        }
+                    });
                 });
             });
         }
@@ -836,7 +1199,7 @@ document.addEventListener('DOMContentLoaded', function() {
             var data = new FormData();
             entries.forEach(function(pair) { data.append(pair[0], pair[1]); });
             if (includeFiles) {
-                form.querySelectorAll('.arm-image-input').forEach(function(input) {
+                form.querySelectorAll('.arm-image-input, .picture-image-input').forEach(function(input) {
                     if (input.files && input.files[0]) data.append(input.name, input.files[0]);
                 });
             }
@@ -899,8 +1262,8 @@ document.addEventListener('DOMContentLoaded', function() {
             if (saving) return;  // our own updates after a save (e.g. showing a just-uploaded image)
             var structural = mutations.some(function(m) {
                 return Array.prototype.some.call(m.addedNodes.length ? m.addedNodes : m.removedNodes, function(n) {
-                    return n.nodeType === 1 && (n.matches('.arm-label-block, .question-block, .question-arm-block, .q-option-row, .existing-image-input') ||
-                        n.querySelector && n.querySelector('.q-option-row, .existing-image-input'));
+                    return n.nodeType === 1 && (n.matches('.arm-label-block, .question-block, .question-arm-block, .q-option-row, .existing-image-input, .picture-row, .picture-existing, .scale-label-row, .intro-row, .attention-value-input') ||
+                        n.querySelector && n.querySelector('.q-option-row, .existing-image-input, .picture-row, .picture-existing'));
                 });
             });
             if (structural) scheduleSave();

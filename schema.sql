@@ -57,7 +57,8 @@ CREATE TABLE IF NOT EXISTS survey (
     part1_ran       TEXT DEFAULT NULL,              -- when each part was first activated (the live sequence skips it)
     part2_ran       TEXT DEFAULT NULL,
     reminder_plan   TEXT DEFAULT NULL,              -- JSON {"arms": [{"note", "rules": [{message, start, end, every, time}]}]}
-    reminders_approved TEXT DEFAULT NULL            -- hash of the plan the instructor approved
+    reminders_approved TEXT DEFAULT NULL,           -- hash of the plan the instructor approved
+    settings        TEXT DEFAULT NULL               -- survey-wide options (JSON: shuffle_questions, intro, consent)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_survey_group_classroom ON survey(classroom_id, group_number);
 
@@ -66,7 +67,8 @@ CREATE TABLE IF NOT EXISTS survey_arm (
     survey_id       INTEGER NOT NULL REFERENCES survey(id) ON DELETE CASCADE,
     arm_index       INTEGER NOT NULL,
     label           TEXT NOT NULL,
-    question_text   TEXT NOT NULL
+    question_text   TEXT NOT NULL,
+    intro_text      TEXT DEFAULT NULL       -- this arm's intro / consent screen (survey settings turn it on)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_survey_arm_unique ON survey_arm(survey_id, arm_index);
 
@@ -106,7 +108,8 @@ CREATE TABLE IF NOT EXISTS survey_question (
     slider_step     REAL DEFAULT NULL,
     show_arms       TEXT DEFAULT NULL,      -- JSON list of arm positions that see it (NULL = all arms)
     cond_question   INTEGER DEFAULT NULL,   -- shown only if this earlier question (index) ...
-    cond_values     TEXT DEFAULT NULL       -- ... was answered with one of these (JSON list)
+    cond_values     TEXT DEFAULT NULL,      -- ... was answered with one of these (JSON list)
+    settings        TEXT DEFAULT NULL       -- type settings and rules (JSON, models/qtypes.py; NULL = defaults)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_survey_question_unique ON survey_question(survey_id, question_index);
 
@@ -119,7 +122,8 @@ CREATE TABLE IF NOT EXISTS arm_question (
     allow_other     INTEGER NOT NULL DEFAULT 0,  -- choice questions: adds an "Other" choice with a text box
     timer_seconds   INTEGER DEFAULT NULL,        -- time limit for this arm's version (NULL = no timer)
     timer_display   TEXT DEFAULT NULL,           -- 'both' | 'countdown' | 'bar' | 'hidden'
-    timer_default   TEXT DEFAULT NULL            -- answer recorded if time runs out ('' = no answer)
+    timer_default   TEXT DEFAULT NULL,           -- answer recorded if time runs out ('' = no answer)
+    config          TEXT DEFAULT NULL            -- type-specific content (JSON: scale labels, pictures, price list, lottery)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_arm_question_unique ON arm_question(arm_id, question_id);
 
@@ -143,7 +147,9 @@ CREATE TABLE IF NOT EXISTS response (
     seconds         REAL DEFAULT NULL,      -- time the question was on screen (page in view)
     left_page       INTEGER DEFAULT NULL,   -- 1 if the respondent switched away while on it
     other_text      TEXT DEFAULT NULL,      -- what they typed after choosing "Other"
-    timed_out       INTEGER DEFAULT NULL    -- 1 if the question's timer ran out (the default was recorded)
+    timed_out       INTEGER DEFAULT NULL,   -- 1 if the question's timer ran out (the default was recorded)
+    display_order   TEXT DEFAULT NULL,      -- shuffled options: the order they were shown (JSON list of texts)
+    position        INTEGER DEFAULT NULL    -- where the question came in this respondent's survey (1 = first shown)
 );
 CREATE INDEX IF NOT EXISTS idx_response_survey ON response(survey_id);
 CREATE INDEX IF NOT EXISTS idx_response_survey_arm_question ON response(survey_id, arm_id, question_id);

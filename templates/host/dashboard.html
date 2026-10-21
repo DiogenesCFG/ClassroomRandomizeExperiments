@@ -55,7 +55,7 @@
                     {% if s.ran %}<span class="badge text-bg-secondary" title="Already ran: Next Survey skips it. Click to show it again.">&#10003; ran</span>{% endif %}
                     <br>
                     <small class="text-muted">
-                        {{ s.question_count or 1 }} Q ({{ s.question_types or s.question_type }})
+                        {{ s.question_count or 1 }} Q ({% for t in (s.question_types or s.question_type or '').split(',') %}{{ qtypes.SHORT_NAMES.get(t, t) }}{% if not loop.last %}, {% endif %}{% endfor %})
                     </small>
                     {% if s.early_open %}<span class="badge text-bg-info">open early until {{ s.early_deadline_label }}</span>{% endif %}
                     {% if s.todo %}<span class="badge text-bg-warning" title="{{ s.todo|join(' ') }}">not finished</span>{% endif %}
@@ -173,5 +173,5 @@
         colorLight: '#ffffff',
     });
 </script>
-<script src="{{ url_for('static', filename='js/host.js') }}?v=20261015"></script>
+<script src="{{ url_for('static', filename='js/host.js') }}?v=20261020"></script>
 {% endblock %}

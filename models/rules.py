@@ -8,7 +8,7 @@ a survey recreates its questions.
 """
 import json
 
-CHOICE_TYPES = ('multiple_choice', 'multiple_answer')
+from models.qtypes import CHOICE_TYPES, config_of, picture_labels
 
 
 def parse_rules(form, qi, n_arms):
@@ -117,6 +117,8 @@ def rule_problems(questions, arms):
             continue
         available = set()
         for data in src.get('arms', {}).values():
+            if src['question_type'] == 'picture_choice':
+                available.update(picture_labels(config_of(data)))
             available.update(o.strip() for o in data.get('options', []) if o.strip())
             if data.get('allow_other'):
                 available.add('Other')

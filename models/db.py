@@ -243,6 +243,13 @@ def init_db():
         ('survey', 'seeking_members', 'INTEGER NOT NULL DEFAULT 0'),
         ('survey', 'seeking_note', 'TEXT DEFAULT NULL'),
         ('join_request', 'from_survey_id', 'INTEGER DEFAULT NULL REFERENCES survey(id) ON DELETE CASCADE'),
+        # Newer question types and rules (models/qtypes.py); NULL = the old behavior
+        ('survey_question', 'settings', 'TEXT DEFAULT NULL'),
+        ('arm_question', 'config', 'TEXT DEFAULT NULL'),
+        ('survey', 'settings', 'TEXT DEFAULT NULL'),
+        ('survey_arm', 'intro_text', 'TEXT DEFAULT NULL'),
+        ('response', 'display_order', 'TEXT DEFAULT NULL'),
+        ('response', 'position', 'INTEGER DEFAULT NULL'),
     ):
         try:
             db.execute(f'ALTER TABLE {table} ADD COLUMN {col} {col_def}')

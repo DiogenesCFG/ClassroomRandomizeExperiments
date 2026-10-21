@@ -19,8 +19,9 @@ Each survey is one experiment:
 
 - **Arms** (1-4): treatment or control conditions. Each student always gets the same arm (deterministic SHA-256 assignment).
 - **Questions** (up to the instructor's limit): shared across arms, but the text, image and answer options can differ per arm. That difference is the treatment.
-- **Question types**: multiple choice, multiple answer, numeric, short answer (140 characters), slider.
-- **Extras, all optional** (per question, under "Advanced options"): ask a question only in some arms, show it only after certain answers to an earlier question (follow-ups), a per-arm timer, an "Other" choice with a text box. `{{Q1}}` in a question's text shows the respondent's answer to Question 1.
+- **Question types**: basic (multiple choice, multiple answer, number, short answer, slider); rankings and scales (ranking, rating scale with labeled points, rating grid, picture choice); economics (budget split, price list for willingness to pay, Holt-Laury lottery choices for risk attitude).
+- **Question rules, all optional** (per question, under "Advanced options"): required or optional, shuffled option order per respondent (the order shown is recorded), number limits, attention checks, ask a question only in some arms, show it only after certain answers to an earlier question (follow-ups), a per-arm timer, an "Other" choice with a text box. `{{Q1}}` in a question's text shows the respondent's answer to Question 1.
+- **Survey options** (Questions card): shuffled question order per respondent (questions tied by conditions or piping stay put), an intro or consent screen per arm, and shortcuts to apply a rule to every question.
 - **Two-part surveys (optional)**: part 2 starts at a chosen question; each part runs in the live session, in class launched separately by the instructor, or remotely from the lobby between chosen dates. Part 2 is only for students who answered part 1, in the same arm.
 - **Notifications (optional)**: per arm, messages with a time of day and chosen days, which respondents add to their calendar (.ics on iPhone and computers, Google Calendar links on Android) or receive as web push notifications. Floating local time by default, or a chosen time zone. The instructor approves them (and remote dates) first.
 

@@ -121,13 +121,17 @@
 <span class="info-tip text-muted" tabindex="0" role="button" data-bs-title="{{ text }}" aria-label="{{ text }}">&#9432;</span>
 {%- endmacro %}
 
+{% macro shown_for(types, qtype) -%}
+data-types="{{ types|join(' ') }}"{% if qtype not in types %} style="display:none"{% endif %}
+{%- endmacro %}
+
 {% macro collapse_head(key, title, extra='') -%}
 <span class="collapse-toggle d-inline-flex align-items-center gap-2" role="button" tabindex="0" data-collapse-key="{{ key }}" aria-expanded="true">
     <span class="collapse-chevron">&#9662;</span><strong>{{ title }}</strong>{{ extra }}
 </span>
 {%- endmacro %}
 
-{% macro arm_block(q_idx, ai, arm_label, first_label, arm_data, qtype) %}
+{% macro arm_block(q_idx, ai, arm_label, first_label, arm_data, qtype, settings=none) %}
 <div class="question-arm-block border-start border-3 ps-3 mb-3" data-arm-index="{{ ai }}">
     <div class="d-flex justify-content-between align-items-baseline gap-2">
         <label class="form-label fw-bold arm-label-ref">{{ arm_label or 'Arm ' ~ (ai + 1) }}</label>
@@ -154,29 +158,127 @@
                accept=".png,.jpg,.jpeg">
         <small class="text-muted">Optional image (PNG or JPEG, max 5MB)</small>
     </div>
-    <div class="question-options-section" {% if qtype not in ('multiple_choice', 'multiple_answer') %}style="display:none"{% endif %}>
-        <label class="form-label text-muted small">Answer options
-            {{ info('The choices respondents pick from. Their wording and order can differ between arms.') }}</label>
+    {% set prefix = 'questions[' ~ q_idx ~ '][arms][' ~ ai ~ ']' %}
+    {% set config = qtypes.config_of(arm_data) %}
+    {% set options = arm_data.options if arm_data.options else ['', ''] %}
+    <div class="question-options-section" {{ shown_for(qtypes.OPTION_TYPES, qtype) }}>
+        <label class="form-label text-muted small">
+            <span {{ shown_for(qtypes.OTHER_TYPES, qtype) }}>Answer options {{ info('The choices respondents pick from. Their wording and order can differ between arms.') }}</span>
+            <span {{ shown_for(['ranking'], qtype) }}>Items to rank {{ info('Respondents put these in order, from the one they like most (1) to the one they like least.') }}</span>
+            <span {{ shown_for(['rating_grid'], qtype) }}>Statements, one per row {{ info('Each statement is rated on the same scale. Keep them short. On phones each one is shown with its own row of buttons.') }}</span>
+            <span {{ shown_for(['budget'], qtype) }}>Items to split the budget between {{ info('Respondents divide the total between these. The amounts must add up to the total.') }}</span>
+        </label>
         <div class="question-options-container">
-            {% for opt in arm_data.options %}
+            {% for opt in options %}
             <div class="input-group mb-1 q-option-row">
                 <input type="text" class="form-control form-control-sm"
-                       name="questions[{{ q_idx }}][arms][{{ ai }}][options][{{ loop.index0 }}]"
+                       name="{{ prefix }}[options][{{ loop.index0 }}]"
                        value="{{ opt }}" placeholder="Option {{ loop.index }}">
                 <button type="button" class="btn btn-sm btn-outline-danger remove-q-option-btn"
-                        {% if arm_data.options|length <= 2 %}style="display:none"{% endif %}>x</button>
+                        {% if options|length <= 2 %}style="display:none"{% endif %}>x</button>
             </div>
             {% endfor %}
         </div>
-        <div class="input-group input-group-sm mb-1 q-other-row" {% if not arm_data.allow_other %}style="display:none"{% endif %}>
-            <span class="input-group-text">Other:</span>
-            <input type="text" class="form-control" disabled placeholder="respondents type their own answer">
-            <button type="button" class="btn btn-sm btn-outline-danger remove-q-other-btn" title="Remove the Other choice">x</button>
+        <div class="other-wrap" {{ shown_for(qtypes.OTHER_TYPES, qtype) }}>
+            <div class="input-group input-group-sm mb-1 q-other-row" {% if not arm_data.allow_other %}style="display:none"{% endif %}>
+                <span class="input-group-text">Other:</span>
+                <input type="text" class="form-control" disabled placeholder="respondents type their own answer">
+                <button type="button" class="btn btn-sm btn-outline-danger remove-q-other-btn" title="Remove the Other choice">x</button>
+            </div>
+            <input type="hidden" class="allow-other-input" name="{{ prefix }}[allow_other]" value="{{ '1' if arm_data.allow_other else '' }}">
         </div>
-        <input type="hidden" class="allow-other-input" name="questions[{{ q_idx }}][arms][{{ ai }}][allow_other]" value="{{ '1' if arm_data.allow_other else '' }}">
-        <button type="button" class="btn btn-sm btn-outline-secondary add-q-option-btn mt-1">+ Add Option</button>
-        <button type="button" class="btn btn-sm btn-outline-secondary add-q-other-btn mt-1" {% if arm_data.allow_other %}style="display:none"{% endif %}>+ Add &quot;Other&quot;</button>
-        {{ info('Adds an "Other" choice with a text box, so respondents can type their own answer. The dashboard lists what they typed.') }}
+        <button type="button" class="btn btn-sm btn-outline-secondary add-q-option-btn mt-1">+ Add <span class="add-option-word">{{ {'ranking': 'item', 'budget': 'item', 'rating_grid': 'statement'}.get(qtype, 'option') }}</span></button>
+        <span class="other-wrap" {{ shown_for(qtypes.OTHER_TYPES, qtype) }}>
+            <button type="button" class="btn btn-sm btn-outline-secondary add-q-other-btn mt-1" {% if arm_data.allow_other %}style="display:none"{% endif %}>+ Add &quot;Other&quot;</button>
+            {{ info('Adds an "Other" choice with a text box, so respondents can type their own answer. The dashboard lists what they typed.') }}
+        </span>
+    </div>
+
+    {# Rating scale and rating grid: a label for each point (the number of points is set for the whole question) #}
+    {% set st = settings or qtypes.settings_of({}) %}
+    {% set labels = qtypes.scale_labels(st, config) %}
+    <div class="scale-labels-section mb-1" {{ shown_for(qtypes.SCALE_TYPES, qtype) }}>
+        <label class="form-label text-muted small">Scale labels
+            {{ info('What each point means. Label at least both ends; labeling every point gives more consistent answers. "Fill labels" above fills them in for you.') }}</label>
+        <div class="scale-labels-container">
+            {% for v in qtypes.scale_values(st) %}
+            <div class="input-group input-group-sm mb-1 scale-label-row">
+                <span class="input-group-text scale-value" style="min-width: 2.5rem;">{{ v }}</span>
+                <input type="text" class="form-control" maxlength="80" name="{{ prefix }}[scale_labels][{{ loop.index0 }}]"
+                       value="{{ labels[loop.index0] }}" placeholder="{{ 'Label (needed)' if loop.first or loop.last else 'Label (optional)' }}">
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    {# Picture choice: respondents tap one picture; each records its caption (or "Picture N") #}
+    {% set pictures = config.pictures if config.pictures else [{'image': none, 'caption': ''}, {'image': none, 'caption': ''}] %}
+    <div class="pictures-section mb-1" {{ shown_for(['picture_choice'], qtype) }}>
+        <label class="form-label text-muted small">Pictures to choose from
+            {{ info('Respondents tap one picture. Captions are optional; without one, the answer is recorded as "Picture 1", "Picture 2"... PNG or JPEG, up to 5MB each.') }}</label>
+        <div class="pictures-container">
+            {% for p in pictures %}
+            <div class="picture-row border rounded p-2 mb-1 d-flex gap-2 align-items-center flex-wrap">
+                <span class="picture-number small fw-semibold">{{ loop.index }}</span>
+                {% if p.image %}
+                <a href="/uploads/{{ p.image }}" target="_blank" class="picture-thumb-link"><img src="/uploads/{{ p.image }}" alt="" class="rounded picture-thumb" style="height: 48px;"></a>
+                <input type="hidden" class="picture-existing" name="{{ prefix }}[pictures][{{ loop.index0 }}][existing]" value="{{ p.image }}">
+                {% endif %}
+                <input type="file" class="form-control form-control-sm picture-image-input" style="max-width: 15rem;"
+                       name="{{ prefix }}[pictures][{{ loop.index0 }}][image]" accept=".png,.jpg,.jpeg"
+                       title="{{ 'Choose a file to replace this picture' if p.image else 'Choose a picture' }}">
+                <input type="text" class="form-control form-control-sm picture-caption" style="max-width: 15rem;" maxlength="80"
+                       name="{{ prefix }}[pictures][{{ loop.index0 }}][caption]" value="{{ p.caption or '' }}" placeholder="Caption (optional)">
+                <button type="button" class="btn btn-sm btn-outline-danger remove-picture-btn" {% if pictures|length <= 2 %}style="display:none"{% endif %}>x</button>
+            </div>
+            {% endfor %}
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary add-picture-btn mt-1">+ Add picture</button>
+    </div>
+
+    {# Price list: option A or B in each row, with {value} replaced by that row's value #}
+    <div class="price-list-section mb-1" {{ shown_for(['price_list'], qtype) }}>
+        <div class="row g-2">
+            <div class="col-md-6">
+                <label class="form-label text-muted small mb-0">Option A (left) {{ info('Put {value} where the price goes, e.g. "Buy the mug for ${value}". Respondents pick A or B in every row.') }}</label>
+                <input type="text" class="form-control form-control-sm pl-a" maxlength="200" name="{{ prefix }}[pl_a]" value="{{ config.a or '' }}" placeholder="e.g., Buy the mug for ${value}">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label text-muted small mb-0">Option B (right)</label>
+                <input type="text" class="form-control form-control-sm pl-b" maxlength="200" name="{{ prefix }}[pl_b]" value="{{ config.b or '' }}" placeholder="e.g., Don't buy it">
+            </div>
+            <div class="col-12">
+                <label class="form-label text-muted small mb-0">Values, one per row, in order {{ info('Separate them with commas, e.g. 1, 2, 3, 4, 5 (up to 20 rows). Usually from the price almost everyone accepts to the one almost nobody does. The range itself can be your treatment.') }}</label>
+                <input type="text" class="form-control form-control-sm pl-values" name="{{ prefix }}[pl_values]" value="{{ (config.get('values') or [])|join(', ') }}" placeholder="e.g., 1, 2, 3, 4, 5, 6, 7, 8">
+            </div>
+            <div class="col-12 d-flex gap-1 align-items-center flex-wrap small text-muted">
+                Fill in values from <input type="number" step="any" class="form-control form-control-sm pl-from" style="width: 5rem;" value="1">
+                to <input type="number" step="any" class="form-control form-control-sm pl-to" style="width: 5rem;" value="10">
+                every <input type="number" step="any" min="0" class="form-control form-control-sm pl-step" style="width: 5rem;" value="1">
+                <button type="button" class="btn btn-sm btn-outline-secondary pl-fill-btn">Fill</button>
+            </div>
+        </div>
+    </div>
+
+    {# Lottery choices (Holt-Laury): row k of n gives a k/n chance of the high amount in both options #}
+    {% set lot = qtypes.LOTTERY_DEFAULT.copy() %}{% set _ = lot.update(config) if qtype == 'lottery' else none %}
+    <div class="lottery-section mb-1" {{ shown_for(['lottery'], qtype) }}>
+        <div class="row g-2 align-items-end">
+            <div class="col-6 col-md-3"><label class="form-label text-muted small mb-0">Option A: high amount</label>
+                <input type="text" class="form-control form-control-sm lot-input" data-key="a_high" name="{{ prefix }}[lot_a_high]" value="{{ lot.a_high }}"></div>
+            <div class="col-6 col-md-3"><label class="form-label text-muted small mb-0">Option A: low amount</label>
+                <input type="text" class="form-control form-control-sm lot-input" data-key="a_low" name="{{ prefix }}[lot_a_low]" value="{{ lot.a_low }}"></div>
+            <div class="col-6 col-md-3"><label class="form-label text-muted small mb-0">Option B: high amount</label>
+                <input type="text" class="form-control form-control-sm lot-input" data-key="b_high" name="{{ prefix }}[lot_b_high]" value="{{ lot.b_high }}"></div>
+            <div class="col-6 col-md-3"><label class="form-label text-muted small mb-0">Option B: low amount</label>
+                <input type="text" class="form-control form-control-sm lot-input" data-key="b_low" name="{{ prefix }}[lot_b_low]" value="{{ lot.b_low }}"></div>
+            <div class="col-6 col-md-3"><label class="form-label text-muted small mb-0">Rows {{ info('Row 1 gives a 1-in-n chance of the high amount, the last row a sure high amount. 10 rows is the classic design.') }}</label>
+                <input type="number" min="2" max="20" class="form-control form-control-sm lot-input" data-key="rows" name="{{ prefix }}[lot_rows]" value="{{ lot.rows }}"></div>
+            <div class="col-6 col-md-3"><label class="form-label text-muted small mb-0">Currency sign</label>
+                <input type="text" maxlength="5" class="form-control form-control-sm lot-input" data-key="unit" name="{{ prefix }}[lot_unit]" value="{{ lot.unit }}"></div>
+            <div class="col-12 col-md-6"><button type="button" class="btn btn-link btn-sm p-0 lot-reset">Use the classic Holt and Laury (2002) amounts</button></div>
+        </div>
+        <div class="lot-preview small text-muted mt-1"></div>
     </div>
 </div>
 {% endmacro %}
@@ -217,6 +319,8 @@
 
 {% macro question_block(q, q_idx, arms, all_questions=[]) %}
 {% set blank_arm = {'question_text': '', 'options': ['', ''], 'image_filename': None} %}
+{% set st = qtypes.settings_of(q) %}
+{% set qt = q.question_type %}
 <div class="question-block border rounded mb-3" data-question-index="{{ q_idx }}">
     <div class="q-head d-flex align-items-center gap-2 px-3 py-2 flex-wrap">
         <span class="q-drag" title="Drag to move this question" aria-label="Drag to move this question">&#10303;</span>
@@ -233,10 +337,14 @@
     <div class="q-body px-3 pb-1">
         <div class="row g-2 mb-3">
             <div class="col-md-4">
-                <label class="form-label">Type {{ info('What respondents answer with: buttons (multiple choice: pick one; multiple answer: pick several), a number box, a short text box, or a slider. It is the same in every arm.') }}</label>
+                <label class="form-label">Type {{ info('How respondents answer. Basic: pick one, pick several, a number, a short text, a slider. Ranking: put items in order. Rating scale: one point on a labeled scale (e.g. agree to disagree); a rating grid rates several statements on it. Picture choice: tap a picture. Budget split: divide a total between items. Price list: choose A or B at each of several prices (willingness to pay). Lottery choices: safe or risky option in each row (risk attitude). It is the same in every arm.') }}</label>
                 <select class="form-select question-type-select" name="questions[{{ q_idx }}][question_type]">
-                    {% for value, text in [('multiple_choice', 'Multiple Choice'), ('multiple_answer', 'Multiple Answer'), ('numeric', 'Numeric'), ('short_answer', 'Short Answer'), ('slider', 'Slider')] %}
-                    <option value="{{ value }}" {% if q.question_type == value %}selected{% endif %}>{{ text }}</option>
+                    {% for group, items in qtypes.TYPE_GROUPS %}
+                    <optgroup label="{{ group }}">
+                        {% for value, text in items %}
+                        <option value="{{ value }}" {% if qt == value %}selected{% endif %}>{{ text }}</option>
+                        {% endfor %}
+                    </optgroup>
                     {% endfor %}
                 </select>
             </div>
@@ -263,9 +371,54 @@
                        value="{{ q.slider_step if q.slider_step is defined and q.slider_step is not none else 1 }}" step="any" min="0.01">
             </div>
         </div>
+        <div class="scale-config-section row g-2 mb-3 align-items-end" {{ shown_for(qtypes.SCALE_TYPES, qt) }}>
+            <div class="col-6 col-md-3">
+                <label class="form-label text-muted small mb-0">Points on the scale {{ info('5 or 7 points are the most common. An odd number gives a neutral middle point; 11 points (0 to 10) suit "how likely..." questions.') }}</label>
+                <select class="form-select form-select-sm scale-points-input" name="questions[{{ q_idx }}][scale_points]">
+                    {% for n in range(2, 12) %}<option value="{{ n }}" {% if st.points == n %}selected{% endif %}>{{ n }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label text-muted small mb-0">Numbered from</label>
+                <select class="form-select form-select-sm scale-start-input" name="questions[{{ q_idx }}][scale_start]">
+                    <option value="1" {% if st.start == 1 %}selected{% endif %}>1</option>
+                    <option value="0" {% if st.start == 0 %}selected{% endif %}>0</option>
+                </select>
+            </div>
+            <div class="col-12 col-md-6">
+                <label class="form-label text-muted small mb-0">Fill labels in every arm</label>
+                <select class="form-select form-select-sm scale-preset">
+                    <option value="">Choose...</option>
+                    <option value="agree">Strongly disagree ... Strongly agree</option>
+                    <option value="likely">Extremely unlikely ... Extremely likely</option>
+                    <option value="satisfied">Very dissatisfied ... Very satisfied</option>
+                    <option value="important">Not at all important ... Extremely important</option>
+                    <option value="often">Never ... Always</option>
+                    <option value="ends">Only the two ends (Not at all ... Completely)</option>
+                </select>
+            </div>
+        </div>
+        <div class="budget-config-section row g-2 mb-3 align-items-end" {{ shown_for(['budget'], qt) }}>
+            <div class="col-6 col-md-3">
+                <label class="form-label text-muted small mb-0">Total to split {{ info('E.g. 100 (points or percent) or a dollar amount. Respondents must use exactly this much.') }}</label>
+                <input type="number" step="any" min="0" class="form-control form-control-sm" name="questions[{{ q_idx }}][budget_total]" value="{{ '%g'|format(st.total) if st.total is not none else 100 }}">
+            </div>
+            <div class="col-auto">
+                <div class="form-check form-switch mb-1">
+                    <label class="form-check-label small"><input class="form-check-input" type="checkbox" value="1" name="questions[{{ q_idx }}][budget_integer]" {% if st.budget_integer %}checked{% endif %}>
+                        Whole numbers only</label>
+                </div>
+            </div>
+        </div>
+        <div class="list-config-section mb-3" {{ shown_for(qtypes.LIST_TYPES, qt) }}>
+            <div class="form-check form-switch">
+                <label class="form-check-label small"><input class="form-check-input" type="checkbox" value="1" name="questions[{{ q_idx }}][single_switch]" {% if st.single_switch %}checked{% endif %}>
+                    One switch only {{ info('Recommended. Choosing B in a row fills B in every row below it, and choosing A fills A above it, so each respondent switches from A to B at most once. Without it, some respondents switch back and forth, which is hard to interpret.') }}</label>
+            </div>
+        </div>
         <div class="question-arms">
             {% for arm in arms %}
-            {{ arm_block(q_idx, loop.index0, arm.label, arms[0].label, q.arms[loop.index0] if loop.index0 in q.arms else blank_arm, q.question_type) }}
+            {{ arm_block(q_idx, loop.index0, arm.label, arms[0].label, q.arms[loop.index0] if loop.index0 in q.arms else blank_arm, qt, st) }}
             {% endfor %}
         </div>
     </div>
@@ -279,6 +432,59 @@
                     <a href="#" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></a>
                 </div>
                 <div class="modal-body">
+                    <h6 class="mb-1">Answering</h6>
+                    <div class="answer-rules mb-3">
+                        <input type="hidden" class="settings-present" name="questions[{{ q_idx }}][settings_present]" value="1">
+                        <div class="form-check form-switch">
+                            <label class="form-check-label"><input class="form-check-input rule-required" type="checkbox" value="1" name="questions[{{ q_idx }}][required]" {% if st.required %}checked{% endif %}>
+                                Required {{ info('On: respondents must answer before moving on (the usual choice in experiments: no missing data). Off: they can skip it, and the data shows a blank.') }}</label>
+                        </div>
+                        <div {{ shown_for(qtypes.SHUFFLE_TYPES, qt) }}>
+                            <div class="form-check form-switch">
+                                <label class="form-check-label"><input class="form-check-input rule-shuffle" type="checkbox" value="1" name="questions[{{ q_idx }}][shuffle]" {% if st.shuffle %}checked{% endif %}>
+                                    Shuffle the order of the <span class="shuffle-word">{{ {'ranking': 'items', 'budget': 'items', 'rating_grid': 'statements', 'picture_choice': 'pictures'}.get(qt, 'options') }}</span> for each respondent
+                                    {{ info('Each respondent sees them in their own random order (always the same for them), so the first one is not favored just for being first. The download records the order each respondent saw. "Other" always stays last.') }}</label>
+                            </div>
+                            <div class="form-check form-switch ms-4 keep-last-row" {% if not st.shuffle %}style="display:none"{% endif %}>
+                                <label class="form-check-label small"><input class="form-check-input" type="checkbox" value="1" name="questions[{{ q_idx }}][keep_last]" {% if st.keep_last %}checked{% endif %}>
+                                    Keep the last one in place (e.g. "None of these")</label>
+                            </div>
+                        </div>
+                        <div class="row g-2 align-items-end mt-1" {{ shown_for(['numeric'], qt) }}>
+                            <div class="col-auto">
+                                <label class="form-label small mb-0">Smallest allowed {{ info('Answers outside these limits are refused with a message. Leave empty for no limit.') }}</label>
+                                <input type="number" step="any" class="form-control form-control-sm" style="width: 8rem;" name="questions[{{ q_idx }}][num_min]" value="{{ '%g'|format(st.min) if st.min is not none else '' }}" placeholder="no limit">
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label small mb-0">Largest allowed</label>
+                                <input type="number" step="any" class="form-control form-control-sm" style="width: 8rem;" name="questions[{{ q_idx }}][num_max]" value="{{ '%g'|format(st.max) if st.max is not none else '' }}" placeholder="no limit">
+                            </div>
+                            <div class="col-auto">
+                                <div class="form-check form-switch mb-1">
+                                    <label class="form-check-label small"><input class="form-check-input" type="checkbox" value="1" name="questions[{{ q_idx }}][num_integer]" {% if st.integer %}checked{% endif %}>
+                                        Whole numbers only</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="attention-section mt-1" {{ shown_for(qtypes.ATTENTION_TYPES, qt) }}
+                             data-values='{{ st.correct|tojson }}'>
+                            <div class="form-check form-switch">
+                                <label class="form-check-label"><input class="form-check-input rule-attention" type="checkbox" value="1" name="questions[{{ q_idx }}][attention]" {% if st.attention %}checked{% endif %}>
+                                    This is an attention check {{ info('A question with an obvious right answer (e.g. "To show you are reading, choose Blue") to spot respondents who click without reading. The data marks who passed; the dashboard shows how many did. Nobody is excluded automatically.') }}</label>
+                            </div>
+                            <div class="attention-values-wrap ms-4 small" {% if not st.attention %}style="display:none"{% endif %}>Correct answer(s):
+                                <span class="attention-values">
+                                    {% for v in qtypes.attention_values(qt, st, q.arms.values()) %}<label class="me-2"><input type="checkbox" class="form-check-input attention-value-input" value="{{ v }}"
+                                        name="questions[{{ q_idx }}][attention_values]" {% if v in st.correct %}checked{% endif %}> {{ v }}</label>{% endfor %}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="form-check form-switch mt-1">
+                            <label class="form-check-label"><input class="form-check-input rule-keep-place" type="checkbox" value="1" name="questions[{{ q_idx }}][keep_place]" {% if st.keep_place %}checked{% endif %}>
+                                Keep in place when question order is shuffled {{ info('Only matters if "Shuffle the question order" is on in Survey options (Questions card). Questions with display conditions, or that pipe in earlier answers, always keep their place.') }}</label>
+                        </div>
+                    </div>
+                    <hr>
                     <h6 class="mb-1">Display rules</h6>
                     <p class="small text-muted mb-2">Leave these as they are for most surveys.</p>
                     <div class="rules-section mb-3" data-cond-index="{{ q.cond_question if q.cond_question is not none else '' }}"
@@ -302,8 +508,7 @@
                             <input type="hidden" class="cond-question-input" name="questions[{{ q_idx }}][cond_question]" value="{{ q.cond_question if src else '' }}">
                             <span class="cond-values-wrap" {% if not src %}style="display:none"{% endif %}>if the answer is any of: <span class="cond-values">
                                 {% if src %}
-                                {% set answers = src.arms.values()|map(attribute='options')|sum(start=[])|reject('equalto', '')|unique|list %}
-                                {% if src.arms.values()|selectattr('allow_other')|list and 'Other' not in answers %}{% set answers = answers + ['Other'] %}{% endif %}
+                                {% set answers = qtypes.condition_values(src) %}
                                 {% for v in answers %}<label class="me-2"><input type="checkbox" class="form-check-input cond-value-input" value="{{ v }}"
                                     name="questions[{{ q_idx }}][cond_values]" {% if v in (q.cond_values or []) %}checked{% endif %}> {{ v }}</label>{% endfor %}
                                 {% endif %}
@@ -399,7 +604,9 @@
                 <small class="text-muted ms-1">up to {{ classroom.max_questions_per_survey }}; shorter surveys get better answers</small>
                 {% endif %}
             </div>
-            <div class="d-flex gap-2 align-items-center">
+            <span id="survey-option-badges" class="d-flex flex-wrap gap-1"></span>
+            <div class="d-flex gap-2 align-items-center flex-wrap">
+                <span class="btn btn-sm btn-outline-secondary" id="survey-options-btn" role="button" tabindex="0">&#9881; Survey options</span>
                 <a href="#" class="small" id="expand-all-questions">Expand all</a>
                 <a href="#" class="small" id="collapse-all-questions">Collapse all</a>
                 <button type="button" class="btn btn-sm btn-outline-success" id="add-question-btn">+ Add Question</button>
@@ -409,6 +616,65 @@
             {% for q in questions %}
             {{ question_block(q, loop.index0, arms, questions) }}
             {% endfor %}
+        </div>
+
+        {# Survey-wide options: a pop-up inside the form, like each question's Advanced options #}
+        {% set so = survey.options if survey and survey.options else {'shuffle_questions': False, 'intro': False, 'consent': False} %}
+        <div class="modal fade" id="survey-options-modal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Survey options</h5>
+                        <a href="#" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></a>
+                    </div>
+                    <div class="modal-body">
+                        <input type="hidden" name="survey_options_present" value="1">
+                        <p class="small text-muted">For the whole survey. Leave these off for most surveys.</p>
+                        <h6 class="mb-1">Question order</h6>
+                        <div class="form-check form-switch mb-3">
+                            <label class="form-check-label"><input class="form-check-input" type="checkbox" value="1" name="shuffle_questions" id="shuffle-questions" {% if so.shuffle_questions %}checked{% endif %}>
+                                Shuffle the question order for each respondent
+                                {{ info('Each respondent gets the questions in their own random order (always the same for them), to rule out order effects. Questions with display conditions, or that pipe in an earlier answer, keep their place; you can keep others in place too (Advanced options of the question). In a two-part survey each part is shuffled separately. The download records the position each question was shown in.') }}</label>
+                        </div>
+                        <h6 class="mb-1">Intro screen</h6>
+                        <div class="form-check form-switch">
+                            <label class="form-check-label"><input class="form-check-input" type="checkbox" value="1" name="intro" id="intro-on" {% if so.intro %}checked{% endif %}>
+                                Show an intro screen before the first question
+                                {{ info('A short text respondents read first, with a Start button: instructions, a scenario, or a consent statement. It can differ between arms (e.g. the treatment\'s framing).') }}</label>
+                        </div>
+                        <div id="intro-fields" class="mt-2 mb-3" {% if not so.intro %}style="display:none"{% endif %}>
+                            <div class="form-check form-switch mb-2">
+                                <label class="form-check-label small"><input class="form-check-input" type="checkbox" value="1" name="consent" {% if so.consent %}checked{% endif %}>
+                                    Ask for consent: respondents choose "I agree, start" or "I don't want to take part"
+                                    {{ info('Those who don\'t agree see a thank-you message and nothing is recorded for them.') }}</label>
+                            </div>
+                            <div class="intro-rows">
+                                {% for arm in arms %}
+                                <div class="intro-row mb-2" data-arm-index="{{ loop.index0 }}">
+                                    <label class="form-label small mb-0 fw-semibold intro-arm-name">{{ arm.label or 'Arm ' ~ loop.index }}</label>
+                                    <textarea class="form-control form-control-sm intro-text" rows="3" maxlength="3000" name="arms[{{ loop.index0 }}][intro_text]"
+                                              placeholder="e.g., Imagine you are shopping for a coffee mug...">{{ arm.intro_text or '' }}</textarea>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            <button type="button" class="btn btn-link btn-sm p-0" id="intro-copy">Copy the first arm's text to the others</button>
+                        </div>
+                        <h6 class="mb-1">Apply to every question</h6>
+                        <p class="small text-muted mb-2">Shortcuts that change each question's own setting (in its Advanced options), so you can still change one question afterwards.</p>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary apply-all" data-rule="rule-required" data-value="1">Make all required</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary apply-all" data-rule="rule-required" data-value="0">Make all optional</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary apply-all" data-rule="rule-shuffle" data-value="1">Shuffle the options of every question</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary apply-all" data-rule="rule-shuffle" data-value="0">Stop shuffling options</button>
+                        </div>
+                        <div class="small text-muted mt-1" id="apply-all-status"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <span class="small text-muted me-auto">Changes save automatically.</span>
+                        <a href="#" class="btn btn-primary" role="button" data-bs-dismiss="modal">Done</a>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -565,6 +831,7 @@
 {% set blank_q = {'question_type': 'multiple_choice', 'label': '', 'arms': {}, 'show_arms': None, 'cond_question': None, 'cond_values': []} %}
 <template id="tpl-question">{{ question_block(blank_q, 0, arms) }}</template>
 <template id="tpl-arm">{{ arm_block(0, 1, '', arms[0].label if arms else '', blank_arm, 'multiple_choice') }}</template>
+<template id="tpl-option-row"><div class="input-group mb-1 q-option-row"><input type="text" class="form-control form-control-sm"><button type="button" class="btn btn-sm btn-outline-danger remove-q-option-btn">x</button></div></template>
 <template id="tpl-timer-row">{{ timer_row(0, 0, '', blank_arm) }}</template>
 {% endif %}
 
@@ -617,7 +884,7 @@
 
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
-<script src="{{ url_for('static', filename='js/builder.js') }}?v=20261015"></script>
+<script src="{{ url_for('static', filename='js/builder.js') }}?v=20261020"></script>
 {% if mode == 'edit' and not external %}<script src="{{ url_for('static', filename='js/reminders-builder.js') }}?v=20261015"></script>{% endif %}
 <script src="https://cdn.jsdelivr.net/npm/driver.js@1.9.0/dist/driver.js.iife.js"></script>
 <script src="{{ url_for('static', filename='js/tour.js') }}?v=20261007"></script>
@@ -635,7 +902,9 @@
             {element: '#arms-card', title: 'Arms', text: 'Arms are the versions of your survey: usually a <b>control</b> and one or more <b>treatments</b>. Each classmate is randomly shown one arm, always the same one.'},
             {element: '#questions-container .question-block', title: 'Questions', text: 'Pick the question type, then write the question <b>for each arm</b>. Keep the arms identical except for the one thing you are testing: that difference is your treatment.'},
             {element: '#questions-container .q-advanced-btn', title: 'Advanced options',
-             text: 'Optional extras for a question: ask it only in some arms, show it only after a certain answer, or give it a timer. Most surveys don\'t need them. The &#9432; icons explain each option.'},
+             text: 'Optional extras for a question: make it optional, shuffle its options, mark it as an attention check, ask it only in some arms, show it only after a certain answer, or give it a timer. Most surveys don\'t need them. The &#9432; icons explain each option.'},
+            {element: '#survey-options-btn', title: 'Survey options',
+             text: 'For the whole survey: shuffle the question order, or show an intro or consent screen first. It also has shortcuts to make every question optional or shuffle every question\'s options.'},
             {element: '#questions-container .question-arm-block + .question-arm-block .copy-from-first-btn', title: 'Copy from ' + first,
              text: 'Copies the first arm\'s text, options and image into this arm, so you only change the part that differs.'},
             {element: '#teammates-card', title: 'Teammates', text: 'Add your teammates now or later. They accept from their lobby, and then <b>every member can edit</b> this survey.'},

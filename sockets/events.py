@@ -7,7 +7,8 @@ from flask_socketio import emit, join_room, leave_room
 
 from app import socketio
 from models.db import get_socket_db
-from models import reminders, rules
+from models import qtypes, reminders, rules
+from models.survey import survey_options
 from sockets.assignment import assign_arm
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,7 @@ def _get_survey_with_arms_and_questions(db, survey_id):
     for q in questions:
         q_dict = dict(q)
         q_dict.update(rules.from_row(q))
+        q_dict['settings'] = qtypes.settings_of(q_dict)
         q_dict['arm_texts'] = {}
         for arm in arms:
             aq = aq_by_key.get((arm['id'], q['id']))
@@ -74,6 +76,7 @@ def _get_survey_with_arms_and_questions(db, survey_id):
                     'timer_seconds': aq['timer_seconds'],
                     'timer_display': aq['timer_display'] or 'both',
                     'timer_default': aq['timer_default'] or '',
+                    'config': qtypes.config_of({'config': aq['config']}),
                 }
             else:
                 q_dict['arm_texts'][arm['id']] = {
@@ -81,6 +84,7 @@ def _get_survey_with_arms_and_questions(db, survey_id):
                     'options': [],
                     'image_filename': None,
                     'allow_other': False,
+                    'config': {},
                 }
         questions_list.append(q_dict)
 
@@ -109,6 +113,10 @@ def _build_assignment_payload(survey, arms, questions, student_id, arm_position=
         'part': part if two_part else None,
         'questions': [],
     }
+    seed = None if student_id == 'preview' else student_id  # previews shuffle differently each time
+    options = survey_options(survey)
+    if options['intro'] and part == 1:
+        payload['intro'] = {'text': arm.get('intro_text') or '', 'consent': options['consent']}
 
     for q in questions:
         if not rules.shown_in_arm(q, arm['arm_index']):
@@ -116,6 +124,9 @@ def _build_assignment_payload(survey, arms, questions, student_id, arm_position=
         if reminders.question_part(survey, q) != part:
             continue  # the other part of a two-part survey
         arm_data = q['arm_texts'].get(arm['id'], {})
+        qtype = q['question_type']
+        settings = q['settings']
+        config = qtypes.config_of(arm_data)
         q_payload = {
             'question_id': q['id'],
             'question_index': q['question_index'],
@@ -123,8 +134,30 @@ def _build_assignment_payload(survey, arms, questions, student_id, arm_position=
             'label': q.get('label', ''),
             'question_text': arm_data.get('question_text', ''),
             'options': arm_data.get('options', []),
-            'allow_other': bool(arm_data.get('allow_other')) and q['question_type'] in ('multiple_choice', 'multiple_answer'),
+            'allow_other': bool(arm_data.get('allow_other')) and qtype in qtypes.OTHER_TYPES,
+            'required': settings['required'],
         }
+        if qtype == 'numeric':
+            q_payload.update({'min': settings['min'], 'max': settings['max'], 'integer': settings['integer']})
+        elif qtype in qtypes.SCALE_TYPES:
+            q_payload['scale'] = {'values': qtypes.scale_values(settings), 'labels': qtypes.scale_labels(settings, config)}
+        elif qtype == 'picture_choice':
+            labels = qtypes.picture_labels(config)
+            q_payload['options'] = labels
+            q_payload['pictures'] = [{'url': '/uploads/' + p['image'] if p.get('image') else None, 'label': labels[i]}
+                                     for i, p in enumerate(config.get('pictures') or [])]
+        elif qtype == 'budget':
+            q_payload.update({'total': settings['total'], 'integer': settings['budget_integer']})
+        elif qtype in qtypes.LIST_TYPES:
+            q_payload.update({'rows': qtypes.list_rows(qtype, config), 'single_switch': settings['single_switch']})
+        if settings['shuffle'] and qtype in qtypes.SHUFFLE_TYPES:
+            # The same order for this respondent every time they load it; display_order records it
+            q_payload['order'] = qtypes.shuffled(len(q_payload['options']), f'{seed}:{q["id"]}' if seed else None,
+                                                 settings['keep_last'])
+        # For the question-order shuffle: what ties this question to others
+        q_payload['_order'] = {'question_index': q['question_index'], 'cond_question': q.get('cond_question'),
+                               'settings': settings,
+                               '_texts': [t.get('question_text') or '' for t in q['arm_texts'].values()]}
         if q.get('cond_question') is not None:
             # Shown only if the respondent answered that earlier question with one of these
             q_payload['condition'] = {'question_index': q['cond_question'], 'values': q.get('cond_values') or []}
@@ -141,6 +174,11 @@ def _build_assignment_payload(survey, arms, questions, student_id, arm_position=
             q_payload['image_url'] = '/uploads/' + image_fn
         payload['questions'].append(q_payload)
 
+    if options['shuffle_questions']:
+        keyed = qtypes.question_order([dict(qp['_order'], _payload=qp) for qp in payload['questions']], seed, survey['id'])
+        payload['questions'] = [k['_payload'] for k in keyed]
+    for qp in payload['questions']:
+        del qp['_order']
     return payload
 
 
@@ -223,11 +261,20 @@ def _aggregate_responses(survey, arms, questions, all_responses):
                 arm_data['timer_seconds'] = arm_q_info['timer_seconds']
                 arm_data['timed_out'] = sum(1 for r in responses if 'timed_out' in r.keys() and r['timed_out'])
                 arm_data['respondents'] = len(responses)  # n can exclude blank timed-out answers
+            # Skipped optional questions are stored blank; they don't count as answers
+            answered = [r for r in responses if (r['answer_text'] or '') != ''
+                        or ('timed_out' in r.keys() and r['timed_out'])]
+            if q['settings']['attention'] and q['question_type'] in qtypes.ATTENTION_TYPES:
+                results = [qtypes.attention_result(q['question_type'], q['settings'], r['answer_text']) for r in responses]
+                arm_data['attention'] = {'passed': sum(1 for x in results if x), 'n': sum(1 for x in results if x is not None)}
             if q['question_type'] in ('multiple_choice', 'multiple_answer'):
                 # "Other" is counted like an option; what people typed is listed separately
                 arm_data['other_texts'] = [r['other_text'] for r in responses
                                            if 'other_text' in r.keys() and r['other_text']]
-            if q['question_type'] == 'multiple_choice':
+            if q['question_type'] == 'picture_choice':
+                arm_data['pictures'] = ['/uploads/' + p['image'] for p in arm_q_info.get('config', {}).get('pictures') or []
+                                        if p.get('image')]
+            if q['question_type'] in ('multiple_choice', 'picture_choice'):
                 option_texts = list(arm_q_info.get('options', []))
                 if arm_q_info.get('allow_other'):
                     option_texts.append(OTHER_LABEL)
@@ -237,7 +284,7 @@ def _aggregate_responses(survey, arms, questions, all_responses):
                         counts[r['answer_text']] += 1
                 arm_data['options'] = option_texts
                 arm_data['counts'] = counts
-                arm_data['n'] = len(responses)
+                arm_data['n'] = len(answered)
             elif q['question_type'] == 'multiple_answer':
                 option_texts = list(arm_q_info.get('options', []))
                 if arm_q_info.get('allow_other'):
@@ -253,7 +300,9 @@ def _aggregate_responses(survey, arms, questions, all_responses):
                         pass
                 arm_data['options'] = option_texts
                 arm_data['counts'] = counts
-                arm_data['n'] = len(responses)
+                arm_data['n'] = len(answered)
+            elif q['question_type'] in qtypes.JSON_TYPES or q['question_type'] == 'rating':
+                arm_data.update(qtypes.aggregate(q['question_type'], q['settings'], arm_q_info, responses))
             elif q['question_type'] == 'short_answer':
                 texts = [r['answer_text'] for r in responses if r['answer_text']]
                 arm_data['responses'] = texts
@@ -303,6 +352,29 @@ def _aggregate_responses(survey, arms, questions, all_responses):
                     arm_data['stats'] = None
 
             q_data['arms'].append(arm_data)
+        view = qtypes.view_for(q['question_type'], q['settings'])
+        if view:
+            # One chart for all arms: the union of their labels (rows, items...), in order of first appearance
+            labels = []
+            for a in q_data['arms']:
+                if not a.get('not_shown'):
+                    labels += [lab for lab in a.get('labels', []) if lab not in labels]
+            view['labels'] = labels
+            if view['columns'] == 'labels':
+                view['columns'] = labels
+            points = [p for a in q_data['arms'] if not a.get('not_shown') for p in a.get('points', [])]
+            numeric_x = q['question_type'] == 'price_list' and points and all(p['x'] is not None for p in points)
+            if numeric_x:
+                # Numeric prices: one shared price axis, so arms with different values still line up (a demand curve)
+                view.update({'x_numeric': True, 'x_title': 'Value (price)'})
+            for a in q_data['arms']:
+                pts = a.pop('points', None)
+                by_label = a.pop('by_label', {})
+                a['series'] = pts if numeric_x else [by_label.get(lab) for lab in labels]
+                cells = a.pop('cells', {})
+                a['row'] = [cells.get(c, '') for c in view['columns']]
+                a.pop('labels', None)
+            q_data['view'] = view
         output['questions'].append(q_data)
 
     return output

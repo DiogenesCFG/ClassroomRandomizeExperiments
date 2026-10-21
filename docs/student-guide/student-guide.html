@@ -57,7 +57,8 @@ on a laptop or a phone.</p>
 <ol class="overview">
     <li><b>Sign in</b> with the classroom code, the classroom password and your student ID.</li>
     <li><b>Form your group and build your survey.</b> One person creates it and invites the rest.</li>
-    <li><b>Optional extras</b>, only if your design needs them: follow-up questions, timers, a second part answered later, notifications.</li>
+    <li><b>Optional extras</b>, only if your design needs them: optional questions, shuffled options, attention checks, an intro screen,
+        follow-up questions, timers, a second part answered later, notifications.</li>
     <li><b>Preview it</b> as a respondent and as the results screen, and fix any warnings.</li>
     <li><b>Your instructor locks all surveys</b> before class. You can still preview and download.</li>
     <li><b>Class day:</b> answer every other group's survey on your phone while each group presents, in the presentation order.</li>
@@ -71,7 +72,7 @@ on a laptop or a phone.</p>
     <li>Your lobby</li>
     <li>Forming your group</li>
     <li>Designing your survey</li>
-    <li>Advanced options and earlier answers</li>
+    <li>Question rules, survey options and earlier answers</li>
     <li>Two-part surveys (optional)</li>
     <li>Notifications (optional)</li>
     <li>Running your survey on another platform</li>
@@ -180,14 +181,47 @@ so you only change the part that differs.</p></div>
 <b>+ Add "Other"</b> adds an "Other" choice with a text box to a multiple-choice question.</p></div>
 <div class="step"><div class="num">6</div><p><b>Warnings.</b> The page warns you if two arms are identical in every question, which means there's no treatment.</p></div>
 
+<h3>Question types</h3>
+<p>The <b>Type</b> menu lists the most common types first. Pick the simplest type that measures what you need: simple questions get
+more careful answers, especially on a phone.</p>
 <table>
-    <tr><th>Question type</th><th>Respondents see</th><th>Results show</th></tr>
-    <tr><td>Multiple choice</td><td>buttons, pick one</td><td>bar chart by arm</td></tr>
-    <tr><td>Multiple answer</td><td>buttons, pick several</td><td>bar chart by arm</td></tr>
-    <tr><td>Numeric</td><td>a number box</td><td>histogram and mean, median, SD by arm</td></tr>
-    <tr><td>Slider</td><td>a slider with your min, max and step</td><td>histogram and statistics by arm</td></tr>
-    <tr><td>Short answer</td><td>a text box (140 characters)</td><td>the answers by arm, identical ones grouped</td></tr>
+    <tr><th style="width: 19%">Question type</th><th style="width: 33%">Respondents see</th><th style="width: 23%">Results show</th><th>Good for</th></tr>
+    <tr><td colspan="4"><b>Basic</b></td></tr>
+    <tr><td>Multiple choice</td><td>buttons, pick one</td><td>bar chart by arm</td><td>most questions; up to 5 options, plus "Other"</td></tr>
+    <tr><td>Multiple answer</td><td>buttons, pick several</td><td>bar chart by arm</td><td>"select all that apply"</td></tr>
+    <tr><td>Number</td><td>a number box (optional limits)</td><td>histogram and mean, median, SD</td><td>estimates, counts, amounts</td></tr>
+    <tr><td>Short answer</td><td>a text box (140 characters)</td><td>the answers by arm, identical ones grouped</td><td>open reactions; hard to compare across arms</td></tr>
+    <tr><td>Slider</td><td>a slider with your min, max and step</td><td>histogram and statistics</td><td>continuous ratings, percentages</td></tr>
+    <tr><td colspan="4"><b>Rankings and scales</b></td></tr>
+    <tr><td>Ranking</td><td>tap the items in order of preference</td><td>average rank of each item; most often ranked first</td><td>priorities; keep it to 3 to 6 items</td></tr>
+    <tr><td>Rating scale</td><td>one point on a labeled scale (e.g. 1 to 5)</td><td>count per point; mean, median</td><td>attitudes (agree/disagree, likely/unlikely)</td></tr>
+    <tr><td>Rating grid</td><td>several statements, each rated on the same scale</td><td>average rating of each statement</td><td>a short set of related attitudes; a few rows only</td></tr>
+    <tr><td>Picture choice</td><td>pictures to tap, pick one</td><td>bar chart by arm</td><td>products, designs, labels</td></tr>
+    <tr><td colspan="4"><b>Economics</b></td></tr>
+    <tr><td>Budget split</td><td>amounts for each item that must add up to a total (e.g. 100)</td><td>average amount per item</td><td>allocations, trade-offs</td></tr>
+    <tr><td>Price list</td><td>option A or B in each row, at increasing prices</td><td>% choosing A at each price (a demand curve)</td><td>willingness to pay</td></tr>
+    <tr><td>Lottery choices</td><td>a safer or riskier lottery in each row (Holt and Laury)</td><td>% choosing the safe option per row</td><td>risk attitude</td></tr>
 </table>
+<ul>
+    <li><b>Rating scales:</b> choose the number of points (5 or 7 are most common) and label at least both ends; <b>Fill labels in every arm</b>
+        fills in standard wording (agree, likely, satisfied...). Labeling every point gives more consistent answers.</li>
+    <li><b>Picture choice:</b> upload one picture per choice (2 to 8). Captions are optional; without one the answer is recorded as "Picture 1", "Picture 2"...</li>
+    <li><b>Price list:</b> write option A with <code>{value}</code> where the price goes (e.g. <code>Buy it for ${value}</code>), option B, and the
+        values, one per row. <b>Fill in values</b> makes a range for you. The values can differ between arms: the range itself can be your
+        treatment. With <b>One switch only</b> (recommended), choosing B in a row also picks B in every row below it, so each respondent switches
+        at most once.</li>
+    <li><b>Lottery choices:</b> starts with the classic amounts ($2.00 / $1.60 against $3.85 / $0.10, 10 rows); row <i>k</i> gives a
+        <i>k</i>-in-10 chance of the high amount. The number of safe (A) choices measures risk aversion.</li>
+</ul>
+<div class="keep">
+<figure class="mid"><img src="img/33_price_list_builder.png" alt="A price list question on the survey page, with different prices in each arm"></figure>
+<figure class="narrow"><img src="img/30_price_list_phone.png" alt="The price list on a phone"><figcaption>The same price list on a phone: this respondent would buy at $6 but not at $8.</figcaption></figure>
+</div>
+<div class="keep">
+<figure class="narrow"><img src="img/31_rating_phone.png" alt="A rating scale on a phone"></figure>
+<figure class="narrow"><img src="img/32_ranking_phone.png" alt="A ranking question on a phone"><figcaption>A rating scale and a ranking question on a phone.</figcaption></figure>
+</div>
+<figure class="mid"><img src="img/36_price_list_results.png" alt="Price list results: share buying at each price, by arm"><figcaption>Price list results on the dashboard: the share buying at each price, one curve per arm.</figcaption></figure>
 
 <p><b>Example.</b> To test anchoring: two arms, one numeric question. Control asks "How much would you pay for this mug?"
 The "High anchor" arm asks "Most students pay $25 for this mug. How much would you pay?"</p>
@@ -203,14 +237,36 @@ when you're done on a shared computer.</p>
 <figure><img src="img/09_group_members.png" alt="Group Members card"></figure></div>
 
 <!-- 5 -->
-<h2>5. Advanced options and earlier answers</h2>
+<h2>5. Question rules, survey options and earlier answers</h2>
 <p>Most surveys don't need any of this. Each question has an <b>&#9881; Advanced options</b> button that opens:</p>
 <div class="keep"><ul>
+    <li><b>Required</b> (on by default): respondents must answer before moving on. Turn it off to let them skip the question; they then
+        see "Optional" and a <b>Clear answer</b> link, and the data shows a blank. In an experiment, keep the outcome questions required.</li>
+    <li><b>Shuffle the order of the options</b> (choice, ranking, picture, budget and grid questions): each respondent sees them in their own
+        random order, so the first option isn't favored just for being first. <b>Keep the last one in place</b> is for options like "None of these".
+        The data records the order each respondent saw.</li>
+    <li><b>Smallest / largest allowed</b> and <b>whole numbers only</b> (number questions): answers outside the limits are refused with a message.</li>
+    <li><b>This is an attention check</b> (choice, picture and rating questions): a question with an obvious right answer, e.g. "To show you are
+        reading, choose Blue". Tick the correct answer. The dashboard shows how many passed, and the data has a "passed check" column. Nobody is
+        removed automatically: decide before class what you'll do with those who fail.</li>
+    <li><b>Keep in place when question order is shuffled</b>: see Survey options below.</li>
     <li><b>Shown in</b>: untick an arm to ask the question only in the other arms (its version in the unticked arm is greyed out).</li>
     <li><b>Show it: only if Question N is &hellip;</b>: a follow-up, shown only to respondents who picked certain answers to an earlier multiple-choice question. Everyone else skips it.</li>
     <li><b>Timer</b>, per arm: a time limit in seconds (up to 600), shown as a countdown, a shrinking bar, both, or hidden; and the answer recorded if time runs out (or none). The data marks timed-out answers.</li>
 </ul>
-<figure class="mid"><img src="img/21_advanced_options.png" alt="Advanced options: display rules and timers"></figure></div>
+<figure class="mid"><img src="img/34_answer_rules.png" alt="Advanced options: answering rules, display rules and timers"></figure></div>
+
+<div class="keep"><h3>Survey options</h3>
+<p>The <b>&#9881; Survey options</b> button on the Questions card has settings for the whole survey:</p>
+<ul>
+    <li><b>Shuffle the question order for each respondent</b>, to rule out order effects. Follow-up questions, questions that use an earlier answer
+        (<code>{{Q1}}</code>), and any question you mark <b>Keep in place</b> stay where they are. The data records where each question was shown.</li>
+    <li><b>Intro screen</b>: a text respondents read before the first question, with a Start button (instructions or a scenario). It can differ
+        between arms. <b>Ask for consent</b> shows "I agree, start" and "I don't want to take part"; nothing is recorded for those who decline.</li>
+    <li><b>Apply to every question</b>: shortcuts to make every question required or optional, or to shuffle every question's options.
+        They change each question's own setting, so you can still change one question afterwards.</li>
+</ul>
+<figure class="mid"><img src="img/35_survey_options.png" alt="Survey options: question order, intro screen, apply to every question"></figure></div>
 
 <h3>Putting an earlier answer into a later question</h3>
 <p>Type <code>{{Q1}}</code> in a question's text to show the respondent's answer to Question 1 there (<code>{{Q2}}</code> for Question 2, and so on;
@@ -219,7 +275,8 @@ appears to someone who answered 30 as:</p>
 <figure class="narrow"><img src="img/24_preview_piping.png" alt="Question 2 showing the answer to Question 1"></figure>
 <div class="tip"><strong>Rules for {{Qn}}:</strong> the number is the question's number on your survey page, it must be an earlier question, and that question must be
 answered in the same sitting (in a two-part survey, both questions in the same part). If the earlier question was skipped (a follow-up the respondent didn't get),
-they see the text <code>{{Q1}}</code> itself, so only use answers everyone in that arm gives. Multiple-answer questions show the choices separated by commas, and "Other" shows what the respondent typed.
+they see the text <code>{{Q1}}</code> itself, so only use answers everyone in that arm gives; an optional question they chose to skip shows "(no answer)".
+Rankings show the items in order, rating scales show the point's label. Multiple-answer questions show the choices separated by commas, and "Other" shows what the respondent typed.
 Check it with <b>Preview survey</b>.</div>
 
 <!-- 6 -->
@@ -352,6 +409,10 @@ R-M4TW9A,High anchor,20,...</pre>
 <p><b>Long</b> has one row per respondent and question (respondent, arm, part, question, answer, seconds...), handy for regressions with question or part
 effects. Two-part surveys mark part-2 questions, and surveys with notifications add whether each respondent added them (calendar file,
 Google Calendar links, notifications turned on, delivered and tapped).</p>
+<p>The newer types add columns to the wide file, ready for analysis: <b>ranking</b>, one "rank of <i>item</i>" column per item;
+<b>rating grid</b>, one column per statement; <b>budget split</b>, one column per item; <b>price list</b> and <b>lottery</b>, the number of A
+choices, the row where the respondent switched to B, and how many times they switched. Shuffled questions add the order each respondent
+saw, attention checks add "passed check" columns, and a shuffled question order adds each question's position.</p>
 <p>Respondents appear only as random IDs, never by name. Compare the answers across arms: that difference is your
 treatment effect. The <b>Survey Config</b> download lists what each arm showed. Groups that ran their survey on another
 platform collect their own data there.</p>

@@ -14,10 +14,10 @@ from models.flow import survey_flows
 from models.preview import fake_responses
 from models.survey import (
     create_survey, get_survey, list_surveys, update_survey, delete_survey, next_group_number,
-    survey_warnings, respondent_count, missing_parts, survey_incomplete, with_todo,
+    survey_warnings, respondent_count, missing_parts, survey_incomplete, with_todo, save_survey_options,
 )
 from models import roster as roster_model
-from models import rules
+from models import qtypes, rules
 from routes.account import get_signed_in_student, tour_seen
 from models.download import (
     export_survey_responses_csv, export_survey_responses_anon_csv, anon_responses_csv, export_single_survey_config_csv,
@@ -98,6 +98,7 @@ def _parse_form(form, files=None):
     while f'arms[{arm_idx}][label]' in form:
         arms.append({
             'label': form.get(f'arms[{arm_idx}][label]', '').strip(),
+            'intro_text': form.get(f'arms[{arm_idx}][intro_text]', '').strip()[:3000],
         })
         arm_idx += 1
 
@@ -110,6 +111,7 @@ def _parse_form(form, files=None):
             'question_type': q_type,
             'label': form.get(f'questions[{q_idx}][label]', '').strip(),
             'arms': {},
+            'settings': _parse_settings(form, q_idx, q_type),
             **rules.parse_rules(form, q_idx, len(arms)),
         }
         if q_type == 'slider':
@@ -128,7 +130,7 @@ def _parse_form(form, files=None):
         for ai in range(len(arms)):
             q_text = form.get(f'questions[{q_idx}][arms][{ai}][question_text]', '').strip()
             options = []
-            if question['question_type'] in ('multiple_choice', 'multiple_answer'):
+            if question['question_type'] in qtypes.OPTION_TYPES:
                 opt_idx = 0
                 while f'questions[{q_idx}][arms][{ai}][options][{opt_idx}]' in form:
                     opt = form.get(f'questions[{q_idx}][arms][{ai}][options][{opt_idx}]', '').strip()
@@ -156,12 +158,84 @@ def _parse_form(form, files=None):
                 'options': options,
                 'image_filename': image_filename,
                 'allow_other': form.get(f'questions[{q_idx}][arms][{ai}][allow_other]') == '1',
+                'config': _parse_config(form, f'questions[{q_idx}][arms][{ai}]', q_type, files),
                 **_parse_timer(form, f'questions[{q_idx}][arms][{ai}]'),
             }
         questions.append(question)
         q_idx += 1
 
     return title, group_number, arms, questions
+
+
+def _number(raw):
+    """A typed number, or None when blank or not a number."""
+    try:
+        value = float(str(raw).replace(',', '').strip())
+    except (TypeError, ValueError):
+        return None
+    return value if value == value and abs(value) < 1e12 else None
+
+
+def _parse_settings(form, qi, qtype):
+    """A question's rules and type settings (models/qtypes.py). Switches only count when the
+    question's Advanced options were on the page (settings_present), so an older form keeps the defaults."""
+    pre = f'questions[{qi}]'
+    s = dict(qtypes.DEFAULT_SETTINGS)
+    if form.get(f'{pre}[settings_present]') == '1':
+        for key, field in (('required', 'required'), ('shuffle', 'shuffle'), ('keep_last', 'keep_last'),
+                           ('keep_place', 'keep_place'), ('integer', 'num_integer'), ('attention', 'attention'),
+                           ('budget_integer', 'budget_integer'), ('single_switch', 'single_switch')):
+            s[key] = form.get(f'{pre}[{field}]') == '1'
+    s['min'] = _number(form.get(f'{pre}[num_min]', ''))
+    s['max'] = _number(form.get(f'{pre}[num_max]', ''))
+    try:
+        s['points'] = min(max(int(form.get(f'{pre}[scale_points]', 5)), 2), 11)
+    except (TypeError, ValueError):
+        s['points'] = 5
+    s['start'] = 0 if form.get(f'{pre}[scale_start]') == '0' else 1
+    raw_total = form.get(f'{pre}[budget_total]', '').strip()
+    s['total'] = _number(raw_total) if raw_total else 100
+    s['total_raw'] = raw_total
+    s['correct'] = [v.strip() for v in form.getlist(f'{pre}[attention_values]') if v.strip()]
+    return s
+
+
+def _parse_config(form, prefix, qtype, files=None):
+    """One arm's type-specific content: scale labels, pictures, price-list or lottery rows."""
+    if qtype in qtypes.SCALE_TYPES:
+        labels, k = [], 0
+        while f'{prefix}[scale_labels][{k}]' in form:
+            labels.append(form.get(f'{prefix}[scale_labels][{k}]', '').strip()[:80])
+            k += 1
+        return {'labels': labels}
+    if qtype == 'picture_choice':
+        pictures, k = [], 0
+        while f'{prefix}[pictures][{k}][caption]' in form and k < qtypes.MAX_PICTURES:
+            image = _save_upload(files.get(f'{prefix}[pictures][{k}][image]')) if files else None
+            pictures.append({'image': image or form.get(f'{prefix}[pictures][{k}][existing]', '').strip() or None,
+                             'caption': form.get(f'{prefix}[pictures][{k}][caption]', '').strip()[:80]})
+            k += 1
+        return {'pictures': pictures}
+    if qtype == 'price_list':
+        import re
+        values = [v.strip()[:30] for v in re.split(r'[;\n]|,(?!\d{3}\b)', form.get(f'{prefix}[pl_values]', '')) if v.strip()]
+        return {'a': form.get(f'{prefix}[pl_a]', '').strip()[:200], 'b': form.get(f'{prefix}[pl_b]', '').strip()[:200],
+                'values': values[:qtypes.MAX_LIST_ROWS]}
+    if qtype == 'lottery':
+        config = {k: form.get(f'{prefix}[lot_{k}]', str(v)).strip()[:20] for k, v in qtypes.LOTTERY_DEFAULT.items()}
+        try:
+            config['rows'] = min(max(int(config['rows']), 2), qtypes.MAX_LIST_ROWS)
+        except ValueError:
+            config['rows'] = qtypes.LOTTERY_DEFAULT['rows']
+        return config
+    return {}
+
+
+def _parse_survey_options(form):
+    """Survey-wide options (shuffle question order, intro screen), or None if not on the form."""
+    if form.get('survey_options_present') != '1':
+        return None
+    return {k: form.get(k) == '1' for k in ('shuffle_questions', 'intro', 'consent')}
 
 
 TIMER_DISPLAYS = ('both', 'countdown', 'bar', 'hidden')
@@ -237,6 +311,12 @@ def _validate(title, group_number, arms, questions):
             if raw and not (raw.isdigit() and 1 <= int(raw) <= MAX_TIMER_SECONDS):
                 errors.append(f'Question {qi+1}, {arm["label"] or f"Arm {ai+1}"}: the timer must be a whole number '
                               f'of seconds between 1 and {MAX_TIMER_SECONDS}.')
+        settings = q.get('settings') or {}
+        if q['question_type'] == 'numeric' and settings.get('min') is not None and settings.get('max') is not None \
+                and settings['min'] >= settings['max']:
+            errors.append(f'Question {qi+1}: the smallest allowed number must be less than the largest.')
+        if q['question_type'] == 'budget' and (settings.get('total') is None or settings['total'] <= 0):
+            errors.append(f'Question {qi+1}: the budget to split must be a number greater than 0.')
         if q['question_type'] == 'slider':
             s_min = q.get('slider_min', 0)
             s_max = q.get('slider_max', 100)
@@ -286,8 +366,11 @@ def _cleanup_orphan_uploads(max_age_hours=24):
     session" can bring them back; after that they're removed.
     """
     folder = current_app.config['UPLOAD_FOLDER']
-    used = {r[0] for r in get_db().execute(
-        'SELECT image_filename FROM arm_question WHERE image_filename IS NOT NULL')}
+    used = set()
+    for r in get_db().execute('SELECT image_filename, config FROM arm_question'):
+        if r['image_filename']:
+            used.add(r['image_filename'])
+        used.update(p['image'] for p in qtypes.config_of({'config': r['config']}).get('pictures') or [] if p.get('image'))
     cutoff = time.time() - max_age_hours * 3600
     try:
         names = os.listdir(folder)
@@ -364,7 +447,7 @@ def _reminders_state(classroom, survey):
 
 def _form_values_from_survey(survey):
     """Convert a stored survey into the arms/questions structure the form template uses."""
-    arms = [{'label': a['label']} for a in survey['arms']]
+    arms = [{'label': a['label'], 'intro_text': a.get('intro_text') or ''} for a in survey['arms']]
     questions = []
     for q in survey.get('questions', []):
         question = {
@@ -374,6 +457,7 @@ def _form_values_from_survey(survey):
             'show_arms': q.get('show_arms'),
             'cond_question': q.get('cond_question'),
             'cond_values': q.get('cond_values') or [],
+            'settings': q.get('settings'),
         }
         if q['question_type'] == 'slider':
             question['slider_min'] = q.get('slider_min', 0)
@@ -382,7 +466,9 @@ def _form_values_from_survey(survey):
         for ai in range(len(arms)):
             arm_data = q.get('arms', {}).get(ai, {})
             options = arm_data.get('options', [])
-            if not options and q['question_type'] in ('multiple_choice', 'multiple_answer'):
+            if q['question_type'] == 'picture_choice':
+                options = []  # captions live with the pictures
+            elif not options and q['question_type'] in qtypes.OPTION_TYPES:
                 options = ['', '']
             question['arms'][ai] = {
                 'question_text': arm_data.get('question_text', ''),
@@ -392,6 +478,7 @@ def _form_values_from_survey(survey):
                 'timer_seconds': arm_data.get('timer_seconds'),
                 'timer_display': arm_data.get('timer_display') or 'both',
                 'timer_default': arm_data.get('timer_default') or '',
+                'config': arm_data.get('config') or {},
             }
         questions.append(question)
     return arms, questions
@@ -485,6 +572,9 @@ def _save_edit(classroom, survey):
     update_survey(survey['id'], title, int(group_number), arms, questions)
     _save_external(survey['id'], False, ext_note)
     _save_part2_from(survey['id'], request.form)
+    options = _parse_survey_options(request.form)
+    if options is not None:
+        save_survey_options(survey['id'], options)
     _cleanup_orphan_uploads()
     return [], questions, survey_incomplete(get_survey(survey['id']))
 
@@ -556,6 +646,8 @@ def autosave(code, survey_id):
 
     images = {f'{qi}_{ai}': data.get('image_filename')
               for qi, q in enumerate(questions) for ai, data in q['arms'].items()}
+    images.update({f'{qi}_{ai}_p{k}': p.get('image') for qi, q in enumerate(questions) for ai, data in q['arms'].items()
+                   for k, p in enumerate((data.get('config') or {}).get('pictures') or [])})
     return jsonify({'ok': True, 'saved_at': time.strftime('%H:%M:%S'), 'images': images, 'todo': todo,
                     'warnings': survey_warnings(get_survey(survey_id))})
 

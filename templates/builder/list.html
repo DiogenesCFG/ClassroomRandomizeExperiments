@@ -62,7 +62,7 @@
                     {% elif s.reminder_approval == 'approved' and not s.external %}<span class="badge text-bg-success">Approved</span>{% endif %}</td>
                 <td>
                     <span class="badge bg-info">{{ s.question_count or 1 }} Q</span>
-                    <br><small class="text-muted">{{ s.question_types or s.question_type }}</small>
+                    <br><small class="text-muted">{% for t in (s.question_types or s.question_type or '').split(',') %}{{ qtypes.SHORT_NAMES.get(t, t) }}{% if not loop.last %}, {% endif %}{% endfor %}</small>
                 </td>
                 <td><strong>{{ s.member_count }}</strong>{% if s.member_count == 1 %} <span class="badge text-bg-warning">alone</span>{% elif classroom.max_group_size and s.member_count >= classroom.max_group_size %} <span class="badge text-bg-secondary">full</span>{% endif %}
                     {% if s.invite_count %}<span class="badge text-bg-info" tabindex="0" role="button" data-bs-toggle="tooltip"

@@ -4,10 +4,9 @@ Each arm is its own chart: Start -> the questions that arm sees, in order -> End
 question (display rule "only if Qn = ...") gets a diamond in front of it: "yes" leads to the
 question, "no" skips to whatever comes next.
 """
-from models import reminders, rules
+from models import qtypes, reminders, rules
 
-TYPE_NAMES = {'multiple_choice': 'Multiple choice', 'multiple_answer': 'Multiple answer',
-              'numeric': 'Number', 'short_answer': 'Short answer', 'slider': 'Slider'}
+TYPE_NAMES = qtypes.SHORT_NAMES
 TIMER_SHOWN = {'both': '', 'countdown': ', countdown', 'bar': ', bar', 'hidden': ', hidden'}
 
 
@@ -27,8 +26,15 @@ def _node_label(q, data):
     marks = []
     if data.get('timer_seconds'):
         marks.append(f'⏱ {data["timer_seconds"]}s{TIMER_SHOWN.get(data.get("timer_display") or "both", "")}')
-    if data.get('allow_other') and q['question_type'] in rules.CHOICE_TYPES:
+    if data.get('allow_other') and q['question_type'] in qtypes.OTHER_TYPES:
         marks.append('+ Other')
+    settings = qtypes.settings_of(q)
+    if not settings['required']:
+        marks.append('optional')
+    if settings['shuffle'] and q['question_type'] in qtypes.SHUFFLE_TYPES:
+        marks.append('⇄ shuffled')
+    if settings['attention'] and q['question_type'] in qtypes.ATTENTION_TYPES:
+        marks.append('✓ attention check')
     if data.get('image_filename'):
         marks.append('\U0001f5bc image')
     if marks:
@@ -48,7 +54,11 @@ def arm_flow(survey, arm, link=None):
         steps.append(q)
         seen.add(q['question_index'])
 
-    out = ['flowchart TD', '    start(["Start"])', '    finish(["End: submitted"])']
+    options = survey.get('options') or {}
+    first = 'Start' + (': consent screen' if options.get('consent') and options.get('intro') else ': intro screen' if options.get('intro') else '')
+    if options.get('shuffle_questions'):
+        first += ', questions in random order'
+    out = ['flowchart TD', f'    start(["{first}"])', '    finish(["End: submitted"])']
     entry = []
     for i, q in enumerate(steps):
         node = f'q{q["question_index"]}'
@@ -71,7 +81,7 @@ def arm_flow(survey, arm, link=None):
             if reminders.part_when(survey, part) == 'remote' and opens:
                 text += ', opens ' + reminders.nice_date(opens)
             return _text(text)
-        out[1] = f'    start(["Start: part 1, {when(1)}"])'
+        out[1] = f'    start(["{first}{", " if first != "Start" else ": "}part 1, {when(1)}"])'
         out.append(f'    part2(["Part 2: {when(2)}"])')
         out.append(f'    part2 --> {entry[first2]}')
 

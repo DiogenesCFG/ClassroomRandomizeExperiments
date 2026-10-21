@@ -38,9 +38,29 @@
 </div>
 {% endif %}
 
-{% set type_names = {'multiple_choice': 'Multiple choice', 'multiple_answer': 'Multiple answer', 'numeric': 'Number',
-                     'short_answer': 'Short answer', 'slider': 'Slider'} %}
+{% set type_names = qtypes.SHORT_NAMES %}
+{% set so = survey.options %}
+{% if not survey.external and (so.shuffle_questions or so.intro) %}
+<div class="card mb-3">
+    <div class="card-header"><strong>Survey options</strong></div>
+    <div class="card-body">
+        {% if so.shuffle_questions %}<p class="small mb-2">&#8644; Each respondent got the questions in their own random order (questions with display conditions or piped answers, and those marked to keep their place, stayed put).</p>{% endif %}
+        {% if so.intro %}
+        <p class="small mb-2">Respondents first saw {{ 'a consent screen ("I agree, start" or "I don’t want to take part")' if so.consent else 'an intro screen' }}:</p>
+        <div class="row g-3">
+            {% for arm in survey.arms %}
+            <div class="col-md"><div class="border-start border-3 ps-3 h-100">
+                <div class="fw-bold mb-1">{{ arm.label }}</div>
+                <div class="small" style="white-space: pre-wrap;">{{ arm.intro_text or '(no text)' }}</div>
+            </div></div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
 {% for q in survey.questions if not survey.external %}
+{% set st = q.settings %}
 {% if reminders and reminders.two_part and loop.first %}
 <h5 class="mb-2">Part 1 <small class="text-muted fw-normal">{{ reminders.parts[1] }}</small></h5>
 {% endif %}
@@ -51,9 +71,22 @@
     <div class="card-header d-flex justify-content-between">
         <strong>Question {{ loop.index }}{% if q.label %}: {{ q.label }}{% endif %}</strong>
         <span class="text-muted small">{{ type_names.get(q.question_type, q.question_type) }}
-            {% if q.question_type == 'slider' %}({{ q.slider_min|round(2) }} to {{ q.slider_max|round(2) }}, step {{ q.slider_step }}){% endif %}</span>
+            {% if q.question_type == 'slider' %}({{ q.slider_min|round(2) }} to {{ q.slider_max|round(2) }}, step {{ q.slider_step }}){% endif %}
+            {% if q.question_type in qtypes.SCALE_TYPES %}({{ st.points }} points, {{ st.start }} to {{ st.start + st.points - 1 }}){% endif %}
+            {% if q.question_type == 'budget' %}(split {{ '%g'|format(st.total) }}){% endif %}
+            {% if not st.required %}&middot; optional{% endif %}
+            {% if st.shuffle and q.question_type in qtypes.SHUFFLE_TYPES %}&middot; &#8644; shuffled{% endif %}</span>
     </div>
     <div class="card-body">
+        {% if q.question_type == 'numeric' and (st.min is not none or st.max is not none or st.integer) %}
+        <div class="small text-muted mb-2">Allowed answers: {% if st.min is not none %}from {{ '%g'|format(st.min) }} {% endif %}{% if st.max is not none %}up to {{ '%g'|format(st.max) }}{% endif %}{% if st.integer %} (whole numbers){% endif %}.</div>
+        {% endif %}
+        {% if st.attention and q.question_type in qtypes.ATTENTION_TYPES %}
+        <div class="small text-muted mb-2">&#10003; Attention check; correct answer: {{ st.correct|join(' or ') or '(not set)' }}.</div>
+        {% endif %}
+        {% if q.question_type in qtypes.LIST_TYPES and st.single_switch %}
+        <div class="small text-muted mb-2">One switch only: choosing B in a row picked B in the rows below it.</div>
+        {% endif %}
         {% if q.show_arms is not none or q.cond_question is not none %}
         <div class="small text-muted mb-2">
             {% if q.show_arms is not none %}
@@ -80,7 +113,27 @@
                     </a>
                     {% endif %}
                     <div style="white-space: pre-wrap;">{{ data.question_text }}</div>
-                    {% if data.options or data.allow_other %}
+                    {% set config = data.config or {} %}
+                    {% if q.question_type == 'picture_choice' %}
+                    <div class="d-flex flex-wrap gap-2 mt-2">
+                        {% for p in config.pictures or [] %}
+                        <figure class="mb-0 text-center small">
+                            {% if p.image %}<a href="/uploads/{{ p.image }}" target="_blank"><img src="/uploads/{{ p.image }}" alt="" class="rounded" style="height: 80px;"></a>{% endif %}
+                            <figcaption>{{ qtypes.picture_labels(config)[loop.index0] }}</figcaption>
+                        </figure>
+                        {% endfor %}
+                    </div>
+                    {% elif q.question_type in qtypes.LIST_TYPES %}
+                    <table class="table table-sm small mt-2 mb-0">
+                        <thead><tr><th></th><th>Option A</th><th>Option B</th></tr></thead>
+                        <tbody>{% for r in qtypes.list_rows(q.question_type, config) %}<tr><td>{{ loop.index }}</td><td>{{ r.a }}</td><td>{{ r.b }}</td></tr>{% endfor %}</tbody>
+                    </table>
+                    {% endif %}
+                    {% if q.question_type in qtypes.SCALE_TYPES %}
+                    <div class="small mt-2">Scale: {% for v in qtypes.scale_values(st) %}{% set lab = qtypes.scale_labels(st, config)[loop.index0] %}<span class="me-2">{{ v }}{% if lab %} = {{ lab }}{% endif %}</span>{% endfor %}</div>
+                    {% endif %}
+                    {% if q.question_type != 'picture_choice' and (data.options or data.allow_other) %}
+                    {% if q.question_type in ('ranking', 'budget', 'rating_grid') %}<div class="small text-muted mt-2">{{ {'ranking': 'Items to rank', 'budget': 'Items', 'rating_grid': 'Statements'}[q.question_type] }}:</div>{% endif %}
                     <ul class="small mt-2 mb-0">
                         {% for opt in data.options %}<li>{{ opt }}</li>{% endfor %}
                         {% if data.allow_other %}<li><em>Other (respondents type their answer)</em></li>{% endif %}

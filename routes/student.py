@@ -1,3 +1,4 @@
+import json
 import sqlite3
 
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash, abort, jsonify
@@ -26,6 +27,13 @@ def _clean_seconds(value):
     if seconds != seconds or seconds < 0 or seconds > 24 * 3600:  # NaN or nonsense
         return None
     return round(seconds, 1)
+
+
+def _clean_order(value):
+    """Shuffled options: the order they were shown, as a JSON list of texts (or None)."""
+    if not isinstance(value, list) or not value or len(value) > 50:
+        return None
+    return json.dumps([str(v)[:200] for v in value], ensure_ascii=False)
 
 
 def _require_classroom_access(classroom):
@@ -184,7 +192,8 @@ def submit_answer_http(code):
         for answer in answers:
             db.execute(
                 'INSERT INTO response (participant_id, survey_id, arm_id, question_id, answer_text, answer_index, '
-                'seconds, left_page, other_text, timed_out) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                'seconds, left_page, other_text, timed_out, display_order, position) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 (
                     session['participant_id'],
                     survey_id,
@@ -196,6 +205,8 @@ def submit_answer_http(code):
                     1 if answer.get('left_page') else 0,
                     (str(answer.get('other_text') or '').strip()[:140] or None),
                     1 if answer.get('timed_out') else 0,
+                    _clean_order(answer.get('display_order')),
+                    answer.get('position') if isinstance(answer.get('position'), int) and 0 < answer['position'] < 1000 else None,
                 ),
             )
         db.commit()

@@ -2,6 +2,7 @@ import csv
 import io
 import json
 
+from models import qtypes
 from models.db import get_db
 
 OUTSIDE = '(run on another platform)'
@@ -32,13 +33,37 @@ def _with_other(answer_text, other_text):
     return answer_text
 
 
-def _options_with_other(db, aq):
-    """An arm-question's options as dicts, plus an "Other" entry when it allows a typed answer."""
+def _options_with_other(db, aq, question=None):
+    """An arm-question's options as dicts, plus an "Other" entry when it allows a typed answer, and
+    the newer types' content: scale points with their labels, pictures, price-list / lottery rows."""
     options = [dict(o) for o in db.execute(
         'SELECT * FROM arm_question_option WHERE arm_question_id=? ORDER BY option_index', (aq['id'],))]
     if aq['allow_other']:
         options.append({'option_index': len(options), 'option_text': 'Other (respondent types their answer)'})
+    if question is None:
+        return options
+    qtype = question['question_type']
+    settings = qtypes.settings_of(question)
+    config = qtypes.config_of({'config': aq['config']})
+    if qtype in qtypes.SCALE_TYPES:
+        label = 'scale point' if qtype == 'rating' else 'scale point (all rows)'
+        options += [{'option_index': f'{label} {v}', 'option_text': lab}
+                    for v, lab in zip(qtypes.scale_values(settings), qtypes.scale_labels(settings, config))]
+    elif qtype == 'picture_choice':
+        for o, p in zip(options, config.get('pictures') or []):
+            o['option_text'] += f' (picture: {(p.get("image") or "none").split("_", 1)[-1]})'
+    elif qtype in qtypes.LIST_TYPES:
+        options += [{'option_index': f'row {i + 1}', 'option_text': f'A: {r["a"]} | B: {r["b"]}'}
+                    for i, r in enumerate(qtypes.list_rows(qtype, config))]
+    elif qtype == 'budget':
+        options.append({'option_index': 'total', 'option_text': f'{settings["total"]:g}'})
     return options
+
+
+def _col(row, name):
+    """A column that older rows (or made-up example rows) may not have."""
+    keys = row.keys()
+    return row[name] if name in keys else None
 
 
 def _external_surveys(db, classroom_id):
@@ -70,7 +95,7 @@ def export_all_responses_csv(classroom_id):
             r.left_page,
             r.timed_out,
             CASE WHEN s.part2_from IS NOT NULL AND s.external = 0 AND sq.question_index >= s.part2_from THEN 2 ELSE 1 END AS part,
-            r.answered_at
+            r.answered_at, r.display_order, r.position
         FROM response r
         JOIN survey s ON r.survey_id = s.id
         JOIN survey_arm sa ON r.arm_id = sa.id
@@ -88,7 +113,8 @@ def export_all_responses_csv(classroom_id):
         'group_number', 'survey_title', 'question_index', 'question_type', 'question_label',
         'arm_label', 'arm_question',
         'participant_name', 'participant_student_id', 'respondent_id',
-        'answer_text', 'answer_index', 'other_text', 'seconds', 'left_page', 'timed_out', 'answered_at', 'part'
+        'answer_text', 'answer_index', 'other_text', 'seconds', 'left_page', 'timed_out', 'answered_at', 'part',
+        'order_shown', 'position'
     ])
     for row in rows:
         writer.writerow([
@@ -97,11 +123,12 @@ def export_all_responses_csv(classroom_id):
             row['arm_label'], row['arm_question'],
             row['participant_name'], row['participant_student_id'], row['respondent_id'],
             row['answer_text'], row['answer_index'], row['other_text'] or '',
-            _seconds(row['seconds']), _yes(row['left_page']), _yes(row['timed_out']), row['answered_at'], row['part']
+            _seconds(row['seconds']), _yes(row['left_page']), _yes(row['timed_out']), row['answered_at'], row['part'],
+            row['display_order'] or '', row['position'] or ''
         ])
     for s in _external_surveys(db, classroom_id):
         writer.writerow([s['group_number'], s['title'], '', OUTSIDE, '', '', s['external_note'] or '',
-                         '', '', '', OUTSIDE_ANSWERS, '', '', '', '', '', '', ''])
+                         '', '', '', OUTSIDE_ANSWERS, '', '', '', '', '', '', '', '', ''])
 
     return output.getvalue()
 
@@ -143,7 +170,7 @@ def export_surveys_config_csv(classroom_id):
                 if not aq:
                     continue
 
-                options = _options_with_other(db, aq)
+                options = _options_with_other(db, aq, question)
 
                 if options:
                     for opt in options:
@@ -279,7 +306,7 @@ def export_survey_responses_csv(survey_id, classroom_id):
             r.left_page,
             r.timed_out,
             CASE WHEN s.part2_from IS NOT NULL AND s.external = 0 AND sq.question_index >= s.part2_from THEN 2 ELSE 1 END AS part,
-            r.answered_at
+            r.answered_at, r.display_order, r.position
         FROM response r
         JOIN survey s ON r.survey_id = s.id
         JOIN survey_arm sa ON r.arm_id = sa.id
@@ -296,7 +323,8 @@ def export_survey_responses_csv(survey_id, classroom_id):
         'group_number', 'survey_title', 'question_index', 'question_type', 'question_label',
         'arm_label', 'arm_question',
         'participant_name', 'participant_student_id',
-        'answer_text', 'answer_index', 'other_text', 'seconds', 'left_page', 'timed_out', 'answered_at', 'part'
+        'answer_text', 'answer_index', 'other_text', 'seconds', 'left_page', 'timed_out', 'answered_at', 'part',
+        'order_shown', 'position'
     ])
     for row in rows:
         writer.writerow([
@@ -305,7 +333,8 @@ def export_survey_responses_csv(survey_id, classroom_id):
             row['arm_label'], row['arm_question'],
             row['participant_name'], row['participant_student_id'],
             row['answer_text'], row['answer_index'], row['other_text'] or '',
-            _seconds(row['seconds']), _yes(row['left_page']), _yes(row['timed_out']), row['answered_at'], row['part']
+            _seconds(row['seconds']), _yes(row['left_page']), _yes(row['timed_out']), row['answered_at'], row['part'],
+            row['display_order'] or '', row['position'] or ''
         ])
 
     return output.getvalue()
@@ -320,12 +349,12 @@ def export_survey_responses_anon_csv(survey_id, classroom_id, long=False):
     """
     db = get_db()
     questions = db.execute(
-        'SELECT sq.id, sq.question_index, sq.question_type, sq.label FROM survey_question sq '
+        'SELECT sq.id, sq.question_index, sq.question_type, sq.label, sq.settings FROM survey_question sq '
         'JOIN survey s ON sq.survey_id = s.id WHERE sq.survey_id = ? AND s.classroom_id = ? '
         'ORDER BY sq.question_index', (survey_id, classroom_id)).fetchall()
     rows = db.execute('''
         SELECT r.participant_id, r.question_id, r.answer_text, r.other_text, r.seconds, r.left_page, r.timed_out,
-               r.answered_at, sa.label AS arm_label, sa.arm_index, rs.anon_id
+               r.answered_at, r.display_order, r.position, sa.label AS arm_label, sa.arm_index, rs.anon_id
         FROM response r
         JOIN survey s ON r.survey_id = s.id
         JOIN survey_arm sa ON r.arm_id = sa.id
@@ -335,6 +364,8 @@ def export_survey_responses_anon_csv(survey_id, classroom_id, long=False):
     ''', (survey_id, classroom_id)).fetchall()
 
     survey = db.execute('SELECT * FROM survey WHERE id=?', (survey_id,)).fetchone()
+    from models.survey import survey_options
+    shuffled_order = bool(survey) and survey_options(dict(survey))['shuffle_questions']
     if long:
         return anon_responses_long_csv(questions, rows, part2_from=survey['part2_from'] if survey else None)
     actions = None
@@ -342,26 +373,52 @@ def export_survey_responses_anon_csv(survey_id, classroom_id, long=False):
         from models.reminders import actions_by_participant
         actions = actions_by_participant(survey_id)
     return anon_responses_csv(questions, rows, part2_from=survey['part2_from'] if survey else None,
-                              reminder_actions=actions)
+                              reminder_actions=actions, positions=shuffled_order)
 
 
-def anon_responses_csv(questions, rows, part2_from=None, reminder_actions=None):
+def anon_responses_csv(questions, rows, part2_from=None, reminder_actions=None, positions=False):
     """Write the anonymized wide CSV. questions: dicts/rows with id, question_index, question_type,
     label. rows: one per answer with participant_id, question_id, answer_text, other_text, seconds,
     left_page, timed_out, arm_label, arm_index, anon_id. Also used for the dashboard preview's
     example file, so students see exactly the format of their real data.
 
     part2_from marks part-2 questions in the headers; reminder_actions ({participant_id: ...} from
-    models.reminders.actions_by_participant) adds what each respondent did with their calendar reminders."""
+    models.reminders.actions_by_participant) adds what each respondent did with their calendar reminders.
+
+    Newer question types add columns: one per ranked item / rated statement / budget item, or the A
+    choices and switch row of a price list or lottery; shuffled questions add the order each respondent saw;
+    attention checks add whether each was passed; positions=True (question order shuffled) adds where each
+    question came."""
+    by_id = {q['id']: q for q in questions}
+    settings = {q['id']: qtypes.settings_of(q) for q in questions}
     respondents = {}
+    details = {q['id']: [] for q in questions}  # detail column names per question, in order of appearance
     for r in rows:
         resp = respondents.setdefault(r['participant_id'], {
             'id': r['anon_id'] or f'P-{r["participant_id"]}',
-            'arm': r['arm_label'], 'arm_index': r['arm_index'], 'answers': {}, 'seconds': {}, 'left': {}, 'timed_out': {}})
-        resp['answers'][r['question_id']] = _with_other(r['answer_text'], r['other_text'])
-        resp['seconds'][r['question_id']] = _seconds(r['seconds'])
-        resp['left'][r['question_id']] = _yes(r['left_page'])
-        resp['timed_out'][r['question_id']] = _yes(r['timed_out'])
+            'arm': r['arm_label'], 'arm_index': r['arm_index'], 'answers': {}, 'seconds': {}, 'left': {}, 'timed_out': {},
+            'detail': {}, 'order': {}, 'position': {}, 'attention': {}})
+        qid = r['question_id']
+        q = by_id.get(qid)
+        qtype = q['question_type'] if q else ''
+        if qtype in qtypes.JSON_TYPES:
+            resp['answers'][qid] = qtypes.readable(qtype, r['answer_text'])
+            for name, value in qtypes.detail_columns(qtype, r['answer_text']):
+                if name not in details[qid]:
+                    details[qid].append(name)
+                resp['detail'][(qid, name)] = value
+        else:
+            resp['answers'][qid] = _with_other(r['answer_text'], r['other_text'])
+        resp['seconds'][qid] = _seconds(r['seconds'])
+        resp['left'][qid] = _yes(r['left_page'])
+        resp['timed_out'][qid] = _yes(r['timed_out'])
+        order = _col(r, 'display_order')
+        resp['order'][qid] = '; '.join(json.loads(order)) if order else ''
+        resp['position'][qid] = _col(r, 'position') or ''
+        if q:
+            resp['attention'][qid] = qtypes.attention_result(qtype, settings[qid], r['answer_text'])
+    shuffled = [q for q in questions if settings[q['id']]['shuffle'] and q['question_type'] in qtypes.SHUFFLE_TYPES]
+    checks = [q for q in questions if settings[q['id']]['attention'] and q['question_type'] in qtypes.ATTENTION_TYPES]
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -375,8 +432,16 @@ def anon_responses_csv(questions, rows, part2_from=None, reminder_actions=None):
     # Time on each question, whether they switched to another app/tab while on it,
     # and whether its timer ran out (the group's default answer was recorded)
     for q in questions:
+        headers += [f'Q{q["question_index"] + 1} {name}' for name in details[q['id']]]
+    for q in questions:
         n = q['question_index'] + 1
         headers += [f'Q{n} seconds', f'Q{n} left page', f'Q{n} timed out']
+    headers += [f'Q{q["question_index"] + 1} order shown' for q in shuffled]
+    if positions:
+        headers += [f'Q{q["question_index"] + 1} position' for q in questions]
+    headers += [f'Q{q["question_index"] + 1} passed check' for q in checks]
+    if checks:
+        headers.append('passed all attention checks')
     if reminder_actions is not None:
         # The calendar step after answering: when they downloaded the .ics file, how many
         # Google Calendar links they opened, and whether they said "Done" (self-reported)
@@ -386,7 +451,16 @@ def anon_responses_csv(questions, rows, part2_from=None, reminder_actions=None):
     for pid, resp in sorted(respondents.items(), key=lambda x: (x[1]['arm_index'], x[1]['id'])):
         row = [resp['id'], resp['arm']] + [resp['answers'].get(q['id'], '') for q in questions]
         for q in questions:
+            row += [resp['detail'].get((q['id'], name), '') for name in details[q['id']]]
+        for q in questions:
             row += [resp['seconds'].get(q['id'], ''), resp['left'].get(q['id'], ''), resp['timed_out'].get(q['id'], '')]
+        row += [resp['order'].get(q['id'], '') for q in shuffled]
+        if positions:
+            row += [resp['position'].get(q['id'], '') for q in questions]
+        results = [resp['attention'].get(q['id']) for q in checks]
+        row += ['yes' if x else ('no' if x is False else '') for x in results]
+        if checks:
+            row.append('' if all(x is None for x in results) else ('yes' if all(x for x in results if x is not None) else 'no'))
         if reminder_actions is not None:
             a = reminder_actions.get(pid) or {'ics': None, 'google': set(), 'done': None, 'push': None,
                                               'push_sent': 0, 'push_opened': 0}
@@ -407,18 +481,23 @@ def anon_responses_long_csv(questions, rows, part2_from=None):
         if not q:
             continue
         keys = r.keys() if hasattr(r, 'keys') else r
+        qtype = q['question_type']
+        answer = qtypes.readable(qtype, r['answer_text']) if qtype in qtypes.JSON_TYPES else _with_other(r['answer_text'], r['other_text'])
+        shown = _col(r, 'display_order')
+        check = qtypes.attention_result(qtype, qtypes.settings_of(q), r['answer_text'])
         out_rows.append([r['anon_id'] or f'P-{r["participant_id"]}', r['arm_label'],
                          2 if part2_from is not None and q['question_index'] >= part2_from else 1,
-                         q['question_index'] + 1, q['label'] or '', q['question_type'],
-                         _with_other(r['answer_text'], r['other_text']),
+                         q['question_index'] + 1, q['label'] or '', qtype, answer,
                          _seconds(r['seconds']), _yes(r['left_page']), _yes(r['timed_out']),
                          r['answered_at'] if 'answered_at' in keys and r['answered_at'] else '',
+                         '; '.join(json.loads(shown)) if shown else '', _col(r, 'position') or '',
+                         {True: 'passed', False: 'failed'}.get(check, ''),
                          (r['arm_index'], order[r['question_id']])])
     out_rows.sort(key=lambda x: (x[-1][0], x[0], x[-1][1]))
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(['respondent_id', 'arm', 'part', 'question', 'question_label', 'question_type', 'answer',
-                     'seconds', 'left_page', 'timed_out', 'answered_at'])
+                     'seconds', 'left_page', 'timed_out', 'answered_at', 'order_shown', 'position', 'attention_check'])
     for row in out_rows:
         writer.writerow(row[:-1])
     return '\ufeff' + output.getvalue()
@@ -463,7 +542,7 @@ def export_single_survey_config_csv(survey_id, classroom_id):
             if not aq:
                 continue
 
-            options = _options_with_other(db, aq)
+            options = _options_with_other(db, aq, question)
 
             if options:
                 for opt in options:

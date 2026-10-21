@@ -1,9 +1,10 @@
 import hashlib
+import json
 import os
 
 from flask import current_app
 
-from models import rules
+from models import qtypes, rules
 from models.db import get_db
 
 
@@ -49,6 +50,9 @@ def survey_warnings(survey):
                 bool(data.get('allow_other')),
                 data.get('timer_seconds') or None,
                 (data.get('timer_display'), data.get('timer_default')) if data.get('timer_seconds') else None,
+                json.dumps({k: v for k, v in (data.get('config') or {}).items() if k != 'pictures'}, sort_keys=True),
+                tuple((_image_fingerprint(p.get('image'), cache), (p.get('caption') or '').strip().lower())
+                      for p in (data.get('config') or {}).get('pictures') or []),
             ))
         return sig
 
@@ -83,9 +87,11 @@ def missing_parts(arms, questions):
             if q['question_type'] in ('multiple_choice', 'multiple_answer') and len(
                     [o for o in data.get('options', []) if o.strip()]) + (1 if data.get('allow_other') else 0) < 2:
                 todo.append(f'{name}: add at least 2 answer options.')
+            todo += [f'{name}: {p}' for p in qtypes.type_problems(q, data)]
             problem = timer_default_problem(q, data)
             if problem:
                 todo.append(f'{name}: {problem}')
+        todo += [f'Question {qi + 1}: {p}' for p in qtypes.rule_problems(q, list(q.get('arms', {}).values()))]
     return todo + rules.rule_problems(questions, arms)
 
 
@@ -102,6 +108,8 @@ def timer_default_problem(q, data):
         options = [o.strip() for o in data.get('options', []) if o.strip()]
         if default not in options:
             return f'the answer recorded when time runs out ("{default}") must be one of the options, or left empty.'
+    elif qtype not in ('numeric', 'slider', 'short_answer'):
+        return qtypes.timer_default_problem(q, data, default)
     elif qtype in ('numeric', 'slider'):
         try:
             value = float(default)
@@ -126,7 +134,7 @@ def survey_incomplete(survey):
     questions = [{'question_type': q['question_type'],
                   'slider_min': q.get('slider_min'), 'slider_max': q.get('slider_max'),
                   'show_arms': q.get('show_arms'), 'cond_question': q.get('cond_question'),
-                  'cond_values': q.get('cond_values') or [],
+                  'cond_values': q.get('cond_values') or [], 'settings': q.get('settings'),
                   'arms': {by_position[k]: v for k, v in q.get('arms', {}).items() if k in by_position}}
                  for q in survey.get('questions', [])]
     return (missing_parts(arms, questions) + reminders.part_problems(survey)
@@ -152,6 +160,77 @@ def next_group_number(classroom_id):
     return (row[0] or 0) + 1
 
 
+def _insert_design(db, survey_id, arms, questions):
+    """Insert a survey's arms and questions (per-arm texts, options, type content, timers).
+
+    arms: [{'label', 'intro_text'?}]; questions: [{'question_type', 'label', 'settings'?, rule fields,
+    'arms': {position: {'question_text', 'options', 'config'?, 'image_filename', 'allow_other', timer...}}}]"""
+    arm_ids = []
+    for i, arm in enumerate(arms):
+        # Legacy question_text: the first question's text for this arm
+        legacy_text = ''
+        if questions and i in questions[0].get('arms', {}):
+            legacy_text = questions[0]['arms'][i].get('question_text', '')
+        arm_cursor = db.execute(
+            'INSERT INTO survey_arm (survey_id, arm_index, label, question_text, intro_text) VALUES (?, ?, ?, ?, ?)',
+            (survey_id, i, arm['label'], legacy_text, (arm.get('intro_text') or '').strip() or None),
+        )
+        arm_ids.append(arm_cursor.lastrowid)
+
+    for qi, question in enumerate(questions):
+        qtype = question['question_type']
+        q_cursor = db.execute(
+            'INSERT INTO survey_question (survey_id, question_index, question_type, label, slider_min, slider_max, '
+            'slider_step, show_arms, cond_question, cond_values, settings) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            (survey_id, qi, qtype, question.get('label', ''),
+             question.get('slider_min'), question.get('slider_max'), question.get('slider_step'),
+             *rules.to_columns(question),
+             qtypes.settings_json(qtypes.settings_of(question), qtype) if question.get('settings') is not None else None),
+        )
+        question_id = q_cursor.lastrowid
+
+        for ai, arm_id in enumerate(arm_ids):
+            arm_data = question.get('arms', {}).get(ai, {})
+            config = qtypes.config_of(arm_data)
+            timer = arm_data.get('timer_seconds')
+            aq_cursor = db.execute(
+                'INSERT INTO arm_question (arm_id, question_id, question_text, image_filename, allow_other, '
+                'timer_seconds, timer_display, timer_default, config) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (arm_id, question_id, arm_data.get('question_text', ''), arm_data.get('image_filename'),
+                 1 if arm_data.get('allow_other') and qtype in qtypes.OTHER_TYPES else 0,
+                 timer, (arm_data.get('timer_display') or 'both') if timer else None,
+                 arm_data.get('timer_default', '') if timer else None,
+                 qtypes.config_json(config, qtype)),
+            )
+            aq_id = aq_cursor.lastrowid
+
+            if qtype == 'picture_choice':
+                options = qtypes.picture_labels(config)  # each picture records its caption
+            elif qtype in qtypes.OPTION_TYPES:
+                options = [o.strip() for o in arm_data.get('options', []) if o.strip()]
+            else:
+                options = []
+            for oi, opt_text in enumerate(options):
+                db.execute('INSERT INTO arm_question_option (arm_question_id, option_index, option_text) VALUES (?, ?, ?)',
+                           (aq_id, oi, opt_text))
+            # Also populate legacy arm_option for the first question
+            if qi == 0 and qtype in ('multiple_choice', 'multiple_answer'):
+                for oi, opt_text in enumerate(options):
+                    db.execute('INSERT INTO arm_option (arm_id, option_index, option_text) VALUES (?, ?, ?)',
+                               (arm_id, oi, opt_text))
+
+
+def survey_images(db, survey_id):
+    """Every uploaded image a survey uses: question images and picture-choice pictures."""
+    names = []
+    for r in db.execute('SELECT aq.image_filename, aq.config FROM arm_question aq JOIN survey_arm sa ON aq.arm_id = sa.id '
+                        'WHERE sa.survey_id=?', (survey_id,)):
+        if r['image_filename']:
+            names.append(r['image_filename'])
+        names += [p['image'] for p in qtypes.config_of({'config': r['config']}).get('pictures') or [] if p.get('image')]
+    return names
+
+
 def create_survey(classroom_id, title, group_number, arms, questions, members):
     """
     Create a survey with arms, questions, and group members.
@@ -171,62 +250,7 @@ def create_survey(classroom_id, title, group_number, arms, questions, members):
     )
     survey_id = cursor.lastrowid
 
-    # Create arms (just labels now)
-    arm_ids = []
-    for i, arm in enumerate(arms):
-        # Legacy question_text: use first question's text for this arm
-        legacy_text = ''
-        if questions and i in questions[0].get('arms', {}):
-            legacy_text = questions[0]['arms'][i].get('question_text', '')
-        arm_cursor = db.execute(
-            'INSERT INTO survey_arm (survey_id, arm_index, label, question_text) VALUES (?, ?, ?, ?)',
-            (survey_id, i, arm['label'], legacy_text),
-        )
-        arm_ids.append(arm_cursor.lastrowid)
-
-    # Create questions with per-arm texts and options
-    for qi, question in enumerate(questions):
-        q_cursor = db.execute(
-            'INSERT INTO survey_question (survey_id, question_index, question_type, label, slider_min, slider_max, '
-            'slider_step, show_arms, cond_question, cond_values) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            (survey_id, qi, question['question_type'], question.get('label', ''),
-             question.get('slider_min'), question.get('slider_max'), question.get('slider_step'),
-             *rules.to_columns(question)),
-        )
-        question_id = q_cursor.lastrowid
-
-        for ai, arm_id in enumerate(arm_ids):
-            arm_data = question.get('arms', {}).get(ai, {})
-            q_text = arm_data.get('question_text', '')
-            image_filename = arm_data.get('image_filename')
-            allow_other = 1 if (arm_data.get('allow_other')
-                                and question['question_type'] in ('multiple_choice', 'multiple_answer')) else 0
-            timer = arm_data.get('timer_seconds')
-            aq_cursor = db.execute(
-                'INSERT INTO arm_question (arm_id, question_id, question_text, image_filename, allow_other, '
-                'timer_seconds, timer_display, timer_default) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                (arm_id, question_id, q_text, image_filename, allow_other,
-                 timer, (arm_data.get('timer_display') or 'both') if timer else None,
-                 arm_data.get('timer_default', '') if timer else None),
-            )
-            aq_id = aq_cursor.lastrowid
-
-            if question['question_type'] in ('multiple_choice', 'multiple_answer'):
-                for oi, opt_text in enumerate(arm_data.get('options', [])):
-                    if opt_text.strip():
-                        db.execute(
-                            'INSERT INTO arm_question_option (arm_question_id, option_index, option_text) VALUES (?, ?, ?)',
-                            (aq_id, oi, opt_text.strip()),
-                        )
-
-            # Also populate legacy arm_option for first question
-            if qi == 0 and question['question_type'] in ('multiple_choice', 'multiple_answer'):
-                for oi, opt_text in enumerate(arm_data.get('options', [])):
-                    if opt_text.strip():
-                        db.execute(
-                            'INSERT INTO arm_option (arm_id, option_index, option_text) VALUES (?, ?, ?)',
-                            (arm_id, oi, opt_text.strip()),
-                        )
+    _insert_design(db, survey_id, arms, questions)
 
     for member in members:
         db.execute(
@@ -243,14 +267,7 @@ def update_survey(survey_id, title, group_number, arms, questions):
     Returns list of old image filenames that were removed (caller should delete files)."""
     db = get_db()
 
-    # Collect old image filenames before deleting arm_questions
-    old_images = db.execute(
-        'SELECT aq.image_filename FROM arm_question aq '
-        'JOIN survey_arm sa ON aq.arm_id = sa.id '
-        'WHERE sa.survey_id=? AND aq.image_filename IS NOT NULL',
-        (survey_id,)
-    ).fetchall()
-    old_image_filenames = [r['image_filename'] for r in old_images]
+    old_image_filenames = survey_images(db, survey_id)  # before deleting arm_questions
 
     first_type = questions[0]['question_type'] if questions else 'multiple_choice'
     db.execute('UPDATE survey SET title=?, group_number=?, question_type=? WHERE id=?',
@@ -264,71 +281,13 @@ def update_survey(survey_id, title, group_number, arms, questions):
     db.execute('DELETE FROM survey_question WHERE survey_id=?', (survey_id,))
     db.execute('DELETE FROM survey_arm WHERE survey_id=?', (survey_id,))
 
-    # Recreate arms
-    arm_ids = []
-    for i, arm in enumerate(arms):
-        legacy_text = ''
-        if questions and i in questions[0].get('arms', {}):
-            legacy_text = questions[0]['arms'][i].get('question_text', '')
-        arm_cursor = db.execute(
-            'INSERT INTO survey_arm (survey_id, arm_index, label, question_text) VALUES (?, ?, ?, ?)',
-            (survey_id, i, arm['label'], legacy_text),
-        )
-        arm_ids.append(arm_cursor.lastrowid)
-
-    # Recreate questions
-    for qi, question in enumerate(questions):
-        q_cursor = db.execute(
-            'INSERT INTO survey_question (survey_id, question_index, question_type, label, slider_min, slider_max, '
-            'slider_step, show_arms, cond_question, cond_values) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            (survey_id, qi, question['question_type'], question.get('label', ''),
-             question.get('slider_min'), question.get('slider_max'), question.get('slider_step'),
-             *rules.to_columns(question)),
-        )
-        question_id = q_cursor.lastrowid
-
-        for ai, arm_id in enumerate(arm_ids):
-            arm_data = question.get('arms', {}).get(ai, {})
-            q_text = arm_data.get('question_text', '')
-            image_filename = arm_data.get('image_filename')
-            allow_other = 1 if (arm_data.get('allow_other')
-                                and question['question_type'] in ('multiple_choice', 'multiple_answer')) else 0
-            timer = arm_data.get('timer_seconds')
-            aq_cursor = db.execute(
-                'INSERT INTO arm_question (arm_id, question_id, question_text, image_filename, allow_other, '
-                'timer_seconds, timer_display, timer_default) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                (arm_id, question_id, q_text, image_filename, allow_other,
-                 timer, (arm_data.get('timer_display') or 'both') if timer else None,
-                 arm_data.get('timer_default', '') if timer else None),
-            )
-            aq_id = aq_cursor.lastrowid
-
-            if question['question_type'] in ('multiple_choice', 'multiple_answer'):
-                for oi, opt_text in enumerate(arm_data.get('options', [])):
-                    if opt_text.strip():
-                        db.execute(
-                            'INSERT INTO arm_question_option (arm_question_id, option_index, option_text) VALUES (?, ?, ?)',
-                            (aq_id, oi, opt_text.strip()),
-                        )
-
-            if qi == 0 and question['question_type'] in ('multiple_choice', 'multiple_answer'):
-                for oi, opt_text in enumerate(arm_data.get('options', [])):
-                    if opt_text.strip():
-                        db.execute(
-                            'INSERT INTO arm_option (arm_id, option_index, option_text) VALUES (?, ?, ?)',
-                            (arm_id, oi, opt_text.strip()),
-                        )
+    _insert_design(db, survey_id, arms, questions)
 
     db.commit()
 
     # Return old filenames so caller can delete files that are no longer referenced
     # (only those not re-used in the new data)
-    new_images = set()
-    for q in questions:
-        for ai_data in q.get('arms', {}).values():
-            fn = ai_data.get('image_filename')
-            if fn:
-                new_images.add(fn)
+    new_images = set(survey_images(db, survey_id))
     removed = [f for f in old_image_filenames if f not in new_images]
     return removed
 
@@ -341,6 +300,7 @@ def get_survey(survey_id):
         return None
 
     survey = dict(survey)
+    survey['options'] = survey_options(survey)
 
     # Arms (just labels/indexes)
     arms = db.execute(
@@ -356,6 +316,7 @@ def get_survey(survey_id):
     for q in questions:
         q_dict = dict(q)
         q_dict.update(rules.from_row(q))
+        q_dict['settings'] = qtypes.settings_of(q_dict)
         q_dict['arms'] = {}
         for arm in arms:
             aq = db.execute(
@@ -375,6 +336,7 @@ def get_survey(survey_id):
                     'timer_seconds': aq['timer_seconds'],
                     'timer_display': aq['timer_display'],
                     'timer_default': aq['timer_default'],
+                    'config': qtypes.config_of({'config': aq['config']}),
                 }
             else:
                 q_dict['arms'][arm['arm_index']] = {
@@ -382,6 +344,7 @@ def get_survey(survey_id):
                     'options': [],
                     'image_filename': None,
                     'allow_other': False,
+                    'config': {},
                 }
         survey['questions'].append(q_dict)
 
@@ -457,15 +420,26 @@ def get_next_survey_id(current_survey_id, classroom_id):
 def delete_survey(survey_id):
     """Delete a survey and all its related data. Returns list of image filenames to clean up."""
     db = get_db()
-    images = db.execute(
-        'SELECT aq.image_filename FROM arm_question aq '
-        'JOIN survey_arm sa ON aq.arm_id = sa.id '
-        'WHERE sa.survey_id=? AND aq.image_filename IS NOT NULL',
-        (survey_id,)
-    ).fetchall()
-    image_filenames = [r['image_filename'] for r in images]
+    image_filenames = survey_images(db, survey_id)
     # Responses have no ON DELETE CASCADE, so remove them first
     db.execute('DELETE FROM response WHERE survey_id=?', (survey_id,))
     db.execute('DELETE FROM survey WHERE id=?', (survey_id,))
     db.commit()
     return image_filenames
+
+
+SURVEY_OPTION_DEFAULTS = {'shuffle_questions': False, 'intro': False, 'consent': False}
+
+
+def survey_options(survey):
+    """Survey-wide options (survey.settings JSON) with defaults."""
+    out = dict(SURVEY_OPTION_DEFAULTS)
+    out.update({k: bool(v) for k, v in qtypes._load(survey.get('settings')).items() if k in SURVEY_OPTION_DEFAULTS})
+    return out
+
+
+def save_survey_options(survey_id, options):
+    db = get_db()
+    db.execute('UPDATE survey SET settings=? WHERE id=?',
+               (json.dumps({k: bool(options.get(k)) for k in SURVEY_OPTION_DEFAULTS}), survey_id))
+    db.commit()
