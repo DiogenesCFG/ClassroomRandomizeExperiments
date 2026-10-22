@@ -677,3 +677,86 @@ def students_without_group(classroom_id):
     invited = [dict(r) for r in rows if r['registered_at'] and r['invites']]
     absent = [dict(r) for r in rows if not r['registered_at']]
     return ready, invited, absent
+
+
+# --- Removing students who dropped, with cleanup ---
+
+def _group_outcomes(classroom_id, student_id):
+    """What removing this student would do to each of their groups: [(survey_id, group_number, 'leave' | 'delete' | 'keep')].
+    leave: others stay in it; delete: they're its only member and its survey is blank; keep: only member, but it has work."""
+    db = get_db()
+    out = []
+    for g in db.execute('SELECT s.id, s.group_number FROM group_member gm JOIN survey s ON gm.survey_id = s.id '
+                        'WHERE gm.roster_student_id=? AND s.classroom_id=? ORDER BY s.group_number', (student_id, classroom_id)):
+        if member_count(g['id']) > 1:
+            out.append((g['id'], g['group_number'], 'leave'))
+        else:
+            out.append((g['id'], g['group_number'], 'delete' if survey_is_blank(g['id']) else 'keep'))
+    return out
+
+
+def describe_removal(classroom_id, student):
+    """For the confirmation list: the student plus what removing them would do."""
+    db = get_db()
+    words = {'leave': 'taken out of Group {n} (the others stay)', 'delete': 'Group {n}, their solo group, is deleted (blank)',
+             'keep': 'Group {n} is kept (they are its only member but it has work; delete it in Manage Surveys if needed)'}
+    written = db.execute("SELECT COUNT(*) FROM feedback WHERE roster_student_id=? AND sent_at IS NOT NULL", (student['id'],)).fetchone()[0]
+    return dict(student, effects=[words[o].format(n=n) for _, n, o in _group_outcomes(classroom_id, student['id'])],
+                comments_sent=written)
+
+
+def missing_from_file(classroom_id, students):
+    """Active roster students whose ID isn't in an uploaded roster (they may have dropped), with what removing them would do."""
+    ids = {s['sis_id'] for s in students}
+    rows = get_db().execute('SELECT * FROM roster_student WHERE classroom_id=? AND hidden=0 ORDER BY full_name COLLATE NOCASE',
+                            (classroom_id,)).fetchall()
+    return [describe_removal(classroom_id, dict(r)) for r in rows if r['sis_id'] not in ids]
+
+
+def remove_student(classroom, student):
+    """A student dropped: hide them (they can't sign in; their past answers and sent comments stay in the data), and
+    clean up so they don't hold places: out of their groups (a blank solo group is deleted, so nobody comments on it;
+    a solo group with work is kept and reported), no comment assignments of their own, no pending invites or requests.
+    Call refill_assignments() afterwards so classmates and groups get replacements. Returns {'deleted', 'left', 'kept'}
+    as lists of group numbers."""
+    from models.survey import delete_survey
+    db = get_db()
+    result = {'deleted': [], 'left': [], 'kept': []}
+    for sid, number, outcome in _group_outcomes(classroom['id'], student['id']):
+        if outcome == 'leave':
+            db.execute('DELETE FROM group_member WHERE survey_id=? AND roster_student_id=?', (sid, student['id']))
+            db.commit()
+            result['left'].append(number)
+        elif outcome == 'delete':
+            delete_survey(sid)
+            result['deleted'].append(number)
+        else:
+            result['kept'].append(number)
+    db.execute('DELETE FROM review_assignment WHERE roster_student_id=?', (student['id'],))
+    db.execute('DELETE FROM join_request WHERE roster_student_id=?', (student['id'],))
+    db.execute('DELETE FROM team_invite WHERE roster_student_id=?', (student['id'],))
+    db.execute('UPDATE roster_student SET hidden=1, seeking_group=0 WHERE id=?', (student['id'],))
+    db.commit()
+    return result
+
+
+def refill_assignments(classroom):
+    """After students leave or come back: if reviewers exist, top everyone up and even out group loads
+    (only assignments nobody has written on move)."""
+    from models import feedback as fb
+    if fb.assignments_exist(classroom['id']):
+        fb.ensure_assignments(classroom)
+        fb.rebalance_assignments(classroom)
+
+
+def removal_message(names_results):
+    """One flash message for [(name, result)] from remove_student."""
+    msg = f'Removed {len(names_results)} student(s): {"; ".join(n for n, _ in names_results)}.'
+    deleted = sorted(g for _, r in names_results for g in r['deleted'])
+    kept = sorted(g for _, r in names_results for g in r['kept'])
+    if deleted:
+        msg += f' Blank solo group(s) deleted: {", ".join(map(str, deleted))}.'
+    if kept:
+        msg += (f' Kept because they have work: Group {", ".join(map(str, kept))} (no active members now; '
+                f'delete them in Manage Surveys if they won\'t present).')
+    return msg + ' Their past answers and sent comments stay in your downloads; Restore brings them back (without a group).'

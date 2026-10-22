@@ -88,7 +88,8 @@ def import_or_preview(classroom, csv_text, hide_missing=False):
     if not students:
         return render_import_preview(classroom, csv_text, hide_missing=hide_missing)
 
-    counts = roster_model.import_students(classroom['id'], students, hide_missing=hide_missing)
+    # Students missing from the file are never removed here: the host confirms who to remove first
+    counts = roster_model.import_students(classroom['id'], students)
     if mapping['name_mode'] == 'full':
         name_cols = [headers[mapping['full_col']]]
     else:
@@ -104,7 +105,36 @@ def import_or_preview(classroom, csv_text, hide_missing=False):
         'id_col': headers[mapping['id_col']], 'name_cols': name_cols,
         'example': f'{students[0]["full_name"]} ({students[0]["sis_id"]}), shown as "{students[0]["first_name"]}"',
     }
+    if hide_missing:
+        return _confirm_removals(classroom, students)
     return redirect(url_for('roster.index', code=classroom['code']))
+
+
+def _confirm_removals(classroom, students):
+    """After an upload with "remove students not in this file": list who would be removed, and what that does,
+    for the host to tick."""
+    missing = roster_model.missing_from_file(classroom['id'], students)
+    if not missing:
+        flash('Everyone on the roster is in the file: nobody to remove.', 'info')
+        return redirect(url_for('roster.index', code=classroom['code']))
+    return render_template('host/roster_remove.html', classroom=classroom, missing=missing)
+
+
+@bp.route('/remove', methods=['POST'])
+def remove_many(code):
+    """Remove the students the host ticked (from the upload's confirmation list)."""
+    classroom = _get_host_classroom(code)
+    done = []
+    for sid in request.form.getlist('student_ids', type=int):
+        student = roster_model.get_student(classroom['id'], sid)
+        if student and not student['hidden']:
+            done.append((student['full_name'], roster_model.remove_student(classroom, student)))
+    if done:
+        roster_model.refill_assignments(classroom)
+        flash(roster_model.removal_message(done), 'success')
+    else:
+        flash('Nobody was removed.', 'info')
+    return redirect(url_for('roster.index', code=code))
 
 
 @bp.route('/')
@@ -237,12 +267,11 @@ def import_roster(code):
     if not students:
         flash('No students found with those column choices.', 'danger')
         return render_import_preview(classroom, csv_text, mapping, hide_missing)
-    counts = roster_model.import_students(classroom['id'], students, hide_missing=hide_missing)
+    counts = roster_model.import_students(classroom['id'], students)
     session.pop('last_import', None)
-    msg = f'Roster saved: {counts["added"]} added, {counts["updated"]} already on the roster (names updated).'
+    flash(f'Roster saved: {counts["added"]} added, {counts["updated"]} already on the roster (names updated).', 'success')
     if hide_missing:
-        msg += f' {counts["hidden"]} hidden (not in the file).'
-    flash(msg, 'success')
+        return _confirm_removals(classroom, students)
     return redirect(url_for('roster.index', code=code))
 
 
@@ -272,7 +301,11 @@ def reset_password(code, student_id):
 @bp.route('/<int:student_id>/hide', methods=['POST'])
 def hide(code, student_id):
     classroom = _get_host_classroom(code)
-    roster_model.set_hidden(classroom['id'], student_id, True)
+    student = roster_model.get_student(classroom['id'], student_id)
+    if student and not student['hidden']:
+        result = roster_model.remove_student(classroom, student)
+        roster_model.refill_assignments(classroom)
+        flash(roster_model.removal_message([(student['full_name'], result)]), 'success')
     return redirect(url_for('roster.index', code=code))
 
 
@@ -280,6 +313,10 @@ def hide(code, student_id):
 def unhide(code, student_id):
     classroom = _get_host_classroom(code)
     roster_model.set_hidden(classroom['id'], student_id, False)
+    roster_model.refill_assignments(classroom)  # they get groups to comment on again
+    student = roster_model.get_student(classroom['id'], student_id)
+    if student:
+        flash(f'{student["full_name"]} is back on the roster, without a group: place them in one if needed.', 'success')
     return redirect(url_for('roster.index', code=code))
 
 

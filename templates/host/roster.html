@@ -52,7 +52,7 @@
                     {% if students %}
                     <div class="form-check mb-2">
                         <input class="form-check-input" type="checkbox" name="hide_missing" value="1" id="hide_missing">
-                        <label class="form-check-label small" for="hide_missing">Also remove students who aren't in this file (dropped the class)</label>
+                        <label class="form-check-label small" for="hide_missing">Also remove students who aren't in this file (dropped the class): you'll see the list and confirm first</label>
                     </div>
                     {% endif %}
                     <button type="submit" class="btn btn-primary btn-sm">Upload</button>
@@ -241,7 +241,7 @@
                     {% endif %}
                     <form method="POST" action="{{ url_for('roster.hide', code=classroom.code, student_id=s.id) }}" class="d-inline"
                           data-name="{{ s.full_name }}"
-                          onsubmit="return confirm('Remove ' + this.dataset.name + ' from the class? They won\'t be able to sign in. Their past answers stay in your downloads, and you can restore them later.')">
+                          onsubmit="return confirm('Remove ' + this.dataset.name + ' from the class? They won\'t be able to sign in, they leave their group (a blank solo group is deleted) and their comment assignments go to classmates. Their past answers and sent comments stay in your downloads, and you can restore them later.')">
                         <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
                     </form>
                 </td>

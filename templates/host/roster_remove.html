@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Remove students - {{ classroom.name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+        <h2 class="mb-0">Students not in the file</h2>
+        <small class="text-muted">{{ classroom.name }} ({{ classroom.code }})</small>
+    </div>
+    <a href="{{ url_for('roster.index', code=classroom.code) }}" class="btn btn-outline-secondary">Back to roster</a>
+</div>
+
+<div class="alert alert-info">
+    The roster was saved (new students added, names updated). These {{ missing|length }} student(s) are on the roster but not in the file,
+    so they may have dropped. <strong>Nobody has been removed yet.</strong> Untick anyone who should stay (e.g. from another section), then click
+    <strong>Remove the ticked students</strong>.
+</div>
+
+<form method="POST" action="{{ url_for('roster.remove_many', code=classroom.code) }}"
+      onsubmit="var n = this.querySelectorAll('input[name=student_ids]:checked').length; return n > 0 && confirm('Remove ' + n + ' student(s)?')">
+    <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead>
+                <tr>
+                    <th><input type="checkbox" class="form-check-input" id="tick-all" checked title="Tick or untick all"></th>
+                    <th>Name</th><th>SIS ID</th><th>Status</th><th>Comments sent</th><th>What removing them does to their group</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in missing %}
+                <tr>
+                    <td><input type="checkbox" class="form-check-input student-tick" name="student_ids" value="{{ s.id }}" checked></td>
+                    <td>{{ s.full_name }}</td>
+                    <td><code>{{ s.sis_id }}</code></td>
+                    <td>{% if s.registered_at %}<span class="badge text-bg-success">Signed up</span>{% else %}<span class="badge text-bg-secondary">Not signed up</span>{% endif %}</td>
+                    <td>{{ s.comments_sent or '' }}</td>
+                    <td class="small">{% for e in s.effects %}{{ e }}{% if not loop.last %}<br>{% endif %}{% else %}<span class="text-muted">not in a group</span>{% endfor %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="small text-muted">Removing a student: they can't sign in; they leave their group (a blank solo group is deleted so nobody is
+        assigned to comment on it); their own comment assignments go away and classmates and groups get replacements so loads stay even
+        (comments already written never move). Their past answers and sent comments stay in your downloads, and <strong>Restore</strong>
+        on the roster brings them back (without a group).</p>
+    <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-danger">Remove the ticked students</button>
+        <a href="{{ url_for('roster.index', code=classroom.code) }}" class="btn btn-outline-secondary">Keep everyone</a>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}{{ super() }}
+<script>
+    document.getElementById('tick-all').addEventListener('change', function() {
+        var on = this.checked;
+        document.querySelectorAll('.student-tick').forEach(function(box) { box.checked = on; });
+    });
+</script>
+{% endblock %}
