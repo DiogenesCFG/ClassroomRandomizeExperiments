@@ -407,12 +407,17 @@
     </div>
     {% endif %}
 
+    {% set show_order = survey_order and classroom.show_order %}
+    {% set reviewing = feedback_cards|map(attribute='survey_id')|list %}
+    <div class="row g-lg-4">
     <!-- Every group's survey in the order they run in class -->
-    {% if survey_order %}
-    <div class="card mb-4" id="order-card">
+    {% if show_order %}
+    <div class="col-lg-5 order-lg-2">
+    <div class="card mb-4 order-panel" id="order-card">
         <div class="card-header"><strong>Presentation order</strong></div>
         <div class="card-body pb-0">
             <p class="small text-muted mb-2">Surveys run in class in this order, and each group presents its own.
+                {% if reviewing %}The groups you comment on are marked.{% endif %}
                 {% if not classroom.surveys_locked %}The order can still change until your instructor locks surveys.{% endif %}</p>
         </div>
         <div class="table-responsive">
@@ -421,9 +426,9 @@
                 <tbody>
                     {% set mine = groups|map(attribute='id')|list %}
                     {% for s in survey_order %}
-                    <tr class="{% if s.id in mine %}table-primary{% endif %}">
+                    <tr class="{% if s.id in mine %}table-primary{% elif s.id in reviewing %}table-warning{% endif %}">
                         <td class="ps-3 fw-bold">{{ s.group_number }}</td>
-                        <td>{{ s.title }}{% if s.id in mine %} <span class="badge text-bg-primary">your group</span>{% endif %}
+                        <td>{{ s.title }}{% if s.id in mine %} <span class="badge text-bg-primary">your group</span>{% elif s.id in reviewing %} <span class="badge text-bg-warning">you comment</span>{% endif %}
                             {% if s.external %}<br><small class="text-muted">Other platform: no live results</small>{% endif %}</td>
                         <td><small>{{ s.member_names or '' }}</small></td>
                     </tr>
@@ -432,8 +437,10 @@
             </table>
         </div>
     </div>
+    </div>
     {% endif %}
 
+    <div class="{{ 'col-lg-7 order-lg-1' if show_order else 'col-12' }}">
     <!-- Peer feedback: one comment box per active round (presentation, survey) for each group -->
     {% set sketch_on = rounds|selectattr('key', 'equalto', 'sketch')|list %}
     {% if not feedback_started and not feedback_cards and not can_add_feedback %}
@@ -537,6 +544,8 @@
         </div>
     </div>
     {% endif %}
+    </div>
+    </div>
 </div>
 {% endblock %}
 

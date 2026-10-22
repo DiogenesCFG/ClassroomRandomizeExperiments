@@ -784,3 +784,50 @@ def export_feedback_summary_csv(classroom):
             row += [sent_required, extra_sent, 'yes' if required and sent_required == len(required) else 'no']
         writer.writerow(row + ['yes' if s['hidden'] else ''])
     return '\ufeff' + output.getvalue()
+
+
+def export_groups_csv(classroom_id):
+    """One row per group: number, title, how many members and who (e.g. to randomize the presentation order)."""
+    db = get_db()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['group_number', 'survey_title', 'member_count', 'members', 'member_student_ids', 'runs'])
+    for s in db.execute('SELECT * FROM survey WHERE classroom_id=? ORDER BY group_number', (classroom_id,)).fetchall():
+        members = db.execute('SELECT name, sis_code FROM group_member WHERE survey_id=? ORDER BY name COLLATE NOCASE',
+                             (s['id'],)).fetchall()
+        writer.writerow([s['group_number'], s['title'], len(members), '; '.join(m['name'] for m in members),
+                         '; '.join(m['sis_code'] for m in members), 'another platform' if s['external'] else 'this site'])
+    return '﻿' + output.getvalue()
+
+
+def export_assignments_csv(classroom):
+    """One row per student and group they comment on (required or extra), with that group's members and the
+    student's comment in each round (status and text). Students with no groups yet get one row with the group blank."""
+    from models.feedback import ROUND_NAMES
+    db = get_db()
+    rounds = _rounds_for_export(classroom)
+    members = {}
+    for r in db.execute('SELECT gm.survey_id, gm.name FROM group_member gm JOIN survey s ON gm.survey_id = s.id '
+                        'WHERE s.classroom_id=? ORDER BY gm.name COLLATE NOCASE', (classroom['id'],)):
+        members.setdefault(r['survey_id'], []).append(r['name'])
+    output = io.StringIO()
+    writer = csv.writer(output)
+    header = ['reviewer_name', 'reviewer_student_id', 'signed_up', 'removed', 'group_number', 'survey_title',
+              'group_members', 'required']
+    for rnd in rounds:
+        header += [f'{ROUND_NAMES[rnd]}_status', f'{ROUND_NAMES[rnd]}_comment']
+    writer.writerow(header)
+    for s, cards in _feedback_rows(classroom):
+        base = [s['full_name'], s['sis_id'], 'yes' if s['registered_at'] else 'no', 'yes' if s['hidden'] else '']
+        if not cards:
+            writer.writerow(base + ['', '', '', ''] + ['', ''] * len(rounds))
+            continue
+        for c in cards:
+            row = base + [c['group_number'], c['title'], '; '.join(members.get(c['survey_id'], [])),
+                          'yes' if c['required'] else 'no']
+            for rnd in rounds:
+                mine = c['rounds'].get(rnd) or {}
+                status = 'sent' if mine.get('sent_at') else ('draft (not sent)' if mine.get('body') else 'not started')
+                row += [status, mine.get('body') or '']
+            writer.writerow(row)
+    return '﻿' + output.getvalue()

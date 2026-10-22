@@ -873,7 +873,7 @@ data-types="{{ types|join(' ') }}"{% if qtype not in types %} style="display:non
             <form method="POST" action="{{ url_for('builder.delete', code=classroom.code, survey_id=survey_id) }}"
                   onsubmit="return confirm('Delete this survey for your whole group? This also deletes any responses it has collected. This cannot be undone.')">
                 <button type="submit" class="btn btn-outline-danger btn-sm">Delete survey</button>
-                <div class="form-text">Deletes the survey and the group itself (members, place in the presentation order).</div>
+                <div class="form-text">Deletes the survey and the group itself (members and group number).</div>
             </form>
         </div>
     </details>
@@ -897,7 +897,7 @@ data-types="{{ types|join(' ') }}"{% if qtype not in types %} style="display:non
         var steps = [
             {title: {{ ('Let\'s build your experiment' if mode == 'new' else 'Your group\'s survey')|tojson }},
              text: 'A one-minute tour of this page. You can close it any time and replay it with <b>Show me around</b>.'},
-            {element: '#title', title: 'Title', text: 'A short name for your experiment. Your group number (your place in the presentation order) is assigned automatically.'},
+            {element: '#title', title: 'Title', text: 'A short name for your experiment. Your group number is assigned automatically; it identifies your group.'},
             {element: '#external-card', title: 'Another platform?', text: 'Only if your instructor agreed to let you run your survey elsewhere (e.g. Google Forms). Otherwise leave this off.'},
             {element: '#arms-card', title: 'Arms', text: 'Arms are the versions of your survey: usually a <b>control</b> and one or more <b>treatments</b>. Each classmate is randomly shown one arm, always the same one.'},
             {element: '#questions-container .question-block', title: 'Questions', text: 'Pick the question type, then write the question <b>for each arm</b>. Keep the arms identical except for the one thing you are testing: that difference is your treatment.'},

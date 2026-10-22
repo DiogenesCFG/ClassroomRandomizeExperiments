@@ -38,6 +38,13 @@
                     <label class="form-check-label" for="sw-groups_frozen">Freeze groups</label>
                     {% if classroom.groups_frozen %}<a href="{{ url_for('roster.index', code=classroom.code) }}#place-card" class="small ms-1">place students</a>{% endif %}
                 </form>
+                <form method="POST" action="{{ url_for('feedback.set_phase', code=classroom.code) }}" class="form-check form-switch mb-0"
+                      title="Off: students don't see the order groups present in (the lobby's Presentation order list is hidden).">
+                    <input type="hidden" name="action" value="show_order">
+                    <input type="hidden" name="value" value="{{ 0 if classroom.show_order else 1 }}">
+                    <input class="form-check-input" type="checkbox" id="sw-show_order" {% if classroom.show_order %}checked{% endif %} onchange="this.form.submit()">
+                    <label class="form-check-label" for="sw-show_order">Show presentation order</label>
+                </form>
                 <form method="POST" action="{{ url_for('feedback.set_phase', code=classroom.code) }}" class="form-check form-switch mb-0">
                     <input type="hidden" name="action" value="surveys_locked">
                     <input type="hidden" name="value" value="{{ 0 if classroom.surveys_locked else 1 }}">
@@ -129,6 +136,8 @@
                         <button type="submit" class="btn btn-primary btn-sm">{% if has_assignments %}Assign reviewers to students who still need them{% else %}Assign reviewers now{% endif %}</button>
                     </form>
                     {% if has_assignments %}
+                    <a href="{{ url_for('download.download_assignments', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm"
+                       title="One row per student and group they comment on, with the group's members and the student's comments">Assignments CSV</a>
                     <a href="{{ url_for('feedback.download_feedback', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">Comments CSV</a>
                     <a href="{{ url_for('feedback.download_feedback_summary', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">Summary CSV (for grading)</a>
                     {% endif %}
@@ -203,7 +212,9 @@
                     <ul class="dropdown-menu">
                         <li><a class="dropdown-item" href="{{ url_for('download.download_all', code=classroom.code) }}">All Responses</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('download.download_surveys_config', code=classroom.code) }}">Survey Configs</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('download.download_groups', code=classroom.code) }}">Groups (one row per group)</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('download.download_designers', code=classroom.code) }}">Survey Designers</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('download.download_assignments', code=classroom.code) }}">Comment assignments</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('download.download_participation', code=classroom.code) }}">Survey Participation</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('download.download_participants', code=classroom.code) }}">Participants (roster key)</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('feedback.download_feedback', code=classroom.code) }}">Feedback comments</a></li>

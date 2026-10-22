@@ -148,6 +148,11 @@ html { scroll-padding-top: calc(var(--nav-h, 56px) + 12px); }
 .q-drag { cursor: grab; color: var(--bs-secondary-color); touch-action: none; user-select: none; padding: 0 0.25rem; }
 .question-block.sortable-ghost { opacity: 0.4; }
 
+/* Lobby: the presentation order beside the comments scrolls on its own (large screens only) */
+@media (min-width: 992px) {
+    .order-panel { position: sticky; top: calc(var(--nav-h, 56px) + 1rem); max-height: calc(100vh - var(--nav-h, 56px) - 2rem); overflow-y: auto; }
+}
+
 /* Picture choice on the phone page: a chosen picture gets a thick outline and a check, so the photo stays visible */
 .pic-option { position: relative; }
 .pic-option.pic-selected, .pic-option.pic-selected:hover {

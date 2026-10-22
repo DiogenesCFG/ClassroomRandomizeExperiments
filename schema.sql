@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS classroom (
     fb_survey_open_at       TEXT DEFAULT NULL,
     fb_survey_close_at      TEXT DEFAULT NULL,
     groups_frozen           INTEGER NOT NULL DEFAULT 0,  -- students can't change groups; the host places them
+    show_order              INTEGER NOT NULL DEFAULT 1,  -- students see the presentation order in their lobby
     created_at              TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

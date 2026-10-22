@@ -13,7 +13,7 @@ from models.download import (
     export_all_responses_csv, export_surveys_config_csv, export_participants_csv,
     export_survey_designers_csv, export_survey_participation_csv,
     export_feedback_csv, export_feedback_summary_csv, export_reminder_actions_csv, export_reminder_plans_csv,
-    export_push_messages_csv,
+    export_push_messages_csv, export_groups_csv, export_assignments_csv,
 )
 
 bp = Blueprint('download', __name__, url_prefix='/c/<code>/download')
@@ -60,6 +60,22 @@ def download_participants(code):
         mimetype='text/csv',
         headers={'Content-Disposition': 'attachment; filename=participants.csv'}
     )
+
+
+@bp.route('/groups')
+def download_groups(code):
+    """One row per group with its members."""
+    classroom = _get_classroom_or_403(code)
+    return Response(export_groups_csv(classroom['id']), mimetype='text/csv',
+                    headers={'Content-Disposition': 'attachment; filename=groups.csv'})
+
+
+@bp.route('/assignments')
+def download_assignments(code):
+    """One row per student and group they comment on, with their comments."""
+    classroom = _get_classroom_or_403(code)
+    return Response(export_assignments_csv(classroom), mimetype='text/csv',
+                    headers={'Content-Disposition': 'attachment; filename=comment_assignments.csv'})
 
 
 @bp.route('/designers')
@@ -116,6 +132,8 @@ def download_everything(code):
         zf.writestr('survey_designers.csv', export_survey_designers_csv(cid))
         zf.writestr('survey_participation.csv', export_survey_participation_csv(cid))
         zf.writestr('feedback.csv', export_feedback_csv(classroom))
+        zf.writestr('comment_assignments.csv', export_assignments_csv(classroom))
+        zf.writestr('groups.csv', export_groups_csv(classroom['id']))
         zf.writestr('feedback_summary.csv', export_feedback_summary_csv(classroom))
         zf.writestr('reminder_plans.csv', export_reminder_plans_csv(cid))
         zf.writestr('reminder_actions.csv', export_reminder_actions_csv(cid))
