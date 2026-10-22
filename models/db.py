@@ -252,6 +252,8 @@ def init_db():
         ('response', 'position', 'INTEGER DEFAULT NULL'),
         ('classroom', 'groups_frozen', 'INTEGER NOT NULL DEFAULT 0'),  # students can't change groups; the host places them
         ('classroom', 'show_order', 'INTEGER NOT NULL DEFAULT 1'),  # students see the presentation order in their lobby
+        ('classroom', 'fb_sketch_instructions', 'TEXT DEFAULT NULL'),  # the instructor's instructions for each comment round
+        ('classroom', 'fb_survey_instructions', 'TEXT DEFAULT NULL'),
     ):
         try:
             db.execute(f'ALTER TABLE {table} ADD COLUMN {col} {col_def}')

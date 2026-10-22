@@ -72,6 +72,14 @@
                                     without seeing its survey, which stays hidden until it runs.
                                 {% else %}On each group's survey, once it has run in class (or early): students can view all its arms then.{% endif %}
                                 When on, it's required for each student's assigned groups.</p>
+                            <form method="POST" action="{{ url_for('feedback.set_phase', code=classroom.code) }}" class="mb-2">
+                                <input type="hidden" name="action" value="round_instructions">
+                                <input type="hidden" name="round" value="{{ r.key }}">
+                                <label class="form-label small mb-0" for="instr-{{ r.key }}">Instructions for students (optional)</label>
+                                <textarea class="form-control form-control-sm" id="instr-{{ r.key }}" name="instructions" rows="2" maxlength="2000"
+                                          placeholder="Shown above their comment boxes and inside each box. Leave empty for a generic hint.">{{ r.instructions }}</textarea>
+                                <button type="submit" class="btn btn-outline-primary btn-sm mt-1">Save instructions</button>
+                            </form>
                             {% if r.on %}
                             <p class="mb-2">
                                 {% if r.state == 'open' %}<span class="badge text-bg-success">Open</span>{% if r.close_at %} until <time data-utc="{{ r.close_at }}">{{ r.close_at }}</time>{% endif %}

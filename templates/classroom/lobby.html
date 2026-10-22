@@ -472,6 +472,7 @@
                     {% elif r.state == 'upcoming' %}open <time data-utc="{{ r.open_at }}">{{ r.open_at }}</time>{% if r.close_at %} to <time data-utc="{{ r.close_at }}">{{ r.close_at }}</time>{% endif %}. You can save drafts before then.
                     {% elif r.state == 'closed' %}closed; groups can read them now.
                     {% else %}not open yet. You can save drafts.{% endif %}
+                    {% if r.instructions %}<div class="border-start border-3 border-primary ps-2 my-1" style="white-space: pre-wrap;">{{ r.instructions }}</div>{% endif %}
                 </li>
                 {% endfor %}
             </ul>
@@ -510,7 +511,7 @@
                     <form method="POST" action="{{ url_for('feedback.save_comment', code=classroom.code, survey_id=c.survey_id) }}">
                         <input type="hidden" name="round" value="{{ r.key }}">
                         <textarea class="form-control mb-2" name="body" rows="3" maxlength="3000"
-                                  placeholder="{% if r.key == 'sketch' %}What's promising? What could be improved: the question, the treatment, how they'll measure it, what they expect to find?{% else %}What worked? What could be improved: the design, the treatment, the questions, the wording?{% endif %}">{{ mine.body or '' }}</textarea>
+                                  placeholder="{% if r.instructions %}{{ r.instructions }}{% elif r.key == 'sketch' %}What's promising? What could be improved: the question, the treatment, how they'll measure it, what they expect to find?{% else %}What worked? What could be improved: the design, the treatment, the questions, the wording?{% endif %}">{{ mine.body or '' }}</textarea>
                         <div class="d-flex gap-2 flex-wrap">
                             {% if r.state == 'open' %}
                             <button type="submit" name="action" value="send" class="btn btn-primary btn-sm">{% if mine.sent_at %}Update{% else %}Send{% endif %}</button>

@@ -276,6 +276,8 @@ def set_phase(code):
     fields = {}
     if action in ('surveys_locked', 'groups_frozen', 'show_order'):
         fields = {action: 1 if request.form.get('value') == '1' else 0}
+    elif action == 'round_instructions' and rnd:
+        fields = {f'fb_{rnd}_instructions': request.form.get('instructions', '').strip()[:2000] or None}
     elif action == 'round_on' and rnd:
         fields = {f'fb_{rnd}_on': 1 if request.form.get('value') == '1' else 0}
     elif action == 'round_schedule' and rnd:

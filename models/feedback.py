@@ -42,9 +42,10 @@ def round_state(classroom, rnd, now=None):
 
 
 def rounds_info(classroom):
-    """Both rounds for the pages: key, name, on, state, open_at, close_at."""
+    """Both rounds for the pages: key, name, on, state, open_at, close_at, instructions (the instructor's, or '')."""
     return [{'key': r, 'name': ROUND_NAMES[r], 'on': round_on(classroom, r), 'state': round_state(classroom, r),
-             'open_at': classroom[f'fb_{r}_open_at'], 'close_at': classroom[f'fb_{r}_close_at']} for r in ROUNDS]
+             'open_at': classroom[f'fb_{r}_open_at'], 'close_at': classroom[f'fb_{r}_close_at'],
+             'instructions': (classroom[f'fb_{r}_instructions'] or '').strip()} for r in ROUNDS]
 
 
 def active_rounds(classroom):
