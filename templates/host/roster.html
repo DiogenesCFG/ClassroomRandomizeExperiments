@@ -124,6 +124,7 @@
                 <select class="form-select form-select-sm" name="target" id="place-target" required>
                     <option value="">Choose a group...</option>
                     <option value="solo">A new group of their own</option>
+                    <option value="none">No group (take them out of their group)</option>
                     {% for g in all_groups %}
                     <option value="{{ g.id }}">Group {{ g.group_number }}: {{ g.member_names or 'no members' }} ({{ g.member_count }}{% if classroom.max_group_size %}/{{ classroom.max_group_size }}{% endif %})</option>
                     {% endfor %}
@@ -135,7 +136,9 @@
         </form>
         <p class="small text-muted mb-3">Moves the student out of any other group (that group keeps its other members). A group left with
             no members is deleted only if its survey is still blank, with no responses or comments; otherwise nothing changes and you're told why.
-            You can go over the group size limit. Pending invites to the student are cancelled.</p>
+            You can go over the group size limit. Pending invites to the student are cancelled.
+            <b>No group</b> is for a student who won't present (yet): their solo group is removed so nobody is assigned to comment on it;
+            they keep their sign-up, drafts and the groups they comment on. Place them again any time.</p>
 
         <h6 class="mb-1">Students without a group</h6>
         <ul class="small mb-2">

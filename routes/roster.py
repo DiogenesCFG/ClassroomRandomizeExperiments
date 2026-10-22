@@ -139,10 +139,11 @@ def place(code):
     target = request.form.get('target', '')
     if not student or student['hidden']:
         flash('Choose a student.', 'danger')
-    elif target != 'solo' and not target.isdigit():
+    elif target not in ('solo', 'none') and not target.isdigit():
         flash('Choose a group.', 'danger')
     else:
-        msg, error = roster_model.place_student(classroom, student, None if target == 'solo' else int(target))
+        msg, error = roster_model.place_student(classroom, student, int(target) if target.isdigit() else None,
+                                                no_group=target == 'none')
         if error:
             flash(error, 'danger')
         else:

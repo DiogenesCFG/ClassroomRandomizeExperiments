@@ -596,9 +596,11 @@ def new_solo_group(classroom, student):
     return survey_id, number
 
 
-def place_student(classroom, student, target_id=None):
+def place_student(classroom, student, target_id=None, no_group=False):
     """The instructor puts a student in a group (target_id) or in a new group of their own (None), taking
     them out of any other group. Works while groups are frozen and may go over the size limit.
+    no_group=True only takes them out of their groups (e.g. a student who won't present): their sign-up,
+    drafts and own comment assignments stay.
 
     A group the student leaves keeps its other members. If they were its only member, its survey is
     deleted only when nothing would be lost (survey_is_blank); otherwise nothing changes and an error
@@ -609,7 +611,11 @@ def place_student(classroom, student, target_id=None):
         'SELECT gm.survey_id FROM group_member gm JOIN survey s ON gm.survey_id = s.id '
         'WHERE gm.roster_student_id=? AND s.classroom_id=?', (student['id'], classroom['id']))]
     number = lambda sid: db.execute('SELECT group_number FROM survey WHERE id=?', (sid,)).fetchone()[0]
-    if target_id is not None:
+    if no_group:
+        target_id = None
+        if not current:
+            return None, f'{student["full_name"]} is not in any group.'
+    elif target_id is not None:
         target = get_survey(target_id)
         if not target or target['classroom_id'] != classroom['id']:
             return None, 'That group does not exist.'
@@ -624,7 +630,9 @@ def place_student(classroom, student, target_id=None):
                               f'responses or comments from classmates, so nothing was changed. To move them anyway, '
                               f'download what you need, delete Group {n} in Manage Surveys, then place them again.')
             to_delete.append(sid)
-    if target_id is None:
+    if no_group:
+        target_number = None
+    elif target_id is None:
         target_id, target_number = new_solo_group(classroom, student)
     else:
         add_member(target_id, student)
@@ -634,13 +642,17 @@ def place_student(classroom, student, target_id=None):
         if sid != target_id:
             left.append(number(sid))
             db.execute('DELETE FROM group_member WHERE survey_id=? AND roster_student_id=?', (sid, student['id']))
-    db.execute('DELETE FROM team_invite WHERE roster_student_id=?', (student['id'],))
-    db.execute('UPDATE roster_student SET seeking_group=0 WHERE id=?', (student['id'],))
+    if not no_group:
+        db.execute('DELETE FROM team_invite WHERE roster_student_id=?', (student['id'],))
+        db.execute('UPDATE roster_student SET seeking_group=0 WHERE id=?', (student['id'],))
     db.commit()
     deleted = []
     for sid in to_delete:
         deleted.append(number(sid))
         delete_survey(sid)  # blank: no images to clean up
+    if no_group:
+        return (f'{student["full_name"]} is now in no group (taken out of Group {", ".join(map(str, left))}'
+                + ('; that empty group was deleted, so nobody is assigned to comment on it' if deleted else '') + ').'), None
     after_join(classroom, target_id, student['id'])
     msg = f'{student["full_name"]} is now in Group {target_number}'
     if left:
