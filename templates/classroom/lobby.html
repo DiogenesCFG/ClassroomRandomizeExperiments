@@ -553,6 +553,45 @@
 <script src="https://cdn.jsdelivr.net/npm/driver.js@1.9.0/dist/driver.js.iife.js"></script>
 <script src="{{ url_for('static', filename='js/tour.js') }}?v=20261007"></script>
 <script>
+    // Fold any lobby card (except the live session) by clicking its header; remembered in this browser
+    (function() {
+        var ids = ['invites-card', 'open-surveys-card', 'followups-card', 'my-group-card', 'finder-card', 'order-card', 'feedback'];
+        function key(id) { return 'lobby-fold-{{ classroom.code }}-' + id; }
+        function setFolded(card, header, folded, remember) {
+            Array.prototype.forEach.call(card.children, function(child) {
+                if (child !== header) child.style.display = folded ? 'none' : '';
+            });
+            header.setAttribute('aria-expanded', folded ? 'false' : 'true');
+            header.querySelector('.lobby-chevron').textContent = folded ? '▸' : '▾';
+            card.classList.toggle('lobby-folded', folded);
+            if (remember) { try { localStorage.setItem(key(card.id), folded ? '1' : '0'); } catch (e) {} }
+        }
+        ids.forEach(function(id) {
+            var card = document.getElementById(id);
+            var header = card && card.querySelector(':scope > .card-header');
+            if (!header) return;
+            header.classList.add('lobby-fold');
+            header.setAttribute('role', 'button');
+            header.setAttribute('tabindex', '0');
+            var chevron = document.createElement('span');
+            chevron.className = 'lobby-chevron me-1 text-muted fw-normal';
+            var title = header.querySelector('strong');  // the arrow goes inside the title so header layouts stay as they are
+            if (title) title.insertBefore(chevron, title.firstChild); else header.insertBefore(chevron, header.firstChild);
+            var saved = null;
+            try { saved = localStorage.getItem(key(id)); } catch (e) {}
+            setFolded(card, header, saved === '1', false);
+            function toggle(e) {
+                if (e.target.closest('a, button, input, select, textarea, label, form')) return;  // links and buttons in the header still work
+                if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+                e.preventDefault();
+                setFolded(card, header, header.getAttribute('aria-expanded') === 'true', true);
+            }
+            header.addEventListener('click', toggle);
+            header.addEventListener('keydown', toggle);
+        });
+    })();
+</script>
+<script>
     // First-visit tour of the lobby (steps for sections not on the page are skipped)
     window.pageTour = function(auto) {
         startTour([

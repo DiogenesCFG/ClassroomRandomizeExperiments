@@ -166,3 +166,8 @@ html { scroll-padding-top: calc(var(--nav-h, 56px) + 12px); }
     width: 1.6rem; height: 1.6rem; line-height: 1.6rem;
     border-radius: 50%; background: var(--bs-primary); color: #fff; font-weight: bold;
 }
+
+/* Lobby: card headers fold their card (script in classroom/lobby.html) */
+.lobby-fold { cursor: pointer; user-select: none; }
+.lobby-fold:focus-visible { outline: 2px solid var(--bs-primary); outline-offset: -2px; }
+.lobby-folded > .card-header { border-bottom: 0; }
