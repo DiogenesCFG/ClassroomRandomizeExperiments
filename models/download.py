@@ -787,16 +787,27 @@ def export_feedback_summary_csv(classroom):
 
 
 def export_groups_csv(classroom_id):
-    """One row per group: number, title, how many members and who (e.g. to randomize the presentation order)."""
+    """One row per group: number, title, how many members and who (e.g. to randomize the presentation order), and
+    the students who must comment on it (their required assignments, as in comment_assignments_simple.csv)."""
     db = get_db()
+    needed = db.execute('SELECT reviews_required FROM classroom WHERE id=?', (classroom_id,)).fetchone()[0] or 0
+    reviewers = {}
+    for st in db.execute('SELECT id, full_name FROM roster_student WHERE classroom_id=? AND hidden=0 '
+                         'ORDER BY full_name COLLATE NOCASE', (classroom_id,)).fetchall():
+        for r in db.execute('SELECT survey_id FROM review_assignment WHERE roster_student_id=? ORDER BY id LIMIT ?',
+                            (st['id'], needed)):
+            reviewers.setdefault(r['survey_id'], []).append(st['full_name'])
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['group_number', 'survey_title', 'member_count', 'members', 'member_student_ids', 'runs'])
+    writer.writerow(['group_number', 'survey_title', 'member_count', 'members', 'member_student_ids', 'runs',
+                     'commenter_count', 'must_comment_on_it'])
     for s in db.execute('SELECT * FROM survey WHERE classroom_id=? ORDER BY group_number', (classroom_id,)).fetchall():
         members = db.execute('SELECT name, sis_code FROM group_member WHERE survey_id=? ORDER BY name COLLATE NOCASE',
                              (s['id'],)).fetchall()
+        who = reviewers.get(s['id'], [])
         writer.writerow([s['group_number'], s['title'], len(members), '; '.join(m['name'] for m in members),
-                         '; '.join(m['sis_code'] for m in members), 'another platform' if s['external'] else 'this site'])
+                         '; '.join(m['sis_code'] for m in members), 'another platform' if s['external'] else 'this site',
+                         len(who), '; '.join(who)])
     return '﻿' + output.getvalue()
 
 
