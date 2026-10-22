@@ -66,7 +66,8 @@ def download_participants(code):
 def download_roster(code):
     """The Manage roster table as a CSV."""
     classroom = _get_classroom_or_403(code)
-    return Response(export_roster_csv(classroom['id']), mimetype='text/csv',
+    from models.roster import required_targets
+    return Response(export_roster_csv(classroom['id'], required_targets(classroom)), mimetype='text/csv',
                     headers={'Content-Disposition': 'attachment; filename=roster.csv'})
 
 
@@ -151,7 +152,8 @@ def download_everything(code):
         zf.writestr('comment_assignments.csv', export_assignments_csv(classroom))
         zf.writestr('comment_assignments_simple.csv', export_assignments_simple_csv(classroom))
         zf.writestr('groups.csv', export_groups_csv(classroom['id']))
-        zf.writestr('roster.csv', export_roster_csv(classroom['id']))
+        from models.roster import required_targets
+        zf.writestr('roster.csv', export_roster_csv(classroom['id'], required_targets(classroom)))
         zf.writestr('feedback_summary.csv', export_feedback_summary_csv(classroom))
         zf.writestr('reminder_plans.csv', export_reminder_plans_csv(cid))
         zf.writestr('reminder_actions.csv', export_reminder_actions_csv(cid))

@@ -760,3 +760,17 @@ def removal_message(names_results):
         msg += (f' Kept because they have work: Group {", ".join(map(str, kept))} (no active members now; '
                 f'delete them in Manage Surveys if they won\'t present).')
     return msg + ' Their past answers and sent comments stay in your downloads; Restore brings them back (without a group).'
+
+
+def required_targets(classroom):
+    """{roster_student_id: [survey_id, ...]}: the groups each student must comment on (their first `reviews_required`
+    assignments, the ones the lobby marks "required"), sorted by group number."""
+    db = get_db()
+    needed = classroom['reviews_required'] or 0
+    out = {}
+    for st in db.execute('SELECT id FROM roster_student WHERE classroom_id=?', (classroom['id'],)).fetchall():
+        rows = db.execute('SELECT ra.survey_id, s.group_number FROM review_assignment ra JOIN survey s ON ra.survey_id = s.id '
+                          'WHERE ra.roster_student_id=? ORDER BY ra.id LIMIT ?', (st['id'], needed)).fetchall()
+        if rows:
+            out[st['id']] = [r['survey_id'] for r in sorted(rows, key=lambda r: r['group_number'])]
+    return out

@@ -844,7 +844,7 @@ def export_assignments_csv(classroom):
     return '﻿' + output.getvalue()
 
 
-def export_roster_csv(classroom_id):
+def export_roster_csv(classroom_id, comments_on=None):
     """The Manage roster table: one row per student with sign-up status, group(s), group size, pending invites
     (and which groups sent them), join requests and group-finder listing. Removed students come last."""
     from models.roster import list_roster, teams_overview
@@ -853,7 +853,7 @@ def export_roster_csv(classroom_id):
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(['name', 'student_id', 'status', 'signed_up_at', 'groups', 'group_size', 'pending_invites',
-                     'invited_by_groups', 'asked_to_join_group', 'looking_for_a_group', 'removed'])
+                     'invited_by_groups', 'asked_to_join_group', 'looking_for_a_group', 'removed', 'comments_on_groups'])
     for s in list_roster(classroom_id):
         invites = teams['invited_to'].get(s['id'], [])
         requested = teams['requested'].get(s['id'])
@@ -866,6 +866,7 @@ def export_roster_csv(classroom_id):
             number(requested) if requested else '',
             'yes' if s['seeking_group'] and not s['group_count'] and not s['invite_count'] and not requested else '',
             'yes' if s['hidden'] else '',
+            ', '.join(str(number(sid)) for sid in (comments_on or {}).get(s['id'], [])),
         ])
     return '﻿' + output.getvalue()
 

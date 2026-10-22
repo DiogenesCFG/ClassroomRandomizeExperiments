@@ -148,7 +148,8 @@ def index(code):
     from models.survey import list_surveys
     return render_template('host/roster.html', classroom=classroom, students=students, last_import=last_import,
                            all_groups=list_surveys(classroom['id']), solo_ready=ready, solo_invited=invited,
-                           solo_absent=absent, **roster_model.teams_overview(classroom['id']))
+                           solo_absent=absent, comments_on=roster_model.required_targets(classroom),
+                           **roster_model.teams_overview(classroom['id']))
 
 
 def _after_group_change(classroom):

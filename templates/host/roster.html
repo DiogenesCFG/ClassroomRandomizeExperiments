@@ -191,7 +191,7 @@
 <div class="table-responsive">
     <table class="table table-sm table-striped align-middle" id="roster-table">
         <thead>
-            <tr><th>Name</th><th>SIS ID</th><th>Status</th><th>Group(s)</th><th title="Members in their group (their largest, if several)">Group size</th><th>Invites</th><th class="text-end">Actions</th></tr>
+            <tr><th>Name</th><th>SIS ID</th><th>Status</th><th>Group(s)</th><th title="Members in their group (their largest, if several)">Group size</th><th>Invites</th><th title="The groups this student must comment on (their required assignments)">Comments on</th><th class="text-end">Actions</th></tr>
         </thead>
         <tbody>
             {% for s in active %}
@@ -232,6 +232,10 @@
                     <span class="badge text-bg-warning" tabindex="0" role="button" data-bs-toggle="tooltip"
                           title="Asked to join Group {{ g.number }}: {{ g.title }}&#10;Members: {{ g.members|join('; ') or 'none' }}">asked to join {{ g.number }}</span>
                     {% endif %}</td>
+                <td>{% for sid in comments_on.get(s.id, []) %}{% set g = groups[sid] %}
+                    <span class="badge text-bg-light border" tabindex="0" role="button" data-bs-toggle="tooltip"
+                          title="Group {{ g.number }}: {{ g.title }}&#10;Members: {{ g.members|join('; ') or 'none' }}">{{ g.number }}</span>
+                    {% endfor %}</td>
                 <td class="text-end text-nowrap">
                     <a href="#place-card" class="btn btn-sm btn-outline-primary place-link" data-id="{{ s.id }}">Place</a>
                     {% if s.registered_at %}
