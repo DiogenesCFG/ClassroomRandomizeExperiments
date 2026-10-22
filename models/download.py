@@ -831,3 +831,29 @@ def export_assignments_csv(classroom):
                 row += [status, mine.get('body') or '']
             writer.writerow(row)
     return '﻿' + output.getvalue()
+
+
+def export_roster_csv(classroom_id):
+    """The Manage roster table: one row per student with sign-up status, group(s), group size, pending invites
+    (and which groups sent them), join requests and group-finder listing. Removed students come last."""
+    from models.roster import list_roster, teams_overview
+    teams = teams_overview(classroom_id)
+    number = lambda sid: teams['groups'][sid]['number'] if sid in teams['groups'] else ''
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['name', 'student_id', 'status', 'signed_up_at', 'groups', 'group_size', 'pending_invites',
+                     'invited_by_groups', 'asked_to_join_group', 'looking_for_a_group', 'removed'])
+    for s in list_roster(classroom_id):
+        invites = teams['invited_to'].get(s['id'], [])
+        requested = teams['requested'].get(s['id'])
+        writer.writerow([
+            s['full_name'], s['sis_id'], 'Signed up' if s['registered_at'] else 'Not signed up', s['registered_at'] or '',
+            ', '.join(str(number(sid)) for sid in teams['member_of'].get(s['id'], [])),
+            s['group_size'] or '' if s['group_count'] else '',
+            s['invite_count'] or '',
+            '; '.join(f'Group {number(i["survey_id"])}' + (f' (sent by {i["inviter"]})' if i['inviter'] else '') for i in invites),
+            number(requested) if requested else '',
+            'yes' if s['seeking_group'] and not s['group_count'] and not s['invite_count'] and not requested else '',
+            'yes' if s['hidden'] else '',
+        ])
+    return '﻿' + output.getvalue()

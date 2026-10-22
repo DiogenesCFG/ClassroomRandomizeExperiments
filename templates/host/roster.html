@@ -11,7 +11,11 @@
         <small class="text-muted">{{ classroom.name }} ({{ classroom.code }}) &middot;
             {{ active|length }} students, {{ active|selectattr('registered_at')|list|length }} signed up</small>
     </div>
-    <a href="{{ url_for('host.home', code=classroom.code) }}" class="btn btn-outline-secondary">Back to instructor home</a>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('download.download_roster', code=classroom.code) }}" class="btn btn-outline-primary"
+           title="Name, ID, status, group(s), group size, pending invites (and who sent them), join requests, group finder">Download roster (CSV)</a>
+        <a href="{{ url_for('host.home', code=classroom.code) }}" class="btn btn-outline-secondary">Back to instructor home</a>
+    </div>
 </div>
 
 {% if last_import %}

@@ -212,6 +212,7 @@
                     <ul class="dropdown-menu">
                         <li><a class="dropdown-item" href="{{ url_for('download.download_all', code=classroom.code) }}">All Responses</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('download.download_surveys_config', code=classroom.code) }}">Survey Configs</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('download.download_roster', code=classroom.code) }}">Roster (as on the roster page)</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('download.download_groups', code=classroom.code) }}">Groups (one row per group)</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('download.download_designers', code=classroom.code) }}">Survey Designers</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('download.download_assignments', code=classroom.code) }}">Comment assignments</a></li>
