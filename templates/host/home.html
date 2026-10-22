@@ -138,6 +138,8 @@
                     {% if has_assignments %}
                     <a href="{{ url_for('download.download_assignments', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm"
                        title="One row per student and group they comment on, with the group's members and the student's comments">Assignments CSV</a>
+                    <a href="{{ url_for('download.download_assignments_simple', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm"
+                       title="One row per student: name, ID and the groups they must comment on">Assignments, one row per student</a>
                     <a href="{{ url_for('feedback.download_feedback', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">Comments CSV</a>
                     <a href="{{ url_for('feedback.download_feedback_summary', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">Summary CSV (for grading)</a>
                     {% endif %}
@@ -216,6 +218,7 @@
                         <li><a class="dropdown-item" href="{{ url_for('download.download_groups', code=classroom.code) }}">Groups (one row per group)</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('download.download_designers', code=classroom.code) }}">Survey Designers</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('download.download_assignments', code=classroom.code) }}">Comment assignments</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('download.download_assignments_simple', code=classroom.code) }}">Comment assignments, one row per student</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('download.download_participation', code=classroom.code) }}">Survey Participation</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('download.download_participants', code=classroom.code) }}">Participants (roster key)</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('feedback.download_feedback', code=classroom.code) }}">Feedback comments</a></li>

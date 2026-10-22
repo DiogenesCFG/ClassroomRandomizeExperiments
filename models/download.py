@@ -857,3 +857,20 @@ def export_roster_csv(classroom_id):
             'yes' if s['hidden'] else '',
         ])
     return '﻿' + output.getvalue()
+
+
+def export_assignments_simple_csv(classroom):
+    """One row per student: name, ID, and the group numbers they must comment on (their required assignments,
+    the first `reviews_required` by assignment order, the same ones the lobby marks "required"). Removed students
+    are left out."""
+    db = get_db()
+    needed = classroom['reviews_required'] or 0
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['name', 'student_id', 'groups_to_comment_on'])
+    for s in db.execute('SELECT id, full_name, sis_id FROM roster_student WHERE classroom_id=? AND hidden=0 '
+                        'ORDER BY full_name COLLATE NOCASE', (classroom['id'],)).fetchall():
+        numbers = [r[0] for r in db.execute('SELECT s.group_number FROM review_assignment ra JOIN survey s ON ra.survey_id = s.id '
+                                            'WHERE ra.roster_student_id=? ORDER BY ra.id LIMIT ?', (s['id'], needed))]
+        writer.writerow([s['full_name'], s['sis_id'], ', '.join(str(n) for n in sorted(numbers))])
+    return '﻿' + output.getvalue()

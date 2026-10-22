@@ -13,7 +13,7 @@ from models.download import (
     export_all_responses_csv, export_surveys_config_csv, export_participants_csv,
     export_survey_designers_csv, export_survey_participation_csv,
     export_feedback_csv, export_feedback_summary_csv, export_reminder_actions_csv, export_reminder_plans_csv,
-    export_push_messages_csv, export_groups_csv, export_assignments_csv, export_roster_csv,
+    export_push_messages_csv, export_groups_csv, export_assignments_csv, export_roster_csv, export_assignments_simple_csv,
 )
 
 bp = Blueprint('download', __name__, url_prefix='/c/<code>/download')
@@ -76,6 +76,14 @@ def download_groups(code):
     classroom = _get_classroom_or_403(code)
     return Response(export_groups_csv(classroom['id']), mimetype='text/csv',
                     headers={'Content-Disposition': 'attachment; filename=groups.csv'})
+
+
+@bp.route('/assignments-simple')
+def download_assignments_simple(code):
+    """One row per student with the groups they must comment on."""
+    classroom = _get_classroom_or_403(code)
+    return Response(export_assignments_simple_csv(classroom), mimetype='text/csv',
+                    headers={'Content-Disposition': 'attachment; filename=comment_assignments_simple.csv'})
 
 
 @bp.route('/assignments')
@@ -141,6 +149,7 @@ def download_everything(code):
         zf.writestr('survey_participation.csv', export_survey_participation_csv(cid))
         zf.writestr('feedback.csv', export_feedback_csv(classroom))
         zf.writestr('comment_assignments.csv', export_assignments_csv(classroom))
+        zf.writestr('comment_assignments_simple.csv', export_assignments_simple_csv(classroom))
         zf.writestr('groups.csv', export_groups_csv(classroom['id']))
         zf.writestr('roster.csv', export_roster_csv(classroom['id']))
         zf.writestr('feedback_summary.csv', export_feedback_summary_csv(classroom))
