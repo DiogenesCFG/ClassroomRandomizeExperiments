@@ -42,7 +42,9 @@
 </div>
 
 {% if mode == 'edit' %}
-{% if read_only and survey.early_open and not classroom.surveys_locked %}
+{% if viewas %}
+<div class="alert alert-warning">&#128065; Student view (read-only): editing is turned off here. Students edit this page normally.</div>
+{% elif read_only and survey.early_open and not classroom.surveys_locked %}
 <div class="alert alert-info">&#128274; Your group submitted this survey for early answering (classmates can answer it until <strong>{{ survey.early_deadline_label }}</strong>). It's locked now; ask your instructor if you need to change something.</div>
 {% elif read_only %}
 <div class="alert alert-secondary">&#128274; Survey editing is locked by your instructor. You can still preview the survey and download its responses below.</div>

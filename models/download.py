@@ -750,7 +750,7 @@ def export_feedback_csv(classroom):
             for rnd in rounds:
                 mine = c['rounds'].get(rnd) or {}
                 if mine.get('sent_at'):
-                    status = 'sent'
+                    status = 'sent (entered by instructor)' if mine.get('entered_by_host') else 'sent'
                 elif mine.get('body'):
                     status = 'draft (not sent)'
                 else:
@@ -838,7 +838,8 @@ def export_assignments_csv(classroom):
                           'yes' if c['required'] else 'no']
             for rnd in rounds:
                 mine = c['rounds'].get(rnd) or {}
-                status = 'sent' if mine.get('sent_at') else ('draft (not sent)' if mine.get('body') else 'not started')
+                status = (('sent (entered by instructor)' if mine.get('entered_by_host') else 'sent') if mine.get('sent_at')
+                          else ('draft (not sent)' if mine.get('body') else 'not started'))
                 row += [status, mine.get('body') or '']
             writer.writerow(row)
     return '﻿' + output.getvalue()
@@ -886,3 +887,61 @@ def export_assignments_simple_csv(classroom):
                                             'WHERE ra.roster_student_id=? ORDER BY ra.id LIMIT ?', (s['id'], needed))]
         writer.writerow([s['full_name'], s['sis_id'], ', '.join(str(n) for n in sorted(numbers))])
     return '﻿' + output.getvalue()
+
+
+CANVAS_ID_COLUMNS = ('Student', 'ID', 'SIS User ID', 'SIS Login ID', 'Integration ID', 'Section')
+
+
+def canvas_grades_csv(classroom, csv_text, rnd, count='all', column='Presentation comments', points=None):
+    """Fill a Canvas gradebook export with one new column: each student's number of sent comments in a round
+    (count='all': every sent comment; 'required': only on their required groups). Keeps Canvas's own identity
+    columns (Student, ID, SIS User ID, SIS Login ID, Section) so the file imports straight back into the Gradebook,
+    and only those, so no other grade changes. Students are matched by SIS User ID (then SIS Login ID, then ID).
+    Returns (csv_text, matched, unmatched_names) or raises ValueError with a message."""
+    db = get_db()
+    rows = list(csv.reader(io.StringIO(csv_text.lstrip('\ufeff'))))
+    if not rows:
+        raise ValueError('That file is empty.')
+    header = [h.strip() for h in rows[0]]
+    keep = [i for i, h in enumerate(header) if h in CANVAS_ID_COLUMNS]
+    if not any(header[i] in ('ID', 'SIS User ID', 'SIS Login ID') for i in keep):
+        raise ValueError('That doesn\'t look like a Canvas gradebook export (no ID or SIS User ID column). '
+                         'In Canvas: Grades > Export > Export Entire Gradebook.')
+    col = {header[i]: i for i in keep}
+    needed = classroom['reviews_required'] or 0
+    counts = {}
+    for st in db.execute('SELECT id, sis_id FROM roster_student WHERE classroom_id=?', (classroom['id'],)).fetchall():
+        if count == 'required':
+            n = db.execute("""SELECT COUNT(*) FROM (SELECT survey_id FROM review_assignment WHERE roster_student_id=? ORDER BY id LIMIT ?) req
+                              JOIN feedback f ON f.survey_id = req.survey_id AND f.roster_student_id=? AND f.round=? AND f.sent_at IS NOT NULL""",
+                           (st['id'], needed, st['id'], rnd)).fetchone()[0]
+        else:
+            n = db.execute('SELECT COUNT(*) FROM feedback f JOIN survey s ON f.survey_id = s.id WHERE f.roster_student_id=? '
+                           'AND f.round=? AND f.sent_at IS NOT NULL AND s.classroom_id=?', (st['id'], rnd, classroom['id'])).fetchone()[0]
+        counts[str(st['sis_id']).strip()] = n
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([header[i] for i in keep] + [column])
+    matched, unmatched = 0, []
+    for row in rows[1:]:
+        cells = [row[i] if i < len(row) else '' for i in keep]
+        first = (row[0] if row else '').strip()
+        if first == 'Points Possible':
+            writer.writerow(cells + [points if points is not None else ''])
+            continue
+        if not first or first.lower() == 'student, test':
+            writer.writerow(cells + [''])
+            continue
+        value = ''
+        for key in ('SIS User ID', 'SIS Login ID', 'ID'):
+            if key in col:
+                ident = (row[col[key]] if col[key] < len(row) else '').strip()
+                if ident and ident in counts:
+                    value = counts[ident]
+                    break
+        if value == '':
+            unmatched.append(first)
+        else:
+            matched += 1
+        writer.writerow(cells + [value])
+    return output.getvalue(), matched, unmatched

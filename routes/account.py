@@ -30,7 +30,8 @@ def get_signed_in_student(classroom):
     if not rid:
         return None
     student = roster_model.get_student(classroom['id'], rid)
-    if not student or student['hidden'] or not student['password_hash']:
+    viewing = (session.get('viewas') or {}).get('sid') == rid  # the instructor's student view works before sign-up too
+    if not student or student['hidden'] or (not student['password_hash'] and not viewing):
         # Removed from the roster or password reset since signing in
         session.pop(f'roster_student_{classroom["id"]}', None)
         return None
@@ -42,7 +43,14 @@ def ensure_participant_session(classroom, student):
     if session.get('classroom_id') == classroom['id'] and session.get('student_id') == student['sis_id'] \
             and 'participant_id' in session:
         return
-    participant = login_or_create(student['full_name'], student['sis_id'], classroom['id'])
+    from models.db import get_db, is_read_only
+    if is_read_only():
+        # Student view: use their live-session record if they have one, never create it
+        row = get_db().execute('SELECT * FROM participant WHERE student_id=? AND classroom_id=?',
+                               (student['sis_id'], classroom['id'])).fetchone()
+        participant = dict(row) if row else {'id': 0, 'student_id': student['sis_id'], 'name': student['full_name']}
+    else:
+        participant = login_or_create(student['full_name'], student['sis_id'], classroom['id'])
     session['participant_id'] = participant['id']
     session['student_id'] = participant['student_id']
     session['student_name'] = participant['name']

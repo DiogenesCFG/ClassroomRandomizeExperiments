@@ -14,6 +14,7 @@ from models.download import (
     export_survey_designers_csv, export_survey_participation_csv,
     export_feedback_csv, export_feedback_summary_csv, export_reminder_actions_csv, export_reminder_plans_csv,
     export_push_messages_csv, export_groups_csv, export_assignments_csv, export_roster_csv, export_assignments_simple_csv,
+    canvas_grades_csv,
 )
 
 bp = Blueprint('download', __name__, url_prefix='/c/<code>/download')
@@ -60,6 +61,31 @@ def download_participants(code):
         mimetype='text/csv',
         headers={'Content-Disposition': 'attachment; filename=participants.csv'}
     )
+
+
+@bp.route('/canvas-grades', methods=['POST'])
+def download_canvas_grades(code):
+    """The instructor's Canvas gradebook export, returned with one column: each student's sent comments in a round."""
+    classroom = _get_classroom_or_403(code)
+    from models.roster import decode_csv_bytes
+    f = request.files.get('gradebook')
+    rnd = request.form.get('round') if request.form.get('round') in ('sketch', 'survey') else 'sketch'
+    column = (request.form.get('column') or '').strip()[:100] or ('Presentation comments' if rnd == 'sketch' else 'Survey comments')
+    points = request.form.get('points', '').strip()
+    if not f or not f.filename:
+        flash('Choose your Canvas gradebook export (CSV).', 'danger')
+        return redirect(url_for('host.home', code=code) + '#phase')
+    try:
+        text, matched, unmatched = canvas_grades_csv(classroom, decode_csv_bytes(f.read()), rnd,
+                                                     'required' if request.form.get('count') == 'required' else 'all',
+                                                     column, points if points.replace('.', '', 1).isdigit() else None)
+    except ValueError as e:
+        flash(str(e), 'danger')
+        return redirect(url_for('host.home', code=code) + '#phase')
+    name = secure_filename(column) or 'comments'
+    return Response(text, mimetype='text/csv',
+                    headers={'Content-Disposition': f'attachment; filename=canvas_import_{name}.csv',
+                             'X-Matched': str(matched), 'X-Unmatched': str(len(unmatched))})
 
 
 @bp.route('/roster')

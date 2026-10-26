@@ -5,6 +5,12 @@ import click
 from flask import current_app, g
 
 
+def is_read_only():
+    """True while the instructor is viewing the site as a student (routes/view_as.py): nothing may be written."""
+    from flask import has_request_context, session
+    return has_request_context() and bool(session.get('viewas'))
+
+
 def get_db():
     """Get a database connection for the current request context."""
     if 'db' not in g:
@@ -15,6 +21,8 @@ def get_db():
         g.db.row_factory = sqlite3.Row
         g.db.execute('PRAGMA busy_timeout=5000')
         g.db.execute('PRAGMA foreign_keys=ON')
+        if is_read_only():
+            g.db.execute('PRAGMA query_only=ON')  # any write raises, so a student view can never change data
     return g.db
 
 
@@ -254,6 +262,7 @@ def init_db():
         ('classroom', 'show_order', 'INTEGER NOT NULL DEFAULT 1'),  # students see the presentation order in their lobby
         ('classroom', 'fb_sketch_instructions', 'TEXT DEFAULT NULL'),  # the instructor's instructions for each comment round
         ('classroom', 'fb_survey_instructions', 'TEXT DEFAULT NULL'),
+        ('feedback', 'entered_by_host', 'INTEGER NOT NULL DEFAULT 0'),  # a comment the instructor entered for the student
     ):
         try:
             db.execute(f'ALTER TABLE {table} ADD COLUMN {col} {col_def}')

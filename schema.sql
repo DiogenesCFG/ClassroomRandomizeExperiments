@@ -216,7 +216,8 @@ CREATE TABLE IF NOT EXISTS feedback (
     body              TEXT NOT NULL DEFAULT '',
     sent_at           TEXT DEFAULT NULL,
     updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
-    round             TEXT NOT NULL DEFAULT 'survey'   -- 'sketch' (on the presentation) | 'survey' (after it runs)
+    round             TEXT NOT NULL DEFAULT 'survey',  -- 'sketch' (on the presentation) | 'survey' (after it runs)
+    entered_by_host   INTEGER NOT NULL DEFAULT 0       -- 1 = the instructor entered it for the student (e.g. emailed in)
 );
 -- One comment per student, survey and round: the unique index on (survey_id, roster_student_id, round)
 -- is created by the migrations in models/db.py (older databases get the round column there first).

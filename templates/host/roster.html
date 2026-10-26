@@ -237,6 +237,9 @@
                           title="Group {{ g.number }}: {{ g.title }}&#10;Members: {{ g.members|join('; ') or 'none' }}">{{ g.number }}</span>
                     {% endfor %}</td>
                 <td class="text-end text-nowrap">
+                    <form method="POST" action="{{ url_for('view_as.start', code=classroom.code, student_id=s.id) }}" class="d-inline">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary" title="See the site exactly as this student does, read-only">View as student</button>
+                    </form>
                     <a href="#place-card" class="btn btn-sm btn-outline-primary place-link" data-id="{{ s.id }}">Place</a>
                     {% if s.registered_at %}
                     <form method="POST" action="{{ url_for('roster.reset_password', code=classroom.code, student_id=s.id) }}" class="d-inline">

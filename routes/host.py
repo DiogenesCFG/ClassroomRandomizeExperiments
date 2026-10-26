@@ -76,7 +76,9 @@ def home(code):
                                (classroom['id'],)).fetchone()[0],
                            rounds=rounds,
                            to_approve=to_approve,
-                           has_assignments=has_assignments)
+                           has_assignments=has_assignments,
+                           active_students=db.execute('SELECT id, full_name FROM roster_student WHERE classroom_id=? AND hidden=0 '
+                                                      'ORDER BY full_name COLLATE NOCASE', (classroom['id'],)).fetchall())
 
 
 @bp.route('/dashboard')

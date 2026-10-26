@@ -285,7 +285,8 @@ def student_feedback(classroom, roster_student_id):
     for f in db.execute('SELECT f.* FROM feedback f JOIN survey s ON f.survey_id = s.id '
                         'WHERE f.roster_student_id = ? AND s.classroom_id = ?', (roster_student_id, classroom['id'])):
         comments.setdefault(f['survey_id'], {})[f['round']] = {
-            'feedback_id': f['id'], 'body': f['body'], 'sent_at': f['sent_at'], 'updated_at': f['updated_at']}
+            'feedback_id': f['id'], 'body': f['body'], 'sent_at': f['sent_at'], 'updated_at': f['updated_at'],
+            'entered_by_host': bool(f['entered_by_host'])}
     cards, required_left = [], classroom['reviews_required'] or 0
     for r in rows:
         card = dict(r)
@@ -477,3 +478,34 @@ def rebalance_assignments(classroom):
         moved += 1
     db.commit()
     return moved
+
+
+def host_comment(classroom, student_id, survey_id, rnd, body, replace=False):
+    """The instructor enters a comment for a student (e.g. one they emailed but never sent): saved as sent in that
+    round, marked entered_by_host, whatever the round's state. A draft is replaced; a comment already sent only with
+    replace=True. Returns an error message or None."""
+    db = get_db()
+    body = (body or '').strip()[:3000]
+    student = db.execute('SELECT * FROM roster_student WHERE id=? AND classroom_id=?', (student_id, classroom['id'])).fetchone()
+    survey = db.execute('SELECT * FROM survey WHERE id=? AND classroom_id=?', (survey_id, classroom['id'])).fetchone()
+    if rnd not in ROUNDS:
+        return 'Choose a round.'
+    if not student or not survey:
+        return 'Choose a student and a group.'
+    if not body:
+        return 'Type the comment.'
+    if db.execute('SELECT 1 FROM group_member WHERE survey_id=? AND roster_student_id=?', (survey_id, student_id)).fetchone():
+        return f'{student["full_name"]} is in Group {survey["group_number"]}: students can\'t comment on their own group.'
+    existing = db.execute('SELECT * FROM feedback WHERE survey_id=? AND roster_student_id=? AND round=?',
+                          (survey_id, student_id, rnd)).fetchone()
+    if existing and existing['sent_at'] and not replace:
+        return (f'{student["full_name"]} already sent a comment on Group {survey["group_number"]} in this round: '
+                f'"{existing["body"][:120]}". Tick "Replace" to overwrite it.')
+    if existing:
+        db.execute("UPDATE feedback SET body=?, sent_at=COALESCE(sent_at, datetime('now')), updated_at=datetime('now'), "
+                   "entered_by_host=1 WHERE id=?", (body, existing['id']))
+    else:
+        db.execute("INSERT INTO feedback (survey_id, roster_student_id, body, sent_at, round, entered_by_host) "
+                   "VALUES (?, ?, ?, datetime('now'), ?, 1)", (survey_id, student_id, body, rnd))
+    db.commit()
+    return None

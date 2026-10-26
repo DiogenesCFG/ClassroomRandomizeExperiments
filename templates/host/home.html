@@ -152,6 +152,50 @@
                     <a href="{{ url_for('feedback.download_feedback_summary', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">Summary CSV (for grading)</a>
                     {% endif %}
                 </div>
+                {% if has_assignments %}
+                <details class="mt-3" id="canvas-grades">
+                    <summary class="fw-semibold">Grades for Canvas (number of comments sent)</summary>
+                    <p class="small text-muted mt-2 mb-2">In Canvas, export the gradebook (Grades &rarr; Export &rarr; Export Entire Gradebook) and upload it here.
+                        You get it back with Canvas's student columns and one new column: each student's number of comments sent in the round you pick.
+                        Import that file in Canvas (Grades &rarr; Import): it creates the assignment and doesn't change other grades.</p>
+                    <form method="POST" action="{{ url_for('download.download_canvas_grades', code=classroom.code) }}" enctype="multipart/form-data" class="row g-2 align-items-end">
+                        <div class="col-md-4"><label class="form-label small mb-0">Canvas gradebook export (.csv)</label>
+                            <input type="file" name="gradebook" accept=".csv" class="form-control form-control-sm" required></div>
+                        <div class="col-md-2"><label class="form-label small mb-0">Round</label>
+                            <select name="round" class="form-select form-select-sm">
+                                <option value="sketch">Presentations</option><option value="survey">Surveys</option></select></div>
+                        <div class="col-md-2"><label class="form-label small mb-0">Count</label>
+                            <select name="count" class="form-select form-select-sm">
+                                <option value="all">Every comment sent</option><option value="required">Only on their required groups</option></select></div>
+                        <div class="col-md-2"><label class="form-label small mb-0">Column name in Canvas</label>
+                            <input type="text" name="column" class="form-control form-control-sm" value="Presentation comments" maxlength="100"></div>
+                        <div class="col-md-1"><label class="form-label small mb-0">Points</label>
+                            <input type="number" name="points" class="form-control form-control-sm" min="0" step="any" value="{{ classroom.reviews_required or '' }}"></div>
+                        <div class="col-md-1"><button type="submit" class="btn btn-primary btn-sm w-100">Get file</button></div>
+                    </form>
+                </details>
+                <details class="mt-2" id="comment-for-student">
+                    <summary class="fw-semibold">Enter a comment for a student</summary>
+                    <p class="small text-muted mt-2 mb-2">For a comment a student wrote but never sent (e.g. emailed to you). It's saved as sent in that round,
+                        even if the round is closed, and marked "entered by instructor" in the downloads. The group reads it like any other comment
+                        (right away if the round has closed).</p>
+                    <form method="POST" action="{{ url_for('feedback.host_comment', code=classroom.code) }}" class="row g-2">
+                        <div class="col-md-4"><select name="student_id" class="form-select form-select-sm" required>
+                            <option value="">Student...</option>
+                            {% for s in active_students %}<option value="{{ s.id }}">{{ s.full_name }}</option>{% endfor %}</select></div>
+                        <div class="col-md-4"><select name="survey_id" class="form-select form-select-sm" required>
+                            <option value="">Group...</option>
+                            {% for g in surveys %}<option value="{{ g.id }}">Group {{ g.group_number }}: {{ g.title }}</option>{% endfor %}</select></div>
+                        <div class="col-md-4"><select name="round" class="form-select form-select-sm">
+                            <option value="sketch">Comment on the presentation</option><option value="survey">Comment on the survey</option></select></div>
+                        <div class="col-12"><textarea name="body" class="form-control form-control-sm" rows="3" maxlength="3000" required placeholder="Paste the comment"></textarea></div>
+                        <div class="col-12 d-flex align-items-center gap-3">
+                            <button type="submit" class="btn btn-primary btn-sm">Save as sent</button>
+                            <label class="form-check-label small"><input type="checkbox" class="form-check-input" name="replace" value="1"> Replace a comment they already sent on that group</label>
+                        </div>
+                    </form>
+                </details>
+                {% endif %}
                 <p class="small text-muted mb-0 mt-2">
                     {% if has_assignments %}Reviewers are assigned: students see their groups in their lobby, the same groups in both rounds.
                     {% else %}Reviewers are assigned when you click the button above, when a round opens, or when you lock surveys. Assign them once groups are settled.{% endif %}

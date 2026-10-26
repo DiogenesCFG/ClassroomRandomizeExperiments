@@ -540,6 +540,9 @@ DEVICES = ('ios', 'android', 'desktop')
 
 
 def log_action(survey_id, participant_id, arm_index, method, item=None, device=None):
+    from models.db import is_read_only
+    if is_read_only():
+        return  # the instructor's student view records nothing
     db = get_db()
     db.execute('INSERT INTO reminder_action (survey_id, participant_id, arm_index, method, item, device) '
                'VALUES (?, ?, ?, ?, ?, ?)',

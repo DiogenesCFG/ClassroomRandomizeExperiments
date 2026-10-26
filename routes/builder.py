@@ -354,6 +354,9 @@ def index(code):
 def _locked_for(classroom, survey=None):
     """Students can't change surveys once the host locks editing, nor a survey their
     group submitted for early answering (until the host unlocks it). Hosts always can."""
+    from models.db import is_read_only
+    if is_read_only():
+        return True  # the instructor's student view: the page shows read-only
     if _is_classroom_host(classroom['id']):
         return False
     return bool(classroom.get('surveys_locked')) or bool(survey and survey.get('early_open'))

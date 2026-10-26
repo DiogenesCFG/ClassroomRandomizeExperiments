@@ -343,6 +343,21 @@ def set_phase(code):
     return redirect(url_for('host.home', code=code) + '#phase')
 
 
+@bp.route('/host/comment-for-student', methods=['POST'])
+def host_comment(code):
+    """The instructor enters a comment for a student (e.g. emailed in after they forgot to send it)."""
+    classroom = _host_classroom(code)
+    error = fb.host_comment(classroom, request.form.get('student_id', type=int), request.form.get('survey_id', type=int),
+                            request.form.get('round', ''), request.form.get('body', ''), replace=request.form.get('replace') == '1')
+    if error:
+        flash(error, 'danger')
+    else:
+        flash('Comment saved as sent for that student, marked "entered by instructor" in the downloads. '
+              + ('The group can read it now (that round is closed).' if fb.released(classroom, request.form.get('round'))
+                 else 'The group will read it when the round closes.'), 'success')
+    return redirect(url_for('host.home', code=code) + '#phase')
+
+
 @bp.route('/host/survey/<int:survey_id>/early', methods=['POST'])
 def host_early(code, survey_id):
     """Allow/disallow early deployment, or unlock a survey a group submitted early."""

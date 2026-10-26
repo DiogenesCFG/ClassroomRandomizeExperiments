@@ -9,6 +9,7 @@ def register_blueprints(app):
     from routes.account import bp as account_bp
     from routes.feedback import bp as feedback_bp
     from routes.reminders import bp as reminders_bp
+    from routes import view_as
 
     app.register_blueprint(main_bp)
     app.register_blueprint(classroom_bp)
@@ -20,6 +21,10 @@ def register_blueprints(app):
     app.register_blueprint(account_bp)
     app.register_blueprint(feedback_bp)
     app.register_blueprint(reminders_bp)
+    app.register_blueprint(view_as.bp)
+    app.before_request(view_as.guard)
+    import sqlite3
+    app.register_error_handler(sqlite3.OperationalError, view_as.readonly_error)
 
     from models import qtypes
     app.jinja_env.globals['qtypes'] = qtypes  # question type names and helpers for the templates
@@ -30,14 +35,15 @@ def register_blueprints(app):
         and/or the instructor home + log out (a browser can be both)."""
         from flask import request, session
         code = (request.view_args or {}).get('code')
+        viewas = session.get('viewas')
         if not code:
-            return {'nav': None}
+            return {'nav': None, 'viewas': viewas}
         from models.classroom import get_classroom_by_code
         from routes.account import get_signed_in_student
         classroom = get_classroom_by_code(code)
         if not classroom:
-            return {'nav': None}
+            return {'nav': None, 'viewas': viewas}
         student = get_signed_in_student(classroom)
         return {'nav': {'code': classroom['code'],
                         'student': student,
-                        'host': session.get(f'host_authenticated_{classroom["id"]}') is True}}
+                        'host': session.get(f'host_authenticated_{classroom["id"]}') is True}, 'viewas': viewas}

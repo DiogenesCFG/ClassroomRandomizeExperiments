@@ -122,12 +122,14 @@ def lobby(code):
     # Assigned groups appear once reviewers are assigned: when surveys are locked, when a comment
     # round opens (on a schedule, so the first lobby visit after that assigns them), or when the
     # host assigns them. Students added later get their groups on their first visit.
-    if (classroom['surveys_locked'] or fb.any_round_started(classroom)) and not fb.assignments_exist(classroom['id']):
+    from models.db import is_read_only
+    if (classroom['surveys_locked'] or fb.any_round_started(classroom)) and not fb.assignments_exist(classroom['id']) \
+            and not is_read_only():
         fb.ensure_assignments(classroom)
     started = fb.feedback_started(classroom)
     cards = fb.student_feedback(classroom, student['id'])
     if started and sum(1 for c in cards if c['assignment_id']) < (classroom['reviews_required'] or 0) \
-            and fb.assignments_exist(classroom['id']):
+            and fb.assignments_exist(classroom['id']) and not is_read_only():
         fb.ensure_assignments(classroom, only_student_id=student['id'])
         cards = fb.student_feedback(classroom, student['id'])
     if not started:
@@ -160,7 +162,7 @@ def lobby(code):
                            invites=roster_model.pending_invites_for_student(student['id']),
                            live=any(s['is_active'] for s in surveys),
                            survey_order=surveys,
-                           tour_auto=not tour_seen(student, 'lobby'),
+                           tour_auto=not tour_seen(student, 'lobby') and not is_read_only(),
                            open_surveys=fb.open_surveys_for_student(classroom, student['id'],
                                                                     session.get('participant_id')),
                            feedback_started=started, rounds=rounds,
