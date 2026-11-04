@@ -100,7 +100,11 @@ def _build_assignment_payload(survey, arms, questions, student_id, arm_position=
     two_part = reminders.is_two_part(survey)
     num_arms = len(arms)
     if arm_position is None:
-        arm_position = assign_arm(student_id, survey['id'], num_arms)
+        try:
+            from models.assignment import arm_for
+            arm_position = arm_for(survey, arms, student_id)  # balanced / custom split (models/assignment.py)
+        except RuntimeError:  # no request context (the unused SocketIO handlers)
+            arm_position = assign_arm(student_id, survey['id'], num_arms)
     arm = arms[arm_position]
 
     payload = {
@@ -204,6 +208,8 @@ def _get_aggregated_results(db, survey_id):
         'SELECT COUNT(*) as cnt FROM participant WHERE classroom_id=?', (classroom_id,)
     ).fetchone()['cnt']
     output['participant_count'] = participant_count
+    from models import drafts
+    output['in_progress'] = drafts.in_progress(db, survey_id)  # answers saved, not submitted
 
     return output
 

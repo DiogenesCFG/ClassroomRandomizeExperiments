@@ -262,6 +262,11 @@ when you're done on a shared computer.</p>
 <ul>
     <li><b>Shuffle the question order for each respondent</b>, to rule out order effects. Follow-up questions, questions that use an earlier answer
         (<code>{{Q1}}</code>), and any question you mark <b>Keep in place</b> stay where they are. The data records where each question was shown.</li>
+    <li><b>Assigning respondents to arms</b>: by default each arm gets an equal share. You can type other percentages (e.g. 20% control,
+        40% and 40% for two treatments); they must add up to 100% or the survey won't save. <b>Enforce the split</b> (on by default) assigns
+        respondents at random in small shuffled blocks that match those percentages, so the arms stay on target (60 and 60 of 120 at 50/50); turned off,
+        each respondent is assigned independently at random with those chances, so the arms can come out uneven. Either way, each respondent
+        always sees the same arm.</li>
     <li><b>Intro screen</b>: a text respondents read before the first question, with a Start button (instructions or a scenario). It can differ
         between arms. <b>Ask for consent</b> shows "I agree, start" and "I don't want to take part"; nothing is recorded for those who decline.</li>
     <li><b>Apply to every question</b>: shortcuts to make every question required or optional, or to shuffle every question's options.
@@ -354,7 +359,8 @@ comment on are highlighted, so you know when you present and which presentations
 <p>Bring a charged phone or laptop. Sign in before class starts so you're ready.</p>
 <div class="keep"><div class="step"><div class="num">1</div><p>In your lobby, click <b>Join</b> on the Live Session card. You'll see "Waiting for the next survey".</p></div>
 <figure class="mid"><img src="img/13_live_card.png" alt="Live Session card showing LIVE"></figure></div>
-<div class="keep"><div class="step"><div class="num">2</div><p>When the instructor starts a group's survey, it appears on your screen within a few seconds. Answer and click <b>Submit All Answers</b>.</p></div>
+<div class="keep"><div class="step"><div class="num">2</div><p>When the instructor starts a group's survey, it appears on your screen within a few seconds. Answer and click <b>Submit All Answers</b>. Your answers are saved as you go: if the page reloads or your
+connection drops, open it again and you'll continue where you left off. Once you submit, your answers are final.</p></div>
 <figure class="mid"><img src="img/14_live_question.png" alt="A live survey question on a phone"></figure></div>
 <div class="step"><div class="num">3</div><p>Wait for the next one. Keep the page open; there's no need to refresh.</p></div>
 
@@ -404,9 +410,12 @@ bottom of the survey page. Downloads keep working after surveys are locked.</p>
 <figure><img src="img/19_my_group_download.png" alt="My group row with the responses download"></figure>
 <p>The file is a CSV that opens in Excel, Google Sheets, R or Stata. <b>Wide</b> (the default) has one row per respondent and one column per question,
 plus time on each question, whether they left the page, and timeouts:</p>
-<pre>respondent_id,arm,Q1 Willingness to pay (numeric),...
-R-7KQ2PX,Control,8,...
-R-M4TW9A,High anchor,20,...</pre>
+<pre>respondent_id,arm,submitted,Q1 Willingness to pay (numeric),...
+R-7KQ2PX,Control,yes,8,...
+R-M4TW9A,High anchor,no,20,...</pre>
+<p><b>submitted</b>: respondents' answers are saved as they go, so the file also has people who started but never tapped Submit
+(<b>no</b>; for a two-part survey, <b>part 1 only</b> if they didn't submit part 2). Keep only <b>yes</b> for the main analysis; the others are
+useful for checking who dropped out, and where. The long file has the same column on every row.</p>
 <p><b>Long</b> has one row per respondent and question (respondent, arm, part, question, answer, seconds...), handy for regressions with question or part
 effects. Two-part surveys mark part-2 questions, and surveys with notifications add whether each respondent added them (calendar file,
 Google Calendar links, notifications turned on, delivered and tapped).</p>

@@ -4,6 +4,7 @@ import json
 
 from models import qtypes
 from models.db import get_db
+from models.drafts import ALL_ANSWERS
 
 OUTSIDE = '(run on another platform)'
 OUTSIDE_ANSWERS = '(group ran this survey on another platform; answers not available here)'
@@ -66,6 +67,20 @@ def _col(row, name):
     return row[name] if name in keys else None
 
 
+def _submitted(row):
+    """'yes' for a submitted answer, 'no' for one saved but never submitted (rows without the column: yes)."""
+    value = _col(row, 'submitted')
+    return 'no' if value is not None and not value else 'yes'
+
+
+def _status(flags):
+    """A respondent's status from their answers' submitted flags: yes, no, or 'part 1 only' (a two-part
+    survey whose part 2 was started but not submitted)."""
+    if all(flags):
+        return 'yes'
+    return 'part 1 only' if any(flags) else 'no'
+
+
 def _external_surveys(db, classroom_id):
     """Surveys a group runs on another platform (e.g. Google Forms). The exports list them as
     placeholder rows so they aren't forgotten when grading."""
@@ -95,8 +110,8 @@ def export_all_responses_csv(classroom_id):
             r.left_page,
             r.timed_out,
             CASE WHEN s.part2_from IS NOT NULL AND s.external = 0 AND sq.question_index >= s.part2_from THEN 2 ELSE 1 END AS part,
-            r.answered_at, r.display_order, r.position
-        FROM response r
+            r.answered_at, r.display_order, r.position, r.submitted
+        FROM {answers} r
         JOIN survey s ON r.survey_id = s.id
         JOIN survey_arm sa ON r.arm_id = sa.id
         JOIN participant p ON r.participant_id = p.id
@@ -105,7 +120,7 @@ def export_all_responses_csv(classroom_id):
         LEFT JOIN arm_question aq ON aq.arm_id = sa.id AND aq.question_id = sq.id
         WHERE s.classroom_id = ?
         ORDER BY s.group_number, sq.question_index, sa.arm_index, r.answered_at
-    ''', (classroom_id,)).fetchall()
+    '''.format(answers=ALL_ANSWERS), (classroom_id,)).fetchall()
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -114,7 +129,7 @@ def export_all_responses_csv(classroom_id):
         'arm_label', 'arm_question',
         'participant_name', 'participant_student_id', 'respondent_id',
         'answer_text', 'answer_index', 'other_text', 'seconds', 'left_page', 'timed_out', 'answered_at', 'part',
-        'order_shown', 'position'
+        'order_shown', 'position', 'submitted'
     ])
     for row in rows:
         writer.writerow([
@@ -124,11 +139,11 @@ def export_all_responses_csv(classroom_id):
             row['participant_name'], row['participant_student_id'], row['respondent_id'],
             row['answer_text'], row['answer_index'], row['other_text'] or '',
             _seconds(row['seconds']), _yes(row['left_page']), _yes(row['timed_out']), row['answered_at'], row['part'],
-            row['display_order'] or '', row['position'] or ''
+            row['display_order'] or '', row['position'] or '', _submitted(row)
         ])
     for s in _external_surveys(db, classroom_id):
         writer.writerow([s['group_number'], s['title'], '', OUTSIDE, '', '', s['external_note'] or '',
-                         '', '', '', OUTSIDE_ANSWERS, '', '', '', '', '', '', '', '', ''])
+                         '', '', '', OUTSIDE_ANSWERS, '', '', '', '', '', '', '', '', '', ''])
 
     return output.getvalue()
 
@@ -254,31 +269,32 @@ def export_survey_participation_csv(classroom_id):
     """Export which students participated in each survey. One row per student per survey."""
     db = get_db()
     rows = db.execute('''
-        SELECT DISTINCT
+        SELECT
             s.group_number,
             s.title AS survey_title,
             p.name AS participant_name,
             p.student_id AS participant_student_id,
-            sa.label AS arm_label
-        FROM response r
+            sa.label AS arm_label, MIN(r.submitted) AS all_sent, MAX(r.submitted) AS any_sent
+        FROM {answers} r
         JOIN survey s ON r.survey_id = s.id
         JOIN participant p ON r.participant_id = p.id
         JOIN survey_arm sa ON r.arm_id = sa.id
         WHERE s.classroom_id = ?
+        GROUP BY s.id, p.id, sa.id
         ORDER BY s.group_number, p.name
-    ''', (classroom_id,)).fetchall()
+    '''.format(answers=ALL_ANSWERS), (classroom_id,)).fetchall()
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['group_number', 'survey_title', 'participant_name', 'participant_student_id', 'arm_label'])
+    writer.writerow(['group_number', 'survey_title', 'participant_name', 'participant_student_id', 'arm_label', 'submitted'])
     for row in rows:
         writer.writerow([
             row['group_number'], row['survey_title'],
             row['participant_name'], row['participant_student_id'],
-            row['arm_label']
+            row['arm_label'], _status([row['all_sent'], row['any_sent']])
         ])
     for s in _external_surveys(db, classroom_id):
-        writer.writerow([s['group_number'], s['title'], OUTSIDE_ANSWERS, '', ''])
+        writer.writerow([s['group_number'], s['title'], OUTSIDE_ANSWERS, '', '', ''])
 
     return output.getvalue()
 
@@ -306,8 +322,8 @@ def export_survey_responses_csv(survey_id, classroom_id):
             r.left_page,
             r.timed_out,
             CASE WHEN s.part2_from IS NOT NULL AND s.external = 0 AND sq.question_index >= s.part2_from THEN 2 ELSE 1 END AS part,
-            r.answered_at, r.display_order, r.position
-        FROM response r
+            r.answered_at, r.display_order, r.position, r.submitted
+        FROM {answers} r
         JOIN survey s ON r.survey_id = s.id
         JOIN survey_arm sa ON r.arm_id = sa.id
         JOIN participant p ON r.participant_id = p.id
@@ -315,7 +331,7 @@ def export_survey_responses_csv(survey_id, classroom_id):
         LEFT JOIN arm_question aq ON aq.arm_id = sa.id AND aq.question_id = sq.id
         WHERE r.survey_id = ? AND s.classroom_id = ?
         ORDER BY sq.question_index, sa.arm_index, r.answered_at
-    ''', (survey_id, classroom_id)).fetchall()
+    '''.format(answers=ALL_ANSWERS), (survey_id, classroom_id)).fetchall()
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -324,7 +340,7 @@ def export_survey_responses_csv(survey_id, classroom_id):
         'arm_label', 'arm_question',
         'participant_name', 'participant_student_id',
         'answer_text', 'answer_index', 'other_text', 'seconds', 'left_page', 'timed_out', 'answered_at', 'part',
-        'order_shown', 'position'
+        'order_shown', 'position', 'submitted'
     ])
     for row in rows:
         writer.writerow([
@@ -334,7 +350,7 @@ def export_survey_responses_csv(survey_id, classroom_id):
             row['participant_name'], row['participant_student_id'],
             row['answer_text'], row['answer_index'], row['other_text'] or '',
             _seconds(row['seconds']), _yes(row['left_page']), _yes(row['timed_out']), row['answered_at'], row['part'],
-            row['display_order'] or '', row['position'] or ''
+            row['display_order'] or '', row['position'] or '', _submitted(row)
         ])
 
     return output.getvalue()
@@ -354,14 +370,14 @@ def export_survey_responses_anon_csv(survey_id, classroom_id, long=False):
         'ORDER BY sq.question_index', (survey_id, classroom_id)).fetchall()
     rows = db.execute('''
         SELECT r.participant_id, r.question_id, r.answer_text, r.other_text, r.seconds, r.left_page, r.timed_out,
-               r.answered_at, r.display_order, r.position, sa.label AS arm_label, sa.arm_index, rs.anon_id
-        FROM response r
+               r.answered_at, r.display_order, r.position, r.submitted, sa.label AS arm_label, sa.arm_index, rs.anon_id
+        FROM {answers} r
         JOIN survey s ON r.survey_id = s.id
         JOIN survey_arm sa ON r.arm_id = sa.id
         JOIN participant p ON r.participant_id = p.id
         LEFT JOIN roster_student rs ON rs.classroom_id = s.classroom_id AND rs.sis_id = p.student_id
         WHERE r.survey_id = ? AND s.classroom_id = ?
-    ''', (survey_id, classroom_id)).fetchall()
+    '''.format(answers=ALL_ANSWERS), (survey_id, classroom_id)).fetchall()
 
     survey = db.execute('SELECT * FROM survey WHERE id=?', (survey_id,)).fetchone()
     from models.survey import survey_options
@@ -397,7 +413,8 @@ def anon_responses_csv(questions, rows, part2_from=None, reminder_actions=None, 
         resp = respondents.setdefault(r['participant_id'], {
             'id': r['anon_id'] or f'P-{r["participant_id"]}',
             'arm': r['arm_label'], 'arm_index': r['arm_index'], 'answers': {}, 'seconds': {}, 'left': {}, 'timed_out': {},
-            'detail': {}, 'order': {}, 'position': {}, 'attention': {}})
+            'detail': {}, 'order': {}, 'position': {}, 'attention': {}, 'sent': []})
+        resp['sent'].append(_submitted(r) == 'yes')
         qid = r['question_id']
         q = by_id.get(qid)
         qtype = q['question_type'] if q else ''
@@ -422,7 +439,7 @@ def anon_responses_csv(questions, rows, part2_from=None, reminder_actions=None, 
 
     output = io.StringIO()
     writer = csv.writer(output)
-    headers = ['respondent_id', 'arm']
+    headers = ['respondent_id', 'arm', 'submitted']
     for q in questions:
         name = f'Q{q["question_index"] + 1}'
         if q['label']:
@@ -449,7 +466,7 @@ def anon_responses_csv(questions, rows, part2_from=None, reminder_actions=None, 
                     'reminders notifications on', 'reminders notifications delivered', 'reminders notifications opened']
     writer.writerow(headers)
     for pid, resp in sorted(respondents.items(), key=lambda x: (x[1]['arm_index'], x[1]['id'])):
-        row = [resp['id'], resp['arm']] + [resp['answers'].get(q['id'], '') for q in questions]
+        row = [resp['id'], resp['arm'], _status(resp['sent'])] + [resp['answers'].get(q['id'], '') for q in questions]
         for q in questions:
             row += [resp['detail'].get((q['id'], name), '') for name in details[q['id']]]
         for q in questions:
@@ -491,13 +508,14 @@ def anon_responses_long_csv(questions, rows, part2_from=None):
                          _seconds(r['seconds']), _yes(r['left_page']), _yes(r['timed_out']),
                          r['answered_at'] if 'answered_at' in keys and r['answered_at'] else '',
                          '; '.join(json.loads(shown)) if shown else '', _col(r, 'position') or '',
-                         {True: 'passed', False: 'failed'}.get(check, ''),
+                         {True: 'passed', False: 'failed'}.get(check, ''), _submitted(r),
                          (r['arm_index'], order[r['question_id']])])
     out_rows.sort(key=lambda x: (x[-1][0], x[0], x[-1][1]))
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(['respondent_id', 'arm', 'part', 'question', 'question_label', 'question_type', 'answer',
-                     'seconds', 'left_page', 'timed_out', 'answered_at', 'order_shown', 'position', 'attention_check'])
+                     'seconds', 'left_page', 'timed_out', 'answered_at', 'order_shown', 'position', 'attention_check',
+                     'submitted'])
     for row in out_rows:
         writer.writerow(row[:-1])
     return '\ufeff' + output.getvalue()
@@ -602,28 +620,29 @@ def export_single_survey_participation_csv(survey_id, classroom_id):
     """Export participation for a single survey. One row per student who answered."""
     db = get_db()
     rows = db.execute('''
-        SELECT DISTINCT
+        SELECT
             s.group_number,
             s.title AS survey_title,
             p.name AS participant_name,
             p.student_id AS participant_student_id,
-            sa.label AS arm_label
-        FROM response r
+            sa.label AS arm_label, MIN(r.submitted) AS all_sent, MAX(r.submitted) AS any_sent
+        FROM {answers} r
         JOIN survey s ON r.survey_id = s.id
         JOIN participant p ON r.participant_id = p.id
         JOIN survey_arm sa ON r.arm_id = sa.id
         WHERE r.survey_id = ? AND s.classroom_id = ?
+        GROUP BY p.id, sa.id
         ORDER BY p.name
-    ''', (survey_id, classroom_id)).fetchall()
+    '''.format(answers=ALL_ANSWERS), (survey_id, classroom_id)).fetchall()
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['group_number', 'survey_title', 'participant_name', 'participant_student_id', 'arm_label'])
+    writer.writerow(['group_number', 'survey_title', 'participant_name', 'participant_student_id', 'arm_label', 'submitted'])
     for row in rows:
         writer.writerow([
             row['group_number'], row['survey_title'],
             row['participant_name'], row['participant_student_id'],
-            row['arm_label']
+            row['arm_label'], _status([row['all_sent'], row['any_sent']])
         ])
 
     return output.getvalue()

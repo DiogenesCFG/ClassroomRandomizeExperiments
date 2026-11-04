@@ -31,7 +31,7 @@ def _snap(value, lo, hi, step):
     return round(min(max(snapped, lo), hi), 6)
 
 
-def fake_responses(arms, questions, n, seed=None):
+def fake_responses(arms, questions, n, seed=None, split=None, balanced=False):
     """Generate n fake respondents' answers.
 
     arms/questions come from sockets.events._get_survey_with_arms_and_questions.
@@ -53,8 +53,17 @@ def fake_responses(arms, questions, n, seed=None):
                 'shift': rng.uniform(-1, 1),
             }
 
+    arms_given = []
     for respondent in range(1, n + 1):
-        arm = rng.choice(arms)
+        if split and len(split) == len(arms) and balanced:
+            from models.assignment import next_in_block
+            k = next_in_block(split, arms_given, rng)  # the same permuted blocks as real respondents
+        elif split and len(split) == len(arms):
+            k = rng.choices(range(len(arms)), weights=split)[0]
+        else:
+            k = rng.randrange(len(arms))
+        arms_given.append(k)
+        arm = arms[k]
         given = {}  # question_index -> this sample respondent's answer, for display rules
         shown = set()
         for q in questions:
@@ -175,3 +184,11 @@ def _sample_new_type(rng, qtype, settings, info, t):
         choices = ['A' if i < switch else 'B' for i in range(n)]
         return json.dumps(choices), switch
     return None, None
+
+
+def split_args(survey, n_arms):
+    """fake_responses() keywords for a survey's arm split (models/assignment.py)."""
+    from models.assignment import split_of
+    from models.survey import survey_options
+    options = survey_options(survey)
+    return {'split': split_of(options, n_arms), 'balanced': options['balance']}

@@ -87,9 +87,9 @@
     <div class="mt-4">
         <div class="d-flex align-items-center gap-2 mb-2">
             <h5 class="mb-0">Questions by Arm</h5>
-            <button class="btn btn-sm btn-outline-secondary" id="toggle-arms" onclick="var d=document.getElementById('arms-detail');var b=this;if(d.style.display==='none'){d.style.display='';b.textContent='Hide'}else{d.style.display='none';b.textContent='Show'}">Hide</button>
+            <button class="btn btn-sm btn-outline-secondary" id="toggle-arms" onclick="var d=document.getElementById('arms-detail');var b=this;if(d.style.display==='none'){d.style.display='';b.textContent='Hide'}else{d.style.display='none';b.textContent='Show'}" title="Hidden by default, so the projected screen doesn't reveal what other arms were asked">Show</button>
         </div>
-        <div id="arms-detail" class="row"></div>
+        <div id="arms-detail" class="row" style="display:none"></div>
     </div>
 </div>
 
@@ -105,5 +105,5 @@
     const HOST_NEXT_URL = "";
     const HOST_RESET_URL = "";
 </script>
-<script src="{{ url_for('static', filename='js/host.js') }}?v=20261020"></script>
+<script src="{{ url_for('static', filename='js/host.js') }}?v=20261103"></script>
 {% endblock %}

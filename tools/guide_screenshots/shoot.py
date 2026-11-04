@@ -73,6 +73,23 @@ SHOTS = [
      "var e=document.querySelectorAll('#roster-table [data-bs-toggle=tooltip]')[0]; e.scrollIntoView({block:'center'}); e.dispatchEvent(new MouseEvent('mouseover',{bubbles:true}));",
      ['#roster-table tbody tr:nth-child(1)', '.tooltip'], 1.2),
     ('i06_approve', 'host', '/c/ECON101/survey/2/view', DESK, '', ['#reminders'], 1.2),
+    ('35_survey_options', 'sofia', '/c/ECON101/builder/1/edit', DESK,
+     "bootstrap.Modal.getOrCreateInstance(document.getElementById('survey-options-modal')).show();"
+     "setTimeout(function(){var v=['40','60'];document.querySelectorAll('#survey-options-modal .split-input').forEach(function(e,i){if(v[i]){e.value=v[i];e.dispatchEvent(new Event('input',{bubbles:true}));}});},500);",
+     ['.modal.show .modal-content'], 1.6),
+    ('i08_live_menu', 'host', '/c/ECON101/host/home', DESK,
+     "document.querySelector('.dropdown-toggle-split').click();",
+     ['.dropdown-toggle-split', '.dropdown-menu.show', 'form[action$="/host/mockup"]'], 1.2),
+    ('i09_live_order', 'host', '/c/ECON101/host/live-order', DESK, '', ['body > .container'], 1.2),
+    ('i10_live_mock', 'host', '/c/ECON101/host/dashboard?mock=1', DESK,
+     "/*slow*/document.querySelector('.survey-list-item').click();"
+     "setTimeout(function(){document.getElementById('btn-refresh').click();},1200);"
+     "setTimeout(function(){document.getElementById('btn-refresh').click();},2400);"
+     "setTimeout(function(){Object.values(Chart.instances).forEach(function(c){c.options.animation=false;c.resize();c.update('none');});},3600);",
+     ['body > .container'], 1.5),
+    ('i11_student_mockup', 'host', '/c/ECON101/host/home', DESK,
+     "/*slow*/document.querySelector('form[action$=\"/host/mockup\"]').submit();",
+     ['#mockup-banner', '#invites-card', '#my-group-card tbody tr:first-child'], 1.2),
 ]
 
 
@@ -119,7 +136,10 @@ async def main():
                     await asyncio.sleep(wait)
                     if js:
                         await send('Runtime.evaluate', expression=js)
-                        await asyncio.sleep(0.9)
+                        await asyncio.sleep(4.5 if js.startswith('/*slow*/') else 0.9)
+                    # A first-visit tour (e.g. in the student mock-up) would cover the page
+                    await send('Runtime.evaluate', expression="var b=document.querySelector('.driver-popover-close-btn'); if(b){b.click();}")
+                    await asyncio.sleep(0.5)
                     expr = ('(function(){var r=null;' + ''.join(
                         f"var e=document.querySelector({json.dumps(s)}); if(e){{var b=e.getBoundingClientRect();"
                         f"var x=b.left+scrollX,y=b.top+scrollY; r=r?{{x1:Math.min(r.x1,x),y1:Math.min(r.y1,y),x2:Math.max(r.x2,x+b.width),y2:Math.max(r.y2,y+b.height)}}"

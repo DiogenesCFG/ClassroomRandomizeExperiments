@@ -71,6 +71,9 @@
                 <button class="btn btn-primary" id="next-question">Next</button>
             </div>
             <button class="btn btn-success btn-lg w-100 mt-3" id="submit-all">Submit All Answers</button>
+            {% if not preview %}
+            <p class="small text-muted text-center mt-2 mb-0" id="saved-note">Your answers are saved as you go, so you can pick up where you left off. Tap <strong>Submit All Answers</strong> when you're done.</p>
+            {% endif %}
         </div>
     </div>
 </div>
@@ -147,6 +150,8 @@
     const PARTICIPANT_ID = {{ participant_id }};
     const STUDENT_ID = "{{ student_id }}";
     const CLASSROOM_ID = {{ classroom.id }};
+    // Answers are saved as they go (not in previews)
+    const DRAFT_URL = {% if preview %}null{% else %}"{{ url_for('student.save_draft', code=classroom.code) }}"{% endif %};
     {% if preview or open_survey %}
     const STUDENT_STATE_URL = "{{ state_url }}";
     const STUDENT_SUBMIT_URL = "{{ submit_url }}";
@@ -157,7 +162,7 @@
     const POLL_ONCE = false;
     {% endif %}
 </script>
-<script src="{{ url_for('static', filename='js/student.js') }}?v=20261020"></script>
+<script src="{{ url_for('static', filename='js/student.js') }}?v=20261103"></script>
 {% if remote_part != 2 and not (preview and preview_part == 2) %}
 <script src="{{ url_for('static', filename='js/reminders.js') }}?v=20261015"></script>
 <script>

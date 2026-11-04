@@ -268,7 +268,14 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Results update (multi-question format)
-    function handleResultsUpdate(data) {
+    // "18 responses / 24 students · 3 in progress" (in progress: answers saved on the phone, not submitted yet)
+function countText(responses, data) {
+    return responses + ' responses' +
+        (data.participant_count ? ' / ' + data.participant_count + ' students' : '') +
+        (data.in_progress ? ' · ' + data.in_progress + ' in progress' : '');
+}
+
+function handleResultsUpdate(data) {
         console.log('[host] results_update survey=' + data.survey_id +
                     ' questions=' + (data.questions ? data.questions.length : 0) +
                     ' participant_count=' + data.participant_count);
@@ -313,9 +320,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 }
             });
-            document.getElementById('response-count').textContent =
-                maxResponses + ' responses' +
-                (data.participant_count ? ' / ' + data.participant_count + ' students' : '');
+            document.getElementById('response-count').textContent = countText(maxResponses, data);
             renderArmsDetail(data);
             return;
         }
@@ -414,9 +419,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
 
-        document.getElementById('response-count').textContent =
-            maxResponses + ' responses' +
-            (data.participant_count ? ' / ' + data.participant_count + ' students' : '');
+        document.getElementById('response-count').textContent = countText(maxResponses, data);
 
         renderArmsDetail(data);
     }

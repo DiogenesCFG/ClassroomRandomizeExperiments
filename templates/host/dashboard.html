@@ -17,6 +17,13 @@
 {% endblock %}
 
 {% block content %}
+{% if mock %}
+<div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span>&#127917; <b>Live session mock-up.</b> Students see nothing, and the answers are made up (more arrive each time you click
+        <b>Refresh Results</b>). Nothing is saved.</span>
+    <a href="{{ url_for('host.home', code=classroom.code) }}" class="btn btn-sm btn-primary">End mock-up</a>
+</div>
+{% endif %}
 <div class="row">
     <!-- Sidebar: Survey List -->
     <div class="col-md-3">
@@ -67,11 +74,13 @@
 
         <div class="d-grid gap-2 mt-3">
             {% if not single %}<button class="btn btn-success btn-lg" id="btn-next">Next Survey</button>{% endif %}
+            {% if not single %}<a href="{{ url_for('host.live_order', code=classroom.code, back='dashboard') }}" class="btn btn-outline-primary btn-sm"
+               title="Shuffle the live order, or move a group up or down (e.g. a group that has to leave early)">{% if custom_order %}Custom order &middot; change{% else %}Change the order{% endif %}</a>{% endif %}
             <button class="btn btn-outline-danger btn-sm" id="btn-reset">Reset Session</button>
             <a href="{{ url_for('host.home', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">&larr; Instructor home</a>
         </div>
 
-        <div class="card mt-3">
+        <div class="card mt-3" {% if mock %}style="display:none"{% endif %}>
             <div class="card-body p-2">
                 <div class="form-check form-switch">
                     <input class="form-check-input" type="checkbox" id="block-designers-toggle"
@@ -119,9 +128,9 @@
             <div class="mt-4">
                 <div class="d-flex align-items-center gap-2 mb-2">
                     <h5 class="mb-0">Questions by Arm</h5>
-                    <button class="btn btn-sm btn-outline-secondary" id="toggle-arms" onclick="var d=document.getElementById('arms-detail');var b=this;if(d.style.display==='none'){d.style.display='';b.textContent='Hide'}else{d.style.display='none';b.textContent='Show'}">Hide</button>
+                    <button class="btn btn-sm btn-outline-secondary" id="toggle-arms" onclick="var d=document.getElementById('arms-detail');var b=this;if(d.style.display==='none'){d.style.display='';b.textContent='Hide'}else{d.style.display='none';b.textContent='Show'}" title="Hidden by default, so the projected screen doesn't reveal what other arms were asked">Show</button>
                 </div>
-                <div id="arms-detail" class="row"></div>
+                <div id="arms-detail" class="row" style="display:none"></div>
             </div>
         </div>
 
@@ -138,10 +147,11 @@
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <script>
     const CLASSROOM_ID = {{ classroom.id }};
-    const HOST_STATE_URL = "{{ url_for('host.state', code=classroom.code) }}";
-    const HOST_ACTIVATE_URL = "{{ url_for('host.activate_http', code=classroom.code) }}";
-    const HOST_NEXT_URL = "{{ url_for('host.next_http', code=classroom.code) }}";
-    const HOST_RESET_URL = "{{ url_for('host.reset_http', code=classroom.code) }}";
+    {% set p = 'host.mock_' if mock else 'host.' %}
+    const HOST_STATE_URL = "{{ url_for(p ~ 'state', code=classroom.code) }}";
+    const HOST_ACTIVATE_URL = "{{ url_for('host.mock_activate' if mock else 'host.activate_http', code=classroom.code) }}";
+    const HOST_NEXT_URL = "{{ url_for('host.mock_next' if mock else 'host.next_http', code=classroom.code) }}";
+    const HOST_RESET_URL = "{{ url_for('host.mock_reset' if mock else 'host.reset_http', code=classroom.code) }}";
     const HOST_TOGGLE_BLOCK_URL = "{{ url_for('host.toggle_block_designers', code=classroom.code) }}";
 
     // Host password prompt for destructive actions
@@ -173,5 +183,5 @@
         colorLight: '#ffffff',
     });
 </script>
-<script src="{{ url_for('static', filename='js/host.js') }}?v=20261020"></script>
+<script src="{{ url_for('static', filename='js/host.js') }}?v=20261103"></script>
 {% endblock %}

@@ -71,7 +71,7 @@ def join():
         code = request.form.get('code', '').strip().upper()
         password = request.form.get('password', '').strip()
         classroom = get_classroom_by_code(code)
-        if not classroom:
+        if not classroom or classroom.get('sandbox_of'):  # student mock-ups can't be joined
             flash('Classroom not found. Check the code and try again.', 'danger')
             return render_template('classroom/join.html', prefill_code=code)
 
@@ -178,7 +178,7 @@ def host_join():
         code = request.form.get('code', '').strip().upper()
         password = request.form.get('password', '').strip()
         classroom = get_classroom_by_code(code)
-        if not classroom:
+        if not classroom or classroom.get('sandbox_of'):  # student mock-ups are opened from the real class
             flash('Classroom not found. Check the code and try again.', 'danger')
             return render_template('classroom/host_join.html')
         if not check_host_password(classroom['id'], password):

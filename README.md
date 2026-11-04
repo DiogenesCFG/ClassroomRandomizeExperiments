@@ -31,7 +31,9 @@ The survey page has collapsible sections, drag-to-reorder questions, a "Not fini
 
 - **Roster sign-in and teams**: SIS ID + own password; invites with accept/decline; limits on group size and groups per student; filters on the roster (signed up, in a group, group size, pending invites)
 - **Class phases and peer feedback**: balanced, stable reviewer assignments (never one's own group), drafts and private notes, anonymous comments released after feedback closes, grading exports
-- **Live session**: launch any survey or part on its own (from Manage Surveys), a sequence that skips what already ran, "Run again" to reset a survey, block designers from their own survey, QR code
+- **Live session**: launch any survey or part on its own (from Manage Surveys), a sequence that skips what already ran, a custom or shuffled live order (rearrangeable during class), "Run again" to reset a survey, block designers from their own survey, QR code
+- **Mock-ups for the instructor**: a live session mock-up with made-up answers (students see nothing), and a student mock-up: a hidden practice copy of the class to explore and demonstrate every student page
+- **Arm assignment**: balanced ("enforce the split", the default) or independent random draws, with custom percentages per arm
 - **Demo dashboard**: click through every survey's questions, images and sample charts without going live
 - **Early deployment** of one-part surveys, and **other-platform** surveys (e.g. Google Forms) that still present and get feedback
 - **Data**: per-question time on screen, left-page and timeout flags; anonymized group downloads in wide or long format; instructor exports (all responses, configs, roster key, designers, participation, feedback, notifications) and a zip with everything plus images

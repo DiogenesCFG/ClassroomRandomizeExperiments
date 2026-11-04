@@ -208,9 +208,32 @@ without going live. Use it to check the surveys before class or to walk the clas
 <ol>
     <li>On the home page, click <b>Start live session</b> and project it. Students join from their lobby, or by scanning the QR code with the classroom code and password.</li>
     <li>Click a survey on the left, or <b>Next Survey</b>, to start it. Students' phones show it within a few seconds; each student always gets the same arm.</li>
-    <li>Click <b>Refresh Results</b> for the latest charts (they don't update on their own, to keep the site fast with a full class).</li>
-    <li><b>Next Survey</b> moves on in group order, skipping surveys or parts that already ran; <b>Reset Session</b> stops the current survey (nothing is deleted).</li>
+    <li>Click <b>Refresh Results</b> for the latest charts (they don't update on their own, to keep the site fast with a full class).
+        Next to the count, <b>in progress</b> is how many students have started but not submitted: their answers are saved as they go (and come
+        back if their page reloads), but only submitted answers are in the charts.</li>
+    <li><b>Next Survey</b> moves on in the live order, skipping surveys or parts that already ran; <b>Reset Session</b> stops the current survey (nothing is deleted).</li>
 </ol>
+<ul>
+    <li><b>Live order.</b> By default surveys run by group number. The arrow next to <b>Start live session</b> &rarr; <b>Live session order</b>
+        (also on the live page: <b>Change the order</b>) lets you shuffle the order at random, or drag groups (or use the arrows) and save, even
+        during class, e.g. for a group that has to leave early. Next Survey then goes to the next group in the list that hasn't run; a group you
+        move above the current one runs when the list wraps around. The presentation order students see doesn't change.</li>
+    <li><b>Live session mock-up</b> (same arrow): the dashboard exactly as in class, with made-up answers, more arriving with each Refresh.
+        Students see nothing and nothing is saved: use it to rehearse or to show how class day works.</li>
+    <li><b>Questions by arm</b> under the charts start hidden, so the projected screen doesn't show students what the other arms were asked; click <b>Show</b>.</li>
+    <li><b>Arm assignment.</b> Each group chooses in its Survey options how respondents are split between arms: balanced ("Enforce the split",
+        the default) or independent random draws, with equal or custom percentages. A survey that already had answers before this option existed
+        keeps its original method, so nobody's arm changes. Balanced assignment is still random: respondents fill small shuffled blocks that
+        match the split (at 20/40/40, every 5 respondents give 1, 2 and 2), so a student's arm in one survey says nothing about their arm in the next.</li>
+</ul>
+<figure class="mid"><img src="img/08_live_menu.png" alt="The arrow next to Start live session"><figcaption>The arrow next to <b>Start live session</b>.</figcaption></figure>
+<figure><img src="img/09_live_order.png" alt="Live session order page"><figcaption>Live session order: shuffle, drag or use the arrows, then save.</figcaption></figure>
+<figure><img src="img/10_live_mock.png" alt="Live session mock-up"><figcaption>Live session mock-up with made-up answers after two refreshes.</figcaption></figure>
+<p><b>Student mock-up.</b> The <b>Student mock-up</b> button on the instructor home opens a hidden practice copy of your class, as a made-up
+student ("Demo (you)") with a group and a one-question survey to edit, classmates in the group finder, a pending invite, groups to comment on
+and comments received. Try any page (build the survey, preview it, download made-up data, write comments); nothing affects your class, and
+nobody else can open it. It stays as you leave it; <b>Reset mock-up</b> in its banner starts over. Handy for showing students how the site works.</p>
+<figure><img src="img/11_student_mockup.png" alt="Student mock-up lobby"><figcaption>The student mock-up's lobby, with its banner.</figcaption></figure>
 <figure class="mid"><img src="img/04_live_dashboard.png" alt="Live session"></figure>
 <ul>
     <li>Two-part surveys show which part runs here ("part 2"); a "&#10003; ran" badge marks what already ran (click it to show its results again).</li>
@@ -227,7 +250,9 @@ and <b>Feedback summary</b> (per round) are in the Data card and the peer commen
 <p><b>Download everything (.zip)</b> on the home page has every file plus the uploaded images:</p>
 <table>
     <tr><th style="width: 32%">File</th><th>Contents</th></tr>
-    <tr><td>all_responses.csv</td><td>Every answer, with names, IDs, the respondent ID, arm, time on the question, left-page and timeout flags, and part.</td></tr>
+    <tr><td>all_responses.csv</td><td>Every answer, with names, IDs, the respondent ID, arm, time on the question, left-page and timeout flags, and part.
+        A <b>submitted</b> column says whether it was submitted (<b>no</b> = started but never submitted; answers are saved as respondents go). The same
+        column is in the participation files and the groups' downloads.</td></tr>
     <tr><td>surveys_config.csv</td><td>What each arm showed: question texts and options.</td></tr>
     <tr><td>participants.csv</td><td>The roster key: names, IDs and the random respondent IDs students see.</td></tr>
     <tr><td>survey_designers.csv / survey_participation.csv</td><td>Who designed each survey; who answered each one.</td></tr>

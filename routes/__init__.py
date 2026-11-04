@@ -29,6 +29,11 @@ def register_blueprints(app):
     from models import qtypes
     app.jinja_env.globals['qtypes'] = qtypes  # question type names and helpers for the templates
 
+    def assignment_text(survey):
+        from models.assignment import describe
+        return describe(survey, len(survey.get('arms') or []))
+    app.jinja_env.globals['assignment_text'] = assignment_text
+
     @app.context_processor
     def nav_links():
         """Navbar links for pages inside a classroom: the student's lobby + sign out,
@@ -44,6 +49,11 @@ def register_blueprints(app):
         if not classroom:
             return {'nav': None, 'viewas': viewas}
         student = get_signed_in_student(classroom)
-        return {'nav': {'code': classroom['code'],
+        mockup = None
+        if classroom.get('sandbox_of'):
+            from models.classroom import get_classroom
+            real = get_classroom(classroom['sandbox_of'])
+            mockup = {'real_code': real['code'], 'real_name': real['name']} if real else None
+        return {'mockup': mockup, 'nav': {'code': classroom['code'],
                         'student': student,
                         'host': session.get(f'host_authenticated_{classroom["id"]}') is True}, 'viewas': viewas}

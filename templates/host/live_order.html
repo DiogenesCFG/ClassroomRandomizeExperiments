@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}Live session order - {{ classroom.name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+        <h2 class="mb-0">Live session order</h2>
+        <small class="text-muted">The order surveys run in class with <b>Next Survey</b>. The presentation order students see
+            (by group number) doesn't change.</small>
+    </div>
+    <a href="{{ url_for('host.dashboard' if back == 'dashboard' else 'host.home', code=classroom.code) }}" class="btn btn-outline-secondary">
+        &larr; Back to {{ 'the live session' if back == 'dashboard' else 'instructor home' }}</a>
+</div>
+
+<div class="alert {{ 'alert-primary' if custom else 'alert-light border' }} d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span>{% if custom %}<b>Custom order.</b> Next Survey follows the list below.{% else %}<b>By group number</b> (the default).
+        Shuffle it or drag a group to use a custom order.{% endif %}</span>
+    <span class="d-flex gap-2">
+        <form method="POST" class="m-0" onsubmit="return confirm('Shuffle the live order at random?')">
+            <input type="hidden" name="action" value="shuffle"><input type="hidden" name="back" value="{{ back }}">
+            <button type="submit" class="btn btn-sm btn-primary">&#128256; Shuffle at random</button>
+        </form>
+        {% if custom %}
+        <form method="POST" class="m-0">
+            <input type="hidden" name="action" value="group"><input type="hidden" name="back" value="{{ back }}">
+            <button type="submit" class="btn btn-sm btn-outline-secondary">Back to group-number order</button>
+        </form>
+        {% endif %}
+    </span>
+</div>
+
+<form method="POST" id="order-form">
+    <input type="hidden" name="action" value="save"><input type="hidden" name="back" value="{{ back }}">
+    <input type="hidden" name="order" id="order-input">
+    <p class="small text-muted mb-2">Drag a group by its &#10303; handle (or use the arrows), then <b>Save order</b>. Surveys that already ran
+        are skipped by Next Survey wherever they are; a group moved above the current survey runs when the list wraps around.</p>
+    <ol class="list-group list-group-numbered mb-3" id="order-list">
+        {% for s in surveys %}
+        <li class="list-group-item d-flex align-items-center gap-2" data-id="{{ s.id }}">
+            <span class="order-drag text-muted" style="cursor: grab;" title="Drag">&#10303;</span>
+            <span class="flex-grow-1"><b>Group {{ s.group_number }}</b>: {{ s.title }}
+                <small class="text-muted">{{ s.member_names or '' }}</small>
+                {% if s.external %}<span class="badge text-bg-light border">other platform: presents, no live survey</span>
+                {% elif not s.run_part %}<span class="badge text-bg-light border">runs outside the live session</span>{% endif %}
+                {% if s.ran %}<span class="badge text-bg-secondary">&#10003; ran</span>{% endif %}</span>
+            <button type="button" class="btn btn-sm btn-outline-secondary py-0 move-up" title="Move up">&uarr;</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary py-0 move-down" title="Move down">&darr;</button>
+        </li>
+        {% endfor %}
+    </ol>
+    <button type="submit" class="btn btn-success">Save order</button>
+    <span class="small text-muted ms-2" id="order-dirty" style="display:none">Unsaved changes</span>
+</form>
+{% endblock %}
+
+{% block scripts %}{{ super() }}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script>
+    (function() {
+        var list = document.getElementById('order-list');
+        function dirty() { document.getElementById('order-dirty').style.display = ''; }
+        if (window.Sortable) Sortable.create(list, { handle: '.order-drag', animation: 150, onEnd: dirty });
+        list.addEventListener('click', function(e) {
+            var item = e.target.closest('li');
+            if (e.target.closest('.move-up') && item.previousElementSibling) { list.insertBefore(item, item.previousElementSibling); dirty(); }
+            if (e.target.closest('.move-down') && item.nextElementSibling) { list.insertBefore(item.nextElementSibling, item); dirty(); }
+        });
+        document.getElementById('order-form').addEventListener('submit', function() {
+            document.getElementById('order-input').value = Array.prototype.map.call(list.children, function(li) { return li.dataset.id; }).join(',');
+        });
+    })();
+</script>
+{% endblock %}

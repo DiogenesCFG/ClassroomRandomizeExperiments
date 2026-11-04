@@ -55,6 +55,18 @@
         </div>
     </nav>
 
+    {% if mockup %}
+    <div class="container"><div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap gap-2 py-2" id="mockup-banner">
+        <span>&#127917; <strong>Student mock-up</strong> of {{ mockup.real_name }}: a practice copy with made-up classmates.
+            Try anything; nothing here affects your class.</span>
+        <span class="d-flex gap-2">
+            <form method="POST" action="{{ url_for('host.mockup_reset', code=mockup.real_code) }}" class="m-0"
+                  onsubmit="return confirm('Reset the student mock-up? Everything you did in it is replaced by a fresh copy.')">
+                <button type="submit" class="btn btn-sm btn-light border">Reset mock-up</button></form>
+            <a href="{{ url_for('host.home', code=mockup.real_code) }}" class="btn btn-sm btn-primary">Back to instructor home</a>
+        </span>
+    </div></div>
+    {% endif %}
     {% if viewas %}
     <div class="container"><div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2 py-2" id="viewas-banner">
         <span>&#128065; <strong>Viewing as {{ viewas.name }}</strong> (read-only): you see what they see, and nothing you click is saved.</span>

@@ -12,7 +12,21 @@
             {% if classroom.classroom_password_plain %}&middot; Student password <strong>{{ classroom.classroom_password_plain }}</strong>{% endif %}
         </p>
     </div>
-    <a href="{{ url_for('host.dashboard', code=classroom.code) }}" class="btn btn-success btn-lg">&#9654; Start live session</a>
+    <div class="btn-group">
+        <a href="{{ url_for('host.dashboard', code=classroom.code) }}" class="btn btn-success btn-lg">&#9654; Start live session</a>
+        <button type="button" class="btn btn-success btn-lg dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
+            <span class="visually-hidden">More</span></button>
+        <ul class="dropdown-menu dropdown-menu-end">
+            <li><a class="dropdown-item" href="{{ url_for('host.dashboard', code=classroom.code, mock=1) }}">&#127917; Live session mock-up
+                <br><small class="text-muted">the dashboard with made-up answers; students see nothing</small></a></li>
+            <li><a class="dropdown-item" href="{{ url_for('host.live_order', code=classroom.code) }}">&#128256; Live session order
+                <br><small class="text-muted">{{ 'custom order' if classroom.live_order else 'by group number' }}; shuffle or rearrange</small></a></li>
+        </ul>
+    </div>
+    <form method="POST" action="{{ url_for('host.mockup', code=classroom.code) }}" class="d-inline">
+        <button type="submit" class="btn btn-outline-primary btn-lg"
+                title="A practice copy of the class: see and try every student page as a made-up student, without touching your class">&#127917; Student mock-up</button>
+    </form>
 </div>
 
 {% if not roster_count %}

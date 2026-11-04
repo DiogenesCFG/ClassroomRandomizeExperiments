@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS classroom (
     fb_survey_close_at      TEXT DEFAULT NULL,
     groups_frozen           INTEGER NOT NULL DEFAULT 0,  -- students can't change groups; the host places them
     show_order              INTEGER NOT NULL DEFAULT 1,  -- students see the presentation order in their lobby
+    live_order              TEXT DEFAULT NULL,           -- custom live-session order (JSON survey ids; NULL = by group number)
+    sandbox_of              INTEGER DEFAULT NULL,        -- a student mock-up: the real class's id (models/sandbox.py)
     fb_sketch_instructions  TEXT DEFAULT NULL,           -- instructions shown with each comment round (NULL = a generic hint)
     fb_survey_instructions  TEXT DEFAULT NULL,
     created_at              TEXT NOT NULL DEFAULT (datetime('now'))
@@ -65,6 +67,16 @@ CREATE TABLE IF NOT EXISTS survey (
     settings        TEXT DEFAULT NULL               -- survey-wide options (JSON: shuffle_questions, intro, consent)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_survey_group_classroom ON survey(classroom_id, group_number);
+
+-- Balanced assignment (models/assignment.py): each respondent's arm, given the first time they open the survey
+CREATE TABLE IF NOT EXISTS arm_assignment (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    survey_id       INTEGER NOT NULL REFERENCES survey(id) ON DELETE CASCADE,
+    student_key     TEXT NOT NULL,          -- the student's SIS ID (participant.student_id)
+    arm_index       INTEGER NOT NULL,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_arm_assignment_unique ON arm_assignment(survey_id, student_key);
 
 CREATE TABLE IF NOT EXISTS survey_arm (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -157,6 +169,27 @@ CREATE TABLE IF NOT EXISTS response (
 );
 CREATE INDEX IF NOT EXISTS idx_response_survey ON response(survey_id);
 CREATE INDEX IF NOT EXISTS idx_response_survey_arm_question ON response(survey_id, arm_id, question_id);
+
+-- Answers given but not yet submitted (saved as the respondent goes; cleared on submit). Same columns as
+-- response; see models/drafts.py.
+CREATE TABLE IF NOT EXISTS response_draft (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    participant_id  INTEGER NOT NULL REFERENCES participant(id) ON DELETE CASCADE,
+    survey_id       INTEGER NOT NULL REFERENCES survey(id) ON DELETE CASCADE,
+    arm_id          INTEGER NOT NULL REFERENCES survey_arm(id) ON DELETE CASCADE,
+    question_id     INTEGER NOT NULL REFERENCES survey_question(id) ON DELETE CASCADE,
+    answer_text     TEXT,
+    answer_index    INTEGER,
+    answered_at     TEXT DEFAULT (datetime('now')),
+    seconds         REAL DEFAULT NULL,
+    left_page       INTEGER DEFAULT NULL,
+    other_text      TEXT DEFAULT NULL,
+    timed_out       INTEGER DEFAULT NULL,
+    display_order   TEXT DEFAULT NULL,
+    position        INTEGER DEFAULT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_response_draft_unique ON response_draft(participant_id, question_id);
+CREATE INDEX IF NOT EXISTS idx_response_draft_survey ON response_draft(survey_id);
 CREATE INDEX IF NOT EXISTS idx_survey_active_classroom ON survey(classroom_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_participant_classroom ON participant(classroom_id);
 

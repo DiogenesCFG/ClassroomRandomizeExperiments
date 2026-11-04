@@ -638,6 +638,28 @@ data-types="{{ types|join(' ') }}"{% if qtype not in types %} style="display:non
                                 Shuffle the question order for each respondent
                                 {{ info('Each respondent gets the questions in their own random order (always the same for them), to rule out order effects. Questions with display conditions, or that pipe in an earlier answer, keep their place; you can keep others in place too (Advanced options of the question). In a two-part survey each part is shuffled separately. The download records the position each question was shown in.') }}</label>
                         </div>
+                        <h6 class="mb-1">Assigning respondents to arms</h6>
+                        <input type="hidden" name="assignment_present" value="1">
+                        <div class="form-check form-switch">
+                            <label class="form-check-label"><input class="form-check-input" type="checkbox" value="1" name="balance" id="balance-on" {% if so.balance is not defined or so.balance %}checked{% endif %}>
+                                Enforce the split
+                                {{ info('On (recommended): respondents are assigned at random in small shuffled blocks that match these percentages (at 20/40/40, every 5 students give 1, 2 and 2), so the arms stay on target, e.g. 60 and 60 of 120 students at 50/50 (61 and 60 of 121), and the arm a student gets in another survey has nothing to do with this one. Off: each respondent is assigned independently at random with these chances, like flipping a coin for each one, so the arms can end up uneven (e.g. 66 and 54). Either way, each respondent always sees the same arm.') }}</label>
+                        </div>
+                        <p class="small text-muted mb-1 mt-1">Share of respondents in each arm (whole percents that add up to 100):</p>
+                        <div id="split-rows" class="mb-1" style="max-width: 26rem;">
+                            {% for arm in arms %}
+                            <div class="input-group input-group-sm mb-1 split-row">
+                                <span class="input-group-text flex-grow-1 split-arm-name">{{ arm.label or 'Arm ' ~ loop.index }}</span>
+                                <input type="number" class="form-control split-input" name="split" min="0" max="100" step="1" style="max-width: 6rem;"
+                                       value="{{ arm_split[loop.index0] if arm_split and loop.index0 < arm_split|length else '' }}">
+                                <span class="input-group-text">%</span>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <div class="d-flex align-items-center gap-3 mb-3 small">
+                            <span id="split-total"></span>
+                            <a href="#" id="split-equal">Equal split</a>
+                        </div>
                         <h6 class="mb-1">Intro screen</h6>
                         <div class="form-check form-switch">
                             <label class="form-check-label"><input class="form-check-input" type="checkbox" value="1" name="intro" id="intro-on" {% if so.intro %}checked{% endif %}>
@@ -886,7 +908,8 @@ data-types="{{ types|join(' ') }}"{% if qtype not in types %} style="display:non
 
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
-<script src="{{ url_for('static', filename='js/builder.js') }}?v=20261020"></script>
+<script src="{{ url_for('static', filename='js/builder.js') }}?v=20261103"></script>
+<script src="{{ url_for('static', filename='js/split.js') }}?v=20261103"></script>
 {% if mode == 'edit' and not external %}<script src="{{ url_for('static', filename='js/reminders-builder.js') }}?v=20261015"></script>{% endif %}
 <script src="https://cdn.jsdelivr.net/npm/driver.js@1.9.0/dist/driver.js.iife.js"></script>
 <script src="{{ url_for('static', filename='js/tour.js') }}?v=20261007"></script>

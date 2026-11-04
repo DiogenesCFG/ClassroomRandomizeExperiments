@@ -90,10 +90,15 @@ def dashboard(code):
         return redirect(url_for('host.login', code=code))
 
     from models import reminders
-    surveys = with_todo(list_surveys(classroom['id']))
+    from models.live import live_sequence, custom_order
+    surveys = live_sequence(classroom, with_todo(list_surveys(classroom['id'])))
     # ?survey=ID&part=N: launch just that survey (or one part of it), e.g. a part run outside
     # the live session's sequence. The sequence otherwise runs each survey's live part once.
     single = request.args.get('survey', type=int)
+    mock = request.args.get('mock') == '1'
+    if mock:
+        single = None
+        session['live_mock'] = {'cid': classroom['id'], 'current': None, 'part': None, 'ran': [], 'refresh': 0}
     if single:
         surveys = [s for s in surveys if s['id'] == single and not s['external']]
         if not surveys:
@@ -105,8 +110,96 @@ def dashboard(code):
             s['run_part'] = part if s['two_part'] and part in (1, 2) else (reminders.sequence_part(s) or 1)
         else:
             s['run_part'] = reminders.sequence_part(s)
-        s['ran'] = bool(s['run_part']) and reminders.part_ran(s, s['run_part'])
-    return render_template('host/dashboard.html', surveys=surveys, classroom=classroom, single=bool(single))
+        s['ran'] = bool(s['run_part']) and reminders.part_ran(s, s['run_part']) and not mock
+    return render_template('host/dashboard.html', surveys=surveys, classroom=classroom, single=bool(single),
+                           custom_order=custom_order(classroom) is not None, mock=mock)
+
+
+# --- Live session mock-up: the real dashboard with made-up answers. Nothing is activated for students and
+# nothing is written: the mock's "current survey" lives in the instructor's session. ---
+
+def _mock_classroom(code):
+    classroom = _get_classroom_or_404(code)
+    if not session.get(f'host_authenticated_{classroom["id"]}'):
+        abort(403)
+    state = session.get('live_mock')
+    if not state or state.get('cid') != classroom['id']:
+        state = {'cid': classroom['id'], 'current': None, 'part': None, 'ran': [], 'refresh': 0}
+    return classroom, state
+
+
+def _mock_results(classroom, state):
+    """Made-up answers for the mock's current survey: about a third of the class at first, more with each Refresh."""
+    from models.preview import fake_responses, split_args
+    from sockets.events import _aggregate_responses, _get_survey_with_arms_and_questions
+    db = get_db()
+    total = db.execute('SELECT COUNT(*) FROM roster_student WHERE classroom_id=? AND hidden=0', (classroom['id'],)).fetchone()[0] or 30
+    if not state['current']:
+        return total, None
+    parts = _get_survey_with_arms_and_questions(db, state['current'])
+    if not parts or parts[0]['classroom_id'] != classroom['id']:
+        return total, None
+    survey, arms, questions = parts
+    from models import reminders
+    if reminders.is_two_part(survey):
+        questions = [q for q in questions if reminders.question_part(survey, q) == (state['part'] or 1)]
+    shown = min(total, max(1, round(total * (1 + state['refresh']) / 4)))
+    results = _aggregate_responses(survey, arms, questions, fake_responses(arms, questions, shown, seed=state['current'] * 31 + (state['part'] or 1),
+                                                                          **split_args(survey, len(arms))))
+    results['participant_count'] = total
+    return total, results
+
+
+@bp.route('/mock/state')
+def mock_state(code):
+    classroom, state = _mock_classroom(code)
+    if state['current']:
+        state['refresh'] += 1
+        session['live_mock'] = state
+    total, results = _mock_results(classroom, state)
+    return jsonify({'ok': True, 'participant_count': total, 'active_survey_id': state['current'], 'results': results})
+
+
+@bp.route('/mock/activate', methods=['POST'])
+def mock_activate(code):
+    classroom, state = _mock_classroom(code)
+    data = request.get_json(silent=True) or {}
+    row = get_db().execute('SELECT * FROM survey WHERE id=? AND classroom_id=? AND external=0',
+                           (data.get('survey_id'), classroom['id'])).fetchone()
+    if not row:
+        return jsonify({'ok': False, 'error': 'survey_not_found'}), 404
+    from models import reminders
+    part = data.get('part') if reminders.is_two_part(dict(row)) and data.get('part') in (1, 2) else (reminders.sequence_part(dict(row)) or 1)
+    state.update(current=row['id'], part=part, refresh=0)
+    if row['id'] not in state['ran']:
+        state['ran'].append(row['id'])
+    session['live_mock'] = state
+    return jsonify({'ok': True, 'results': _mock_results(classroom, state)[1]})
+
+
+@bp.route('/mock/next', methods=['POST'])
+def mock_next(code):
+    classroom, state = _mock_classroom(code)
+    from models import reminders
+    from models.live import live_sequence, next_in_sequence
+    rows = [dict(r) for r in get_db().execute('SELECT * FROM survey WHERE classroom_id=? AND external=0', (classroom['id'],))]
+    nxt = next_in_sequence(live_sequence(classroom, rows), state['current'],
+                           lambda s: bool(reminders.sequence_part(s)) and s['id'] not in state['ran'])
+    if not nxt:
+        state.update(current=None, part=None)
+        session['live_mock'] = state
+        return jsonify({'ok': True, 'done': True, 'results': None})
+    state.update(current=nxt['id'], part=reminders.sequence_part(nxt) or 1, refresh=0)
+    state['ran'].append(nxt['id'])
+    session['live_mock'] = state
+    return jsonify({'ok': True, 'done': False, 'results': _mock_results(classroom, state)[1]})
+
+
+@bp.route('/mock/reset', methods=['POST'])
+def mock_reset(code):
+    classroom, state = _mock_classroom(code)
+    session['live_mock'] = {'cid': classroom['id'], 'current': None, 'part': None, 'ran': [], 'refresh': 0}
+    return jsonify({'ok': True})
 
 
 @bp.route('/demo')
@@ -224,17 +317,16 @@ def next_http(code):
         (classroom['id'],),
     ).fetchone()
 
-    # The next survey (by group number) whose live-session part hasn't run yet: parts run
-    # separately, remote parts, and surveys launched on their own earlier are skipped
+    # The next survey in the live order (group number, or the instructor's custom order) whose live-session
+    # part hasn't run yet: parts run separately, remote parts, and surveys launched on their own earlier are skipped
     from models import reminders
-    after = current['group_number'] if current else -1
-    next_row = None
-    for row in db.execute('SELECT * FROM survey WHERE group_number > ? AND classroom_id=? AND external=0 '
-                          'ORDER BY group_number', (after, classroom['id'])).fetchall():
-        part = reminders.sequence_part(dict(row))
-        if part and not reminders.part_ran(dict(row), part):
-            next_row = row
-            break
+    from models.live import live_sequence, next_in_sequence
+    rows = [dict(r) for r in db.execute('SELECT * FROM survey WHERE classroom_id=? AND external=0', (classroom['id'],))]
+
+    def due(s):
+        part = reminders.sequence_part(s)
+        return bool(part) and not reminders.part_ran(s, part)
+    next_row = next_in_sequence(live_sequence(classroom, rows), current['id'] if current else None, due)
     if current:
         db.execute('UPDATE survey SET is_active=0 WHERE id=?', (current['id'],))
 
@@ -268,6 +360,73 @@ def _launch(db, classroom, survey, part):
     db.commit()
 
 
+def _enter_mockup(mock):
+    """Sign this browser in to the mock-up as its demo student (the instructor stays signed in to the real class)."""
+    from models import sandbox
+    session[f'classroom_joined_{mock["id"]}'] = True
+    session[f'roster_student_{mock["id"]}'] = sandbox.demo_student(mock)['id']
+    return redirect(url_for('classroom.lobby', code=mock['code']))
+
+
+@bp.route('/mockup', methods=['POST'])
+def mockup(code):
+    """Open the student mock-up: a hidden practice copy of the class, as its demo student (built the first time)."""
+    classroom = _get_classroom_or_404(code)
+    if not session.get(f'host_authenticated_{classroom["id"]}') or classroom.get('sandbox_of'):
+        abort(403)
+    from models import sandbox
+    return _enter_mockup(sandbox.sandbox_of(classroom) or sandbox.build(classroom))
+
+
+@bp.route('/mockup/reset', methods=['POST'])
+def mockup_reset(code):
+    """Delete the student mock-up and build a fresh one."""
+    classroom = _get_classroom_or_404(code)
+    if not session.get(f'host_authenticated_{classroom["id"]}') or classroom.get('sandbox_of'):
+        abort(403)
+    from models import sandbox
+    from routes.builder import _delete_upload
+    old = sandbox.sandbox_of(classroom)
+    if old:
+        for fn in sandbox.delete(old):
+            _delete_upload(fn)
+        session.pop(f'roster_student_{old["id"]}', None)
+    flash('The student mock-up was reset.', 'success')
+    return _enter_mockup(sandbox.build(classroom))
+
+
+@bp.route('/live-order', methods=['GET', 'POST'])
+def live_order(code):
+    """The order surveys run in the live session: by group number (default) or a custom one, shuffled or dragged."""
+    classroom = _get_classroom_or_404(code)
+    if not session.get(f'host_authenticated_{classroom["id"]}'):
+        return redirect(url_for('host.login', code=code))
+    from models import live
+    back = request.values.get('back') if request.values.get('back') in ('dashboard', 'home') else 'home'
+    if request.method == 'POST':
+        action = request.form.get('action')
+        if action == 'group':
+            live.save_order(classroom['id'], None)
+            flash('The live session runs by group number again.', 'success')
+        elif action == 'shuffle':
+            live.save_order(classroom['id'], live.shuffled_ids(classroom['id']))
+            flash('Live order shuffled. Drag groups to adjust it.', 'success')
+        elif action == 'save':
+            ids = [int(i) for i in request.form.get('order', '').split(',') if i.strip().isdigit()]
+            live.save_order(classroom['id'], ids)
+            flash('Live order saved. Next Survey follows it.', 'success')
+        return redirect(url_for('host.live_order', code=code, back=back))
+    classroom = _get_classroom_or_404(code)
+    from models import reminders
+    surveys = live.live_sequence(classroom, list_surveys(classroom['id']))
+    for s in surveys:
+        part = reminders.sequence_part(s)
+        s['ran'] = bool(part) and reminders.part_ran(s, part)
+        s['run_part'] = part
+    return render_template('host/live_order.html', classroom=classroom, surveys=surveys,
+                           custom=live.custom_order(classroom) is not None, back=back)
+
+
 @bp.route('/survey/<int:survey_id>/run-again', methods=['POST'])
 def run_again(code, survey_id):
     """Start a survey over: delete its responses (and notification sign-ups) and forget that it ran,
@@ -283,7 +442,7 @@ def run_again(code, survey_id):
     survey = db.execute('SELECT * FROM survey WHERE id=? AND classroom_id=?', (survey_id, classroom['id'])).fetchone()
     if not survey:
         abort(404)
-    for table in ('response', 'reminder_action', 'push_subscription'):
+    for table in ('response', 'response_draft', 'arm_assignment', 'reminder_action', 'push_subscription'):
         db.execute(f'DELETE FROM {table} WHERE survey_id=?', (survey_id,))
     db.execute('UPDATE survey SET is_active=0, active_part=NULL, part1_ran=NULL, part2_ran=NULL WHERE id=?',
                (survey_id,))
@@ -345,6 +504,11 @@ def delete_classroom(code):
         return redirect(url_for('host.home', code=code))
 
     from routes.builder import _delete_upload
+    from models import sandbox
+    mock = sandbox.sandbox_of(classroom)
+    if mock:
+        for fn in sandbox.delete(mock):
+            _delete_upload(fn)
 
     removed_files = delete_classroom_model(classroom['id'])
     for fn in removed_files:

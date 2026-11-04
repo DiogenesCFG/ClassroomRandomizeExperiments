@@ -3,6 +3,7 @@ import sqlite3
 
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash, abort, jsonify
 
+from models import drafts
 from models.classroom import get_classroom_by_code
 from models.db import get_db
 from models.survey import get_survey
@@ -34,6 +35,56 @@ def _clean_order(value):
     if not isinstance(value, list) or not value or len(value) > 50:
         return None
     return json.dumps([str(v)[:200] for v in value], ensure_ascii=False)
+
+
+def _clean_position(value):
+    return value if isinstance(value, int) and not isinstance(value, bool) and 0 < value < 1000 else None
+
+
+def _clean_entry(answer):
+    """One answer as sent by the phone, cleaned for storing (response or response_draft)."""
+    return {
+        'question_id': answer.get('question_id'),
+        'answer_text': str(answer.get('answer_text', '')),
+        'answer_index': answer.get('answer_index') if isinstance(answer.get('answer_index'), int) else None,
+        'other_text': str(answer.get('other_text') or '').strip()[:140] or None,
+        'seconds': _clean_seconds(answer.get('seconds')),
+        'left_page': 1 if answer.get('left_page') else 0,
+        'timed_out': 1 if answer.get('timed_out') else 0,
+        'display_order': _clean_order(answer.get('display_order')),
+        'position': _clean_position(answer.get('position')),
+    }
+
+
+def _part_of(db, survey, question_ids):
+    """(part, that part's question ids) for answers to these questions, or (None, None) if they mix parts.
+    A one-part survey: (1, None), None meaning all its questions."""
+    from models import reminders
+    if not reminders.is_two_part(survey):
+        return 1, None
+    index_of = {r['id']: r['question_index'] for r in db.execute(
+        'SELECT id, question_index FROM survey_question WHERE survey_id=?', (survey['id'],))}
+    parts = {reminders.question_part(survey, {'question_index': index_of[q]}) for q in question_ids if q in index_of}
+    if len(parts) != 1:
+        return None, None
+    part = parts.pop()
+    return part, [q for q, i in index_of.items() if reminders.question_part(survey, {'question_index': i}) == part]
+
+
+def _closed_for(db, survey, part):
+    """Why answers to this part can't be taken now (an error code), or None.
+    Part 1 (or a one-part survey): only while it runs live, or opened early before its deadline.
+    Part 2 of a two-part survey: while its dates are open, for students who answered part 1."""
+    from models.feedback import early_survey_is_open
+    from models import reminders
+    if part == 2 and not reminders.answered_part(db, session['participant_id'], survey, 1):
+        return 'part1_first'
+    running_live = survey['is_active'] and (survey['active_part'] or 1) == part
+    open_remote = part in reminders.remote_parts(survey) and reminders.part_window(get_survey(survey['id']), part) == 'open'
+    open_early = part == 1 and not reminders.is_two_part(survey) and early_survey_is_open(survey)
+    if not (running_live or open_remote or open_early):
+        return 'survey_closed'
+    return None
 
 
 def _require_classroom_access(classroom):
@@ -128,6 +179,7 @@ def session_state(code):
 
     survey, arms, questions = result
     payload = _build_assignment_payload(survey, arms, questions, session['student_id'], part=part)
+    drafts.attach(payload, session['participant_id'])
     if part == 2:
         payload['title'] += ' (part 2)'
     return jsonify({
@@ -163,52 +215,31 @@ def submit_answer_http(code):
     if not survey:
         return jsonify({'ok': False, 'error': 'survey_not_found'}), 404
 
-    # Part 1 (or a one-part survey): only while it runs live, or opened early before its deadline.
-    # Part 2 of a two-part survey: while its dates are open, for students who answered part 1.
-    from models.feedback import early_survey_is_open
-    from models import reminders
     survey = dict(survey)
-    part = 1
-    if reminders.is_two_part(survey):
-        index_of = {r['id']: r['question_index'] for r in db.execute(
-            'SELECT id, question_index FROM survey_question WHERE survey_id=?', (survey_id,))}
-        parts = {reminders.question_part(survey, {'question_index': index_of[a.get('question_id')]})
-                 for a in answers if a.get('question_id') in index_of}
-        if len(parts) != 1:
-            return jsonify({'ok': False, 'error': 'missing_answer_data'}), 400
-        part = parts.pop()
-    if part == 2 and not reminders.answered_part(db, session['participant_id'], survey, 1):
-        return jsonify({'ok': False, 'error': 'part1_first'}), 403
-    running_live = survey['is_active'] and (survey['active_part'] or 1) == part
-    open_remote = part in reminders.remote_parts(survey) and reminders.part_window(get_survey(survey_id), part) == 'open'
-    open_early = part == 1 and not reminders.is_two_part(survey) and early_survey_is_open(survey)
-    if not (running_live or open_remote or open_early):
-        return jsonify({'ok': False, 'error': 'survey_closed'}), 409
+    part, part_ids = _part_of(db, survey, [a.get('question_id') for a in answers])
+    if part is None:
+        return jsonify({'ok': False, 'error': 'missing_answer_data'}), 400
+    closed = _closed_for(db, survey, part)
+    if closed:
+        return jsonify({'ok': False, 'error': closed}), 403 if closed == 'part1_first' else 409
 
     if _is_fully_answered(db, session['participant_id'], survey_id, part):
+        drafts.clear(db, session['participant_id'], survey_id, part_ids)
+        db.commit()
         return jsonify({'ok': True, 'status': 'already_answered'})
 
     try:
         for answer in answers:
+            e = _clean_entry(answer)
             db.execute(
                 'INSERT INTO response (participant_id, survey_id, arm_id, question_id, answer_text, answer_index, '
                 'seconds, left_page, other_text, timed_out, display_order, position) '
                 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                (
-                    session['participant_id'],
-                    survey_id,
-                    arm_id,
-                    answer.get('question_id'),
-                    str(answer.get('answer_text', '')),
-                    answer.get('answer_index'),
-                    _clean_seconds(answer.get('seconds')),
-                    1 if answer.get('left_page') else 0,
-                    (str(answer.get('other_text') or '').strip()[:140] or None),
-                    1 if answer.get('timed_out') else 0,
-                    _clean_order(answer.get('display_order')),
-                    answer.get('position') if isinstance(answer.get('position'), int) and 0 < answer['position'] < 1000 else None,
-                ),
+                (session['participant_id'], survey_id, arm_id, e['question_id'], e['answer_text'], answer.get('answer_index'),
+                 e['seconds'], e['left_page'], e['other_text'], e['timed_out'], e['display_order'], e['position']),
             )
+        # Submitted: the answers saved along the way are no longer drafts
+        drafts.clear(db, session['participant_id'], survey_id, part_ids)
         db.commit()
     except sqlite3.IntegrityError:
         db.rollback()
@@ -216,4 +247,43 @@ def submit_answer_http(code):
             return jsonify({'ok': True, 'status': 'already_answered'})
         return jsonify({'ok': False, 'error': 'integrity_error'}), 409
 
+    return jsonify({'ok': True, 'status': 'saved'})
+
+
+@bp.route('/draft', methods=['POST'])
+def save_draft(code):
+    """Save the answers given so far (not submitted), about a second after each change on the phone.
+    Refused for previews (no participant), closed surveys and once the part is submitted."""
+    classroom = _get_classroom_or_404(code)
+    if 'participant_id' not in session or session.get('classroom_id') != classroom['id'] or not session['participant_id']:
+        return jsonify({'ok': False, 'error': 'not_logged_in'}), 401
+
+    from sockets.events import _is_fully_answered
+
+    data = request.get_json(silent=True) or {}
+    db = get_db()
+    survey = db.execute('SELECT * FROM survey WHERE id=? AND classroom_id=?',
+                        (data.get('survey_id'), classroom['id'])).fetchone()
+    if not survey:
+        return jsonify({'ok': False, 'error': 'survey_not_found'}), 404
+    survey = dict(survey)
+    arm_id = data.get('arm_id')
+    if not db.execute('SELECT 1 FROM survey_arm WHERE id=? AND survey_id=?', (arm_id, survey['id'])).fetchone():
+        return jsonify({'ok': False, 'error': 'missing_answer_data'}), 400
+    own = {r['id'] for r in db.execute('SELECT id FROM survey_question WHERE survey_id=?', (survey['id'],))}
+    question_ids = [q for q in (data.get('question_ids') or []) if isinstance(q, int) and q in own]
+    if not question_ids:
+        return jsonify({'ok': False, 'error': 'missing_answer_data'}), 400
+    part, _ = _part_of(db, survey, question_ids)
+    if part is None:
+        return jsonify({'ok': False, 'error': 'missing_answer_data'}), 400
+    closed = _closed_for(db, survey, part)
+    if closed:
+        return jsonify({'ok': False, 'error': closed}), 409
+    if _is_fully_answered(db, session['participant_id'], survey['id'], part):
+        return jsonify({'ok': True, 'status': 'submitted'})
+    entries = [_clean_entry(a) for a in (data.get('answers') or [])[:200]
+               if isinstance(a, dict) and a.get('question_id') in question_ids]
+    drafts.save(db, session['participant_id'], survey['id'], arm_id, question_ids, entries)
+    db.commit()
     return jsonify({'ok': True, 'status': 'saved'})

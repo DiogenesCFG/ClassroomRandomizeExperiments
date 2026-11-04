@@ -330,6 +330,8 @@ def remote_part_state(code, survey_id, part):
     payload = _build_assignment_payload(s, arms, questions, session['student_id'], part=part,
                                         arm_position=next((i for i, a in enumerate(arms) if a['arm_index'] == arm), None))
     payload['title'] += f' (part {part})'
+    from models import drafts
+    drafts.attach(payload, pid)
     return jsonify({'ok': True, 'state': 'assignment', 'assignment': payload})
 
 

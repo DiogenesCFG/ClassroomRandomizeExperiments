@@ -45,8 +45,10 @@ The app originally used Flask-SocketIO for real-time updates but this was remove
 2. `student.js` polls `/c/<code>/student/state` every 3s
 3. When a survey is active, the state endpoint returns the assignment (arm + questions)
 4. Student answers and clicks Submit -> `POST /c/<code>/student/submit`
-5. Server inserts into `response` table, returns `{ok: true}`
+5. Server inserts into `response` table (and clears that part's drafts), returns `{ok: true}`
 6. On failure, an alert pops up telling the student to retry
+
+**Saving as they go** (`models/drafts.py`): `student.js` posts the answers given so far ~1s after any change, on Next, on a timeout and when the page is hidden (`sendDraft`, `POST /c/<code>/student/draft`, keepalive) into `response_draft` (same columns as `response`; unique per participant and question; `answered_at` changes only when the answer does). Only questions shown; a required slider only once moved or left with Next; optional skipped ones as blank; nothing on the intro, in previews (`DRAFT_URL` null) or after submit/decline. The draft endpoint uses the same open check as submit (`_closed_for`, `_part_of` in `routes/student.py`) and refuses once the part is fully answered. The three state endpoints add `payload['draft']` (`drafts.attach`, same arm only); `restoreDraft()` / `applyAnswer()` put answers back (clicking the real buttons or setting `rankState`/`listState`), timed-out ones locked, skip the intro and resume at the first question not passed (`resumeIndex`). `response` only ever holds submitted answers, so charts and `_is_fully_answered` are unchanged; the dashboard shows "N in progress" (`in_progress` in `_get_aggregated_results`). Exports read `drafts.ALL_ANSWERS` (both tables with `submitted` 1/0): host responses and long anonymized files add `submitted` per row, the wide anonymized file and participation files per respondent (yes / no / part 1 only). Drafts are deleted with responses (`update_survey`, Run again, clear responses; cascades on survey/question/arm/participant).
 
 ### Host Pages
 After logging in, the host lands on the **instructor home** (`/c/<code>/host/home`, `host/home.html`): class phase switches, peer-feedback progress, roster/surveys/data cards, and a collapsed danger zone. Its **Start live session** button opens the live-session page (`/c/<code>/host/dashboard`, `host/dashboard.html`), which only has what class needs: survey list, Next/Reset, results, QR code, classroom code/password, block-designers toggle.
@@ -59,7 +61,11 @@ After logging in, the host lands on the **instructor home** (`/c/<code>/host/hom
 5. Host clicks "Next Survey" -> `POST /c/<code>/host/next` -> advances and returns new results
 
 ### Arm Assignment
-Deterministic via SHA-256: `hash(student_id + ":" + survey_id) % num_arms`. This means a student always gets the same arm for the same survey, even across page refreshes. See `sockets/assignment.py`.
+`models/assignment.py` `arm_for()`, called by `_build_assignment_payload` when no arm is forced (previews force one). A student's arm never changes: a stored `arm_assignment` row, else the arm of answers they already gave. Otherwise, by the survey's options (Survey options "Assigning respondents to arms": `balance` = "Enforce the split", default on; `split` = whole percents per arm adding up to 100, default equal; `_save_edit` refuses a split that doesn't, via `split_problem`):
+- **balanced** (enforce on): permuted-block randomization (`block_of`, `next_in_block`): the smallest block matching the split within 1 point (50/50 -> 1+1, 20/40/40 -> 1+2+2, 35/65 -> 5+9); each new respondent gets a random open slot of the current block, so arms are exactly on target after every full block and a student's arm in one survey says nothing about their arm in the next (arrival order is similar across surveys, so a deterministic "most behind" rule would correlate them). Stored in `arm_assignment` in order (`BEGIN IMMEDIATE` around read + insert; unique per survey and student). Counts everyone who opened the survey, not only those who submitted.
+- **weighted** (enforce off, unequal split): an independent draw from a stable hash of student and survey, not stored.
+- **legacy** (enforce off with an equal split, or a survey that already had answers but no `arm_assignment` rows, i.e. answered before this existed): the original `hash(student_id:survey_id) % num_arms` (`sockets/assignment.py`), so nobody's arm moves.
+Stored assignments are cleared with the answers (`update_survey`, Run again, clear responses). In the read-only student view a balanced arm is computed but not stored. Sample data follows the split (`models/preview.split_args`). `describe()` gives the line shown on View survey.
 
 ## Database
 
@@ -79,6 +85,7 @@ SQLite with WAL mode. Key tables:
 - `feedback` -- peer comments, one per student, survey and `round` ('sketch' | 'survey'; unique index `idx_feedback_round_unique`, created in the migrations) (`sent_at` NULL = private draft)
 - `reminder_action` -- each reminder action by a respondent: `method` ics (downloaded the file) | google (opened a Google Calendar link; `item` = which) | done (said they added them) | push / push_off (notifications on/off), with `device` and `arm_index`
 - `push_subscription`, `push_message` -- push notifications (see below); `app_setting` -- server-wide settings (VAPID keys, site address)
+- `response_draft` -- answers given but not submitted yet (same columns as `response`; see "Saving as they go")
 - `response` -- answer records (participant, survey, arm, question, answer_text, answer_index); `seconds` (time the question was on screen with the page in view, measured on the phone), `left_page` (1 if they switched app/tab while on it), `other_text` (typed answer after choosing "Other"), `display_order` (shuffled options: JSON list of the texts in the order shown), `position` (where the question came in this respondent's survey)
 
 New columns are added by the `ALTER TABLE` migrations in `init_db()` (`models/db.py`), which run on every startup, so existing databases (e.g. on Render) upgrade automatically.
@@ -122,6 +129,13 @@ All in `models/qtypes.py` (names, groups for the Type menu, defaults, parsing he
 - **Dashboard**: picture_choice is charted like multiple choice; the other newer types come with `q.view` (chart kind, labels, axis titles, table columns) and per-arm `series` / `row` from `qtypes.aggregate()` + `view_for()`, drawn by `renderGeneric()` in `host.js`. A price list with numeric values is plotted on a shared price axis (`x_numeric`), so arms with different ranges line up as demand curves.
 - **Exports**: JSON-type answers are readable in the main column (`readable()`), and the wide file adds `detail_columns()` (rank of each item, amount per item / rating per statement, A choices / switch row / switches), "order shown" for shuffled questions, "position" when the question order is shuffled, "passed check" and "passed all attention checks". Long and host exports add `order_shown`, `position` (and long `attention_check`). Configs list scale points, rows and pictures. Sample data (`models/preview.py`) covers every type.
 - **Images**: pictures live in `config`; `survey_images()` (models/survey.py) and `_cleanup_orphan_uploads` count them, autosave returns them as `images['qi_ai_pk']`.
+
+## Live Session Order and Mock-ups
+
+- **Live order** (`models/live.py`, page `/c/<code>/host/live-order`, linked from the instructor home's live-session dropdown and the live dashboard): `classroom.live_order` (JSON survey ids; NULL = by group number). Shuffle at random, drag or use the arrows, Save; "Back to group-number order" clears it. `live_sequence()` orders the dashboard's list and Next Survey; `next_in_sequence()` takes the first survey after the current one, wrapping around, whose live part hasn't run (so a group moved above the current one still runs). The lobby's presentation order stays by group number.
+- **Live session mock-up** (`/c/<code>/host/dashboard?mock=1`, dropdown next to Start live session): the real dashboard page with `host/mock/state|activate|next|reset` endpoints. The mock's current survey, what it "ran" and how many refreshes live in `session['live_mock']`; nothing is written and students see nothing. Results are `fake_responses` for the class size, about a quarter more of the class with each Refresh.
+- **Questions by arm** on the live and preview dashboards start hidden ("Show"), so the projected screen doesn't reveal other arms.
+- **Student mock-up** (`models/sandbox.py`; "Student mock-up" button on the instructor home, `POST /c/<code>/host/mockup`, reset with `.../mockup/reset`): a hidden practice classroom (`classroom.sandbox_of` = the real class's id, code `<CODE>-MOCKUP`, random passwords; `/c/join` and `/c/host-join` refuse it) with the real class's limits and comment instructions, made-up students, four groups (the demo student's, with a one-question survey to edit; two that already ran; one looking for members), three classmates in the group finder, a pending invite, assigned comments with lorem-ipsum comments received (presentations round closed) and the surveys round open. The instructor's browser is signed in to it as "Demo (you)" (`session['roster_student_<mock id>']`), alongside their instructor session. It persists until reset; deleting the real class deletes it. `base.html` shows a banner (Reset / Back to instructor home) on its pages (`mockup` from the `nav_links` context processor).
 
 ## Read-only Student View
 
@@ -233,7 +247,7 @@ The navbar has a Light/Dark switch (`toggleTheme()` in `base.html`); the choice 
 
 - **HTTP over WebSockets**: SocketIO was unreliable on student phones and caused 20+ second hangs. Pure HTTP polling + POST is simpler and works reliably.
 - **Manual refresh over auto-update**: The host clicks "Refresh Results" instead of seeing live updates. This avoids expensive server-side aggregation on every student submission (which was a major bottleneck with 30+ students).
-- **Deterministic arm assignment**: SHA-256 hash ensures stable assignment without storing it in the database.
+- **Stable arm assignment**: a student always gets the same arm (stored for balanced assignment, a SHA-256 hash otherwise); surveys answered before balanced assignment existed keep the hash.
 - **SQLite**: Simple deployment (no external DB server), WAL mode handles concurrent reads well. Single-writer is acceptable since writes are small INSERTs.
 
 ## Gotchas

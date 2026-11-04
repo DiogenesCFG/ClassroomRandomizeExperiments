@@ -235,7 +235,12 @@ def _parse_survey_options(form):
     """Survey-wide options (shuffle question order, intro screen), or None if not on the form."""
     if form.get('survey_options_present') != '1':
         return None
-    return {k: form.get(k) == '1' for k in ('shuffle_questions', 'intro', 'consent')}
+    options = {k: form.get(k) == '1' for k in ('shuffle_questions', 'intro', 'consent')}
+    # Arm assignment (models/assignment.py); a form from before this setting existed keeps the defaults
+    options['balance'] = form.get('balance') == '1' if form.get('assignment_present') == '1' else True
+    raw = form.getlist('split')
+    options['split'] = [int(x) if x.strip().lstrip('-').isdigit() else -1 for x in raw] if raw else None
+    return options
 
 
 TIMER_DISPLAYS = ('both', 'countdown', 'bar', 'hidden')
@@ -427,9 +432,17 @@ def _render_form(classroom, mode, student, **ctx):
         warnings=survey_warnings(survey) if survey else [],
         todo=survey_incomplete(survey) if survey else [],
         response_count=respondent_count(survey_id) if survey_id else 0,
+        arm_split=_arm_split(survey, ctx.get('arms') or []),
         reminders_state=_reminders_state(classroom, survey) if survey else None,
         **{'external': bool(survey and survey['external']),
            'external_note': survey['external_note'] if survey else None, **ctx})
+
+
+def _arm_split(survey, arms):
+    """The arms' target percents for the Survey options pop-up (equal by default)."""
+    from models.assignment import split_of
+    from models.survey import survey_options
+    return split_of(survey_options(survey) if survey else {'split': None}, len(arms))
 
 
 def _reminders_state(classroom, survey):
@@ -573,6 +586,11 @@ def _save_edit(classroom, survey):
         _save_external(survey['id'], True, ext_note)
         return [], [], []
     errors = _validate(title, group_number, arms, questions) + _question_limit_errors(classroom, questions)
+    from models.assignment import split_problem
+    options = _parse_survey_options(request.form)
+    problem = split_problem(options['split'], len(arms)) if options else None
+    if problem:
+        errors.append(problem)
     if errors:
         return errors, None, []
     title, _, arms, questions = _parse_form(request.form, request.files)
@@ -825,7 +843,9 @@ def preview_dashboard_state(code, survey_id):
     survey, arms, questions = parts
     n = min(max(request.args.get('n', 30, type=int), 1), 500)
     seed = request.args.get('seed', type=int)
-    results = _aggregate_responses(survey, arms, questions, fake_responses(arms, questions, n, seed=seed))
+    from models.preview import split_args
+    results = _aggregate_responses(survey, arms, questions, fake_responses(arms, questions, n, seed=seed,
+                                                                           **split_args(survey, len(arms))))
     results['participant_count'] = n
     return jsonify({'ok': True, 'active_survey_id': survey_id, 'participant_count': n, 'results': results})
 
@@ -865,8 +885,9 @@ def preview_example_csv(code, survey_id):
     survey, arms, questions = parts
     n = min(max(request.args.get('n', 30, type=int), 1), 500)
     seed = request.args.get('seed', type=int)
+    from models.preview import split_args
     rows = [dict(r, participant_id=r['respondent'], anon_id=f'EXAMPLE-{r["respondent"]:03d}')
-            for r in fake_responses(arms, questions, n, seed=seed)]
+            for r in fake_responses(arms, questions, n, seed=seed, **split_args(survey, len(arms)))]
     from models import reminders
     from models.download import anon_responses_long_csv
     long = request.args.get('format') == 'long'

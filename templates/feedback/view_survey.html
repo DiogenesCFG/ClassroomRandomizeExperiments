@@ -12,6 +12,7 @@
         {% else %}
         <p class="text-muted small mb-0">
             {{ survey.arms|length }} arm{{ 's' if survey.arms|length != 1 }}: each respondent was randomly shown one of them.
+            {% if survey.arms|length > 1 %}{{ assignment_text(survey) }}.{% endif %}
         </p>
         {% endif %}
     </div>

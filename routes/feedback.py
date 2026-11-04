@@ -213,8 +213,9 @@ def open_survey_state(code, survey_id):
     if not fb.early_survey_is_open(survey):
         return jsonify({'ok': True, 'state': 'closed', 'survey_id': survey_id})
     s, arms, questions = _get_survey_with_arms_and_questions(db, survey_id)
-    return jsonify({'ok': True, 'state': 'assignment',
-                    'assignment': _build_assignment_payload(s, arms, questions, session['student_id'])})
+    from models import drafts
+    payload = drafts.attach(_build_assignment_payload(s, arms, questions, session['student_id']), session['participant_id'])
+    return jsonify({'ok': True, 'state': 'assignment', 'assignment': payload})
 
 
 @bp.route('/builder/<int:survey_id>/submit-early', methods=['POST'])

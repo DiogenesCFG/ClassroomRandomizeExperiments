@@ -22,6 +22,11 @@ document.addEventListener('DOMContentLoaded', function() {
     var leftPage = {};    // question_id -> true if the respondent switched away on it
     var clockStart = null;
 
+    // Saving as they go: answers are saved (not submitted) about a second after each change, and put back
+    // after a reload. seen = questions shown; passed = questions they moved on from (or that were restored).
+    var seen = {}, passed = {};
+    var draftTimer = null, lastDraftKey = null;
+
     function currentQid() {
         var q = questionsData[currentQuestionIndex];
         return q ? q.question_id : null;
@@ -44,6 +49,7 @@ document.addEventListener('DOMContentLoaded', function() {
             stopClock();
             var qid = currentQid();
             if (qid !== null) leftPage[qid] = true;
+            sendDraft(true);  // they may not come back: save what they have
         } else {
             startClock();
         }
@@ -129,6 +135,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
         updateTimerDisplay(q);
+        scheduleDraft();
         // Move on by itself, unless this is the last question (then they just submit)
         updateNav();
         if (currentQid() === qid && nextVisible(currentQuestionIndex) !== -1) {
@@ -351,6 +358,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function showQuestion(index) {
         stopClock();
         currentQuestionIndex = index;
+        if (questionsData[index]) seen[questionsData[index].question_id] = true;
         startClock();
         startTimerFor(questionsData[index]);
         expireOverdue();
@@ -684,6 +692,176 @@ document.addEventListener('DOMContentLoaded', function() {
         expired = {};
         timedOut = {};
         sliderMoved = {};
+        seen = {};
+        passed = {};
+        lastDraftKey = null;
+        if (draftTimer) { clearTimeout(draftTimer); draftTimer = null; }
+    }
+
+    // --- Saving as they go (soft save) ---
+    // The answers given so far, in the submit format. Only questions they've seen; a required slider only
+    // once moved or left with Next (it starts at a value, which isn't an answer yet).
+    function draftEntries() {
+        var out = [];
+        questionsData.forEach(function(q, i) {
+            var qid = q.question_id;
+            if (!isVisible(i) || !seen[qid] || !sectionOf(qid)) return;
+            var entry;
+            if (timedOut[qid] && answers[qid]) {
+                entry = { question_id: qid, answer_text: answers[qid].answer_text, answer_index: answers[qid].answer_index, timed_out: true };
+            } else if (q.question_type === 'slider' && !sliderMoved[qid] && !passed[qid]) {
+                return;
+            } else if (stateOf(q) === 'complete' && !problemWith(q)) {
+                var built = buildAnswer(q);
+                if (!built) return;
+                entry = { question_id: qid, answer_text: built.answer_text, answer_index: built.answer_index };
+                if (otherChosen(qid)) entry.other_text = otherText(qid);
+            } else if (!q.required && passed[qid] && stateOf(q) === 'empty') {
+                entry = { question_id: qid, answer_text: '', answer_index: null };  // optional, skipped
+            } else {
+                return;
+            }
+            entry.seconds = timeSpent[qid] != null ? Math.round(timeSpent[qid] * 10) / 10 : null;
+            entry.left_page = !!leftPage[qid];
+            entry.position = visiblePosition(i);
+            if (q.order) {
+                var labels = q.question_type === 'picture_choice' ? q.pictures.map(function(p) { return p.label; }) : q.options;
+                entry.display_order = q.order.map(function(k) { return labels[k]; });
+            }
+            out.push(entry);
+        });
+        return out;
+    }
+    function draftKey(entries) {
+        return JSON.stringify(entries.map(function(e) { return [e.question_id, e.answer_text, e.other_text || '', !!e.timed_out]; }));
+    }
+    function canSaveDraft() {
+        return typeof DRAFT_URL !== 'undefined' && DRAFT_URL && currentState === 'answering' && !introActive && !isSubmitting
+            && currentSurveyId && !submittedSurveyIds[currentSurveyId] && !declinedSurveyIds[currentSurveyId];
+    }
+    function scheduleDraft() {
+        if (!canSaveDraft()) return;
+        if (draftTimer) clearTimeout(draftTimer);
+        draftTimer = setTimeout(function() { sendDraft(false); }, 1000);
+    }
+    // force: save even if no answer changed (e.g. leaving the page, to keep the time spent)
+    function sendDraft(force) {
+        if (draftTimer) { clearTimeout(draftTimer); draftTimer = null; }
+        if (!canSaveDraft()) return;
+        stopClock();
+        startClock();
+        var entries = draftEntries();
+        var key = draftKey(entries);
+        if (key === lastDraftKey && !force) return;
+        if (!entries.length && lastDraftKey === null) return;  // nothing given yet, nothing saved yet
+        fetch(DRAFT_URL, {
+            method: 'POST', credentials: 'same-origin', keepalive: true,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ survey_id: currentSurveyId, arm_id: currentArmId,
+                                   question_ids: questionsData.map(function(q) { return q.question_id; }), answers: entries }),
+        }).then(function(resp) {
+            if (resp.ok) lastDraftKey = key;
+        }).catch(function() { /* not saved this time; the next change tries again */ });
+    }
+
+    // Put saved answers back after a reload (same arm). Returns how many were restored.
+    function restoreDraft(entries) {
+        var n = 0;
+        (entries || []).forEach(function(d) {
+            var q = questionById(d.question_id);
+            var section = q && sectionOf(q.question_id);
+            if (!section) return;
+            var qid = q.question_id;
+            try {
+                if (d.timed_out) {
+                    answers[qid] = { answer_text: d.answer_text, answer_index: d.answer_index };
+                    timedOut[qid] = true;
+                    expired[qid] = true;
+                    section.querySelectorAll('button, input').forEach(function(el) { el.disabled = true; });
+                    var msg = section.querySelector('.timeout-msg');
+                    if (msg) {
+                        msg.textContent = d.answer_text ? 'Time’s up! The answer "' + readable(q, d) + '" was recorded.'
+                                                        : 'Time’s up! No answer was recorded.';
+                        msg.style.display = '';
+                    }
+                } else if (d.answer_text !== '') {
+                    applyAnswer(q, section, d);
+                }
+            } catch (e) {
+                console.warn('[student] could not restore an answer', qid, e);
+                return;
+            }
+            if (d.seconds != null) timeSpent[qid] = d.seconds;
+            if (d.left_page) leftPage[qid] = true;
+            seen[qid] = true;
+            passed[qid] = true;
+            n++;
+        });
+        return n;
+    }
+    function clickWhere(section, selector, test) {
+        var hit = Array.prototype.filter.call(section.querySelectorAll(selector), test)[0];
+        if (hit) hit.click();
+        return hit;
+    }
+    function setInput(input, value) {
+        if (!input) return;
+        input.value = value;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    function applyAnswer(q, section, d) {
+        var qid = q.question_id, t = q.question_type, text = d.answer_text;
+        if (t === 'multiple_choice' || t === 'picture_choice') {
+            var cls = t === 'picture_choice' ? '.pic-option' : '.btn-mc-option';
+            clickWhere(section, cls, function(b) { return parseInt(b.dataset.index) === d.answer_index; })
+                || clickWhere(section, cls, function(b) { return b.dataset.answer === text; });
+        } else if (t === 'multiple_answer') {
+            JSON.parse(text).forEach(function(item) {
+                clickWhere(section, '.btn-ma-option', function(b) { return b.dataset.answer === item && !b.classList.contains('btn-primary'); });
+            });
+        } else if (t === 'rating') {
+            clickWhere(section, '.btn-rating', function(b) { return Number(b.dataset.value) === Number(text); });
+        } else if (t === 'rating_grid') {
+            var ratings = JSON.parse(text);
+            q.options.forEach(function(row, r) {
+                if (ratings[row] === undefined || ratings[row] === null) return;
+                clickWhere(section, '.btn-grid', function(b) { return parseInt(b.dataset.row) === r && Number(b.dataset.value) === Number(ratings[row]); });
+            });
+        } else if (t === 'ranking') {
+            rankState[qid] = JSON.parse(text).map(function(item) { return q.options.indexOf(item); }).filter(function(i) { return i !== -1; });
+            drawRanks(q);
+            if (stateOf(q) === 'complete') answers[qid] = buildAnswer(q);
+        } else if (t === 'price_list' || t === 'lottery') {
+            var choices = JSON.parse(text);
+            listState[qid] = q.rows.map(function(row, i) { return choices[i] === 'A' || choices[i] === 'B' ? choices[i] : null; });
+            drawList(q);
+            if (stateOf(q) === 'complete') answers[qid] = buildAnswer(q);
+        } else if (t === 'budget') {
+            var amounts = JSON.parse(text);
+            section.querySelectorAll('.budget-input').forEach(function(input) {
+                var item = q.options[parseInt(input.dataset.index, 10)];
+                if (amounts[item] !== undefined && amounts[item] !== null) setInput(input, String(amounts[item]));
+            });
+        } else if (t === 'slider') {
+            setInput(section.querySelector('.slider-answer-input'), text);
+        } else if (t === 'short_answer' || t === 'numeric') {
+            setInput(section.querySelector('.short-answer-input, .numeric-answer-input'), text);
+            if (stateOf(q) === 'complete') answers[qid] = buildAnswer(q);
+        }
+        if (d.other_text && otherChosen(qid)) {
+            var other = section.querySelector('.other-input');
+            if (other) { other.value = d.other_text; other.style.display = ''; }
+        }
+    }
+    // Where to continue: the first question they haven't answered or moved on from
+    function resumeIndex() {
+        var i = nextVisible(-1), last = i;
+        while (i !== -1) {
+            if (!passed[questionsData[i].question_id]) return i;
+            last = i;
+            i = nextVisible(i);
+        }
+        return Math.max(0, last);
     }
 
     // The intro / consent screen before the first question
@@ -736,7 +914,14 @@ document.addEventListener('DOMContentLoaded', function() {
             container.appendChild(section);
         });
 
-        introActive = !!data.intro;
+        // Answers saved before a reload or a dropped connection: put them back and skip the intro
+        var restored = restoreDraft(data.draft);
+        if (restored) {
+            lastDraftKey = draftKey(draftEntries());
+            console.log('[student] restored ' + restored + ' saved answers');
+        }
+
+        introActive = !!data.intro && !restored;
         if (introActive) {
             container.insertAdjacentHTML('afterbegin', introHtml(data.intro));
             container.querySelectorAll('.question-section').forEach(function(s) { s.style.display = 'none'; });
@@ -745,6 +930,7 @@ document.addEventListener('DOMContentLoaded', function() {
         showState('answering');
         if (data.questions.some(function(q) { return q.timer; })) timerTick = setInterval(tickTimers, 200);
         if (introActive) updateNav();
+        else if (restored) showQuestion(resumeIndex());
         else showQuestion(Math.max(0, nextVisible(-1)));
     }
 
@@ -994,6 +1180,12 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    ['click', 'input', 'change'].forEach(function(type) {
+        questionsBox.addEventListener(type, function(e) {
+            if (e.target.closest('input, button, .clear-answer')) scheduleDraft();
+        });
+    });
+
     // Next question button
     document.getElementById('next-question').addEventListener('click', function() {
         var q = questionsData[currentQuestionIndex];
@@ -1001,6 +1193,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (problem) { alert(problem); return; }
         captureCurrentAnswer();
         if (q && !q.required && stateOf(q) === 'empty' && !expired[q.question_id]) answers[q.question_id] = { answer_text: '', answer_index: null };
+        if (q) passed[q.question_id] = true;
+        scheduleDraft();
         var next = nextVisible(currentQuestionIndex);
         if (next !== -1) showQuestion(next);
     });
@@ -1015,6 +1209,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Submit all answers
     document.getElementById('submit-all').addEventListener('click', function() {
         if (isSubmitting) return;
+        if (draftTimer) { clearTimeout(draftTimer); draftTimer = null; }  // submitting saves everything anyway
 
         // Capture current question's answer before validating
         captureCurrentAnswer();

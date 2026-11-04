@@ -19,10 +19,8 @@ Top three for next quarter: **1, 4 and 5**: they'd make building easier, make th
    - Working two-arm surveys for the classics: anchoring, gain/loss framing, defaults, decoy pricing, social norms.
    - Students modify one instead of starting from a blank page.
 
-4. **Balanced randomization** (a methods fix)
-   - The hash-based assignment is stable but not balanced: 30 respondents in 2 arms can easily split 19 vs 11.
-   - Assign in balanced blocks (e.g. shuffled pairs in order of arrival) and store each student's arm, so arms stay within 1 of each other.
-   - Matters a lot with class-sized samples.
+4. ~~**Balanced randomization**~~ **Done (November 2026)**: "Enforce the split" (on by default) and custom percentages per arm
+   in Survey options; see CLAUDE.md, "Arm Assignment".
 
 5. **A teaching dashboard**
    - For each question: the difference between arms with a confidence interval and a p-value, in plain words

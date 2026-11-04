@@ -276,6 +276,8 @@ def update_survey(survey_id, title, group_number, arms, questions):
     # Delete old data -- responses must go first since they reference arms/questions
     # without ON DELETE CASCADE
     db.execute('DELETE FROM response WHERE survey_id=?', (survey_id,))
+    db.execute('DELETE FROM response_draft WHERE survey_id=?', (survey_id,))
+    db.execute('DELETE FROM arm_assignment WHERE survey_id=?', (survey_id,))
     db.execute('DELETE FROM reminder_action WHERE survey_id=?', (survey_id,))
     db.execute('DELETE FROM push_subscription WHERE survey_id=?', (survey_id,))
     db.execute('DELETE FROM survey_question WHERE survey_id=?', (survey_id,))
@@ -428,18 +430,23 @@ def delete_survey(survey_id):
     return image_filenames
 
 
-SURVEY_OPTION_DEFAULTS = {'shuffle_questions': False, 'intro': False, 'consent': False}
+SURVEY_OPTION_DEFAULTS = {'shuffle_questions': False, 'intro': False, 'consent': False, 'balance': True}
 
 
 def survey_options(survey):
-    """Survey-wide options (survey.settings JSON) with defaults."""
+    """Survey-wide options (survey.settings JSON) with defaults; 'split' is the arms' target percents or None
+    (equal; see models/assignment.py)."""
     out = dict(SURVEY_OPTION_DEFAULTS)
-    out.update({k: bool(v) for k, v in qtypes._load(survey.get('settings')).items() if k in SURVEY_OPTION_DEFAULTS})
+    stored = qtypes._load(survey.get('settings') if isinstance(survey, dict) else survey['settings'])
+    out.update({k: bool(v) for k, v in stored.items() if k in SURVEY_OPTION_DEFAULTS})
+    split = stored.get('split')
+    out['split'] = [int(x) for x in split] if isinstance(split, list) and all(isinstance(x, (int, float)) for x in split) else None
     return out
 
 
 def save_survey_options(survey_id, options):
     db = get_db()
-    db.execute('UPDATE survey SET settings=? WHERE id=?',
-               (json.dumps({k: bool(options.get(k)) for k in SURVEY_OPTION_DEFAULTS}), survey_id))
+    data = {k: bool(options.get(k, SURVEY_OPTION_DEFAULTS[k])) for k in SURVEY_OPTION_DEFAULTS}
+    data['split'] = options.get('split')
+    db.execute('UPDATE survey SET settings=? WHERE id=?', (json.dumps(data), survey_id))
     db.commit()

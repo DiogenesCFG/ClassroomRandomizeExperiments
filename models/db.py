@@ -263,6 +263,8 @@ def init_db():
         ('classroom', 'fb_sketch_instructions', 'TEXT DEFAULT NULL'),  # the instructor's instructions for each comment round
         ('classroom', 'fb_survey_instructions', 'TEXT DEFAULT NULL'),
         ('feedback', 'entered_by_host', 'INTEGER NOT NULL DEFAULT 0'),  # a comment the instructor entered for the student
+        ('classroom', 'live_order', 'TEXT DEFAULT NULL'),  # custom live-session order (JSON survey ids; NULL = by group number)
+        ('classroom', 'sandbox_of', 'INTEGER DEFAULT NULL'),  # a student mock-up: the real class's id (models/sandbox.py)
     ):
         try:
             db.execute(f'ALTER TABLE {table} ADD COLUMN {col} {col_def}')
