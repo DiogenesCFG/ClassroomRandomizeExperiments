@@ -332,6 +332,8 @@ def remote_part_state(code, survey_id, part):
     payload['title'] += f' (part {part})'
     from models import drafts
     drafts.attach(payload, pid)
+    from models import visits
+    visits.shown(db, payload, pid, part, 'remote')
     return jsonify({'ok': True, 'state': 'assignment', 'assignment': payload})
 
 

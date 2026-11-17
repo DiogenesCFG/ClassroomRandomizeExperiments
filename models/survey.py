@@ -277,6 +277,7 @@ def update_survey(survey_id, title, group_number, arms, questions):
     # without ON DELETE CASCADE
     db.execute('DELETE FROM response WHERE survey_id=?', (survey_id,))
     db.execute('DELETE FROM response_draft WHERE survey_id=?', (survey_id,))
+    db.execute('DELETE FROM survey_visit WHERE survey_id=?', (survey_id,))
     db.execute('DELETE FROM arm_assignment WHERE survey_id=?', (survey_id,))
     db.execute('DELETE FROM reminder_action WHERE survey_id=?', (survey_id,))
     db.execute('DELETE FROM push_subscription WHERE survey_id=?', (survey_id,))

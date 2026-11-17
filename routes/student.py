@@ -3,7 +3,7 @@ import sqlite3
 
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash, abort, jsonify
 
-from models import drafts
+from models import drafts, visits
 from models.classroom import get_classroom_by_code
 from models.db import get_db
 from models.survey import get_survey
@@ -53,7 +53,13 @@ def _clean_entry(answer):
         'timed_out': 1 if answer.get('timed_out') else 0,
         'display_order': _clean_order(answer.get('display_order')),
         'position': _clean_position(answer.get('position')),
+        'changes': _clean_changes(answer.get('changes')),
+        'first_value': str(answer['first_value'])[:40] if answer.get('first_value') not in (None, '') else None,
     }
+
+
+def _clean_changes(value):
+    return value if isinstance(value, int) and not isinstance(value, bool) and 0 <= value < 10000 else None
 
 
 def _part_of(db, survey, question_ids):
@@ -84,6 +90,20 @@ def _closed_for(db, survey, part):
     open_early = part == 1 and not reminders.is_two_part(survey) and early_survey_is_open(survey)
     if not (running_live or open_remote or open_early):
         return 'survey_closed'
+    return None
+
+
+def _mode_for(survey, part):
+    """How a part is being answered now: live (the live sequence) or class (launched separately in class),
+    remote (a remote part's dates), early (opened early from the lobby); None if it isn't open."""
+    from models.feedback import early_survey_is_open
+    from models import reminders
+    if survey['is_active'] and (survey['active_part'] or 1) == part:
+        return 'class' if reminders.part_when(survey, part) == 'class' else 'live'
+    if part in reminders.remote_parts(survey):
+        return 'remote'
+    if part == 1 and early_survey_is_open(survey):
+        return 'early'
     return None
 
 
@@ -180,6 +200,7 @@ def session_state(code):
     survey, arms, questions = result
     payload = _build_assignment_payload(survey, arms, questions, session['student_id'], part=part)
     drafts.attach(payload, session['participant_id'])
+    visits.shown(db, payload, session['participant_id'], part, _mode_for(dict(active), part))
     if part == 2:
         payload['title'] += ' (part 2)'
     return jsonify({
@@ -228,16 +249,21 @@ def submit_answer_http(code):
         db.commit()
         return jsonify({'ok': True, 'status': 'already_answered'})
 
+    # When each answer was given: the time saved with the draft if the answer is the same, else now
+    given_at = drafts.answered_times(db, session['participant_id'], survey_id)
     try:
         for answer in answers:
             e = _clean_entry(answer)
+            saved = given_at.get(e['question_id'])
             db.execute(
                 'INSERT INTO response (participant_id, survey_id, arm_id, question_id, answer_text, answer_index, '
-                'seconds, left_page, other_text, timed_out, display_order, position) '
-                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                'seconds, left_page, other_text, timed_out, display_order, position, changes, first_value, answered_at) '
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))",
                 (session['participant_id'], survey_id, arm_id, e['question_id'], e['answer_text'], answer.get('answer_index'),
-                 e['seconds'], e['left_page'], e['other_text'], e['timed_out'], e['display_order'], e['position']),
+                 e['seconds'], e['left_page'], e['other_text'], e['timed_out'], e['display_order'], e['position'],
+                 e['changes'], e['first_value'], saved[1] if saved and saved[0] == e['answer_text'] else None),
             )
+        visits.submitted(db, session['participant_id'], survey_id, part, arm_id, _mode_for(survey, part))
         # Submitted: the answers saved along the way are no longer drafts
         drafts.clear(db, session['participant_id'], survey_id, part_ids)
         db.commit()
@@ -287,3 +313,37 @@ def save_draft(code):
     drafts.save(db, session['participant_id'], survey['id'], arm_id, question_ids, entries)
     db.commit()
     return jsonify({'ok': True, 'status': 'saved'})
+
+
+@bp.route('/visit', methods=['POST'])
+def record_visit(code):
+    """What the page reports about a survey it is showing: open (loaded, with the device), start (pressed
+    Start on the intro screen) or decline ("I don't want to take part"), with the time on the intro screen.
+    Only for a survey already shown to this respondent (models/visits.py). Not sent by previews."""
+    classroom = _get_classroom_or_404(code)
+    if 'participant_id' not in session or session.get('classroom_id') != classroom['id'] or not session['participant_id']:
+        return jsonify({'ok': False, 'error': 'not_logged_in'}), 401
+    data = request.get_json(silent=True) or {}
+    if data.get('event') not in visits.EVENTS:
+        return jsonify({'ok': False, 'error': 'bad_event'}), 400
+    db = get_db()
+    survey = db.execute('SELECT * FROM survey WHERE id=? AND classroom_id=?',
+                        (data.get('survey_id'), classroom['id'])).fetchone()
+    if not survey:
+        return jsonify({'ok': False, 'error': 'survey_not_found'}), 404
+    survey = dict(survey)
+    own = {r['id'] for r in db.execute('SELECT id FROM survey_question WHERE survey_id=?', (survey['id'],))}
+    question_ids = [q for q in (data.get('question_ids') or []) if isinstance(q, int) and q in own]
+    part, _ = _part_of(db, survey, question_ids) if question_ids else (None, None)
+    if part is None:
+        return jsonify({'ok': False, 'error': 'missing_answer_data'}), 400
+    if data['event'] == 'decline' and db.execute(
+            'SELECT 1 FROM response WHERE participant_id=? AND survey_id=? LIMIT 1',
+            (session['participant_id'], survey['id'])).fetchone():
+        return jsonify({'ok': False, 'error': 'already_answered'}), 409
+    agent = request.headers.get('User-Agent', '')
+    device = data.get('device') if data.get('device') in visits.DEVICES else visits.device_from(agent)
+    done = visits.event(db, session['participant_id'], survey['id'], part, data.get('arm_id'), data['event'],
+                        device=device, user_agent=agent, intro_seconds=_clean_seconds(data.get('intro_seconds')))
+    db.commit()
+    return jsonify({'ok': True, 'recorded': done})

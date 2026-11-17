@@ -15,6 +15,18 @@ document.addEventListener('DOMContentLoaded', function() {
         'rgba(255, 159, 64, 1)',
     ];
 
+    // Chart text and grid lines follow the light/dark theme (Chart.js defaults are dark gray, invisible in dark mode)
+    function applyChartTheme() {
+        var css = getComputedStyle(document.documentElement);
+        Chart.defaults.color = css.getPropertyValue('--bs-secondary-color').trim() || '#666';
+        Chart.defaults.borderColor = css.getPropertyValue('--bs-border-color-translucent').trim() || 'rgba(0,0,0,0.1)';
+        Object.keys(charts).forEach(function(k) { if (charts[k] && charts[k].update) charts[k].update('none'); });
+    }
+    if (window.Chart) {
+        applyChartTheme();
+        new MutationObserver(applyChartTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-bs-theme'] });
+    }
+
     function escapeHtml(text) {
         var div = document.createElement('div');
         div.textContent = text;

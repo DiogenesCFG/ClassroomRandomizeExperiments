@@ -229,6 +229,8 @@ def clear_responses(code):
                (classroom['id'],))
     db.execute('DELETE FROM response_draft WHERE survey_id IN (SELECT id FROM survey WHERE classroom_id=?)',
                (classroom['id'],))
+    db.execute('DELETE FROM survey_visit WHERE survey_id IN (SELECT id FROM survey WHERE classroom_id=?)',
+               (classroom['id'],))
     db.execute('DELETE FROM reminder_action WHERE survey_id IN (SELECT id FROM survey WHERE classroom_id=?)',
                (classroom['id'],))
     db.execute('DELETE FROM push_subscription WHERE survey_id IN (SELECT id FROM survey WHERE classroom_id=?)',

@@ -670,7 +670,7 @@ data-types="{{ types|join(' ') }}"{% if qtype not in types %} style="display:non
                             <div class="form-check form-switch mb-2">
                                 <label class="form-check-label small"><input class="form-check-input" type="checkbox" value="1" name="consent" {% if so.consent %}checked{% endif %}>
                                     Ask for consent: respondents choose "I agree, start" or "I don't want to take part"
-                                    {{ info('Those who don\'t agree see a thank-you message and nothing is recorded for them.') }}</label>
+                                    {{ info('Those who don\'t agree see a thank-you message. None of their answers are recorded; the data only notes that they declined (and their arm), so you can compare dropouts across arms. They can change their mind.') }}</label>
                             </div>
                             <div class="intro-rows">
                                 {% for arm in arms %}

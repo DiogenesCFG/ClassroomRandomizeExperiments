@@ -1,5 +1,7 @@
 """Class roster, student accounts, and team (group) membership."""
 import csv
+import hashlib
+import hmac
 import io
 import re
 import secrets
@@ -21,6 +23,33 @@ def new_anon_id(db):
         candidate = 'R-' + ''.join(secrets.choice(ANON_ALPHABET) for _ in range(6))
         if not db.execute('SELECT 1 FROM roster_student WHERE anon_id=?', (candidate,)).fetchone():
             return candidate
+
+
+def ensure_respondent_secret(db):
+    """The server's secret for per-survey respondent IDs (made once, at startup; kept in app_setting)."""
+    db.execute('INSERT OR IGNORE INTO app_setting (key, value) VALUES (?, ?)', ('respondent_secret', secrets.token_hex(32)))
+    db.commit()
+
+
+def respondent_namer(db):
+    """A function (survey_id, anon_id, participant_id) -> that respondent's ID in that survey, like 'R-7KQ2PX'.
+
+    Each survey gets its own IDs, so files from different surveys can't be joined to follow a student across
+    surveys. The ID is a keyed hash (HMAC-SHA256 with the server's secret) of the survey and the student's roster
+    anon_id: stable for a student within a survey, unrelated across surveys, and not reversible without the
+    secret. The instructor's participation files have each survey's IDs next to names."""
+    row = db.execute("SELECT value FROM app_setting WHERE key='respondent_secret'").fetchone()
+    key = (row['value'] if row else 'no-secret').encode()
+
+    def name(survey_id, anon_id, participant_id=None):
+        base = anon_id or f'P-{participant_id}'
+        n = int.from_bytes(hmac.new(key, f'{survey_id}:{base}'.encode(), hashlib.sha256).digest()[:8], 'big')
+        chars = []
+        for _ in range(6):
+            n, k = divmod(n, len(ANON_ALPHABET))
+            chars.append(ANON_ALPHABET[k])
+        return 'R-' + ''.join(chars)
+    return name
 
 
 def backfill_anon_ids(db):

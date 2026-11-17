@@ -5,6 +5,8 @@ import json
 from models import qtypes
 from models.db import get_db
 from models.drafts import ALL_ANSWERS
+from models import visits as visit_log
+from models.roster import respondent_namer
 
 OUTSIDE = '(run on another platform)'
 OUTSIDE_ANSWERS = '(group ran this survey on another platform; answers not available here)'
@@ -73,6 +75,10 @@ def _submitted(row):
     return 'no' if value is not None and not value else 'yes'
 
 
+def _blank(value):
+    return '' if value is None else value
+
+
 def _status(flags):
     """A respondent's status from their answers' submitted flags: yes, no, or 'part 1 only' (a two-part
     survey whose part 2 was started but not submitted)."""
@@ -91,6 +97,7 @@ def _external_surveys(db, classroom_id):
 def export_all_responses_csv(classroom_id):
     """Export all responses for a classroom as a flat CSV. Returns a string."""
     db = get_db()
+    rid = respondent_namer(db)
     rows = db.execute('''
         SELECT
             s.group_number,
@@ -102,7 +109,7 @@ def export_all_responses_csv(classroom_id):
             aq.question_text AS arm_question,
             p.name AS participant_name,
             p.student_id AS participant_student_id,
-            rs.anon_id AS respondent_id,
+            rs.anon_id, s.id AS survey_id, r.participant_id,
             r.answer_text,
             r.answer_index,
             r.other_text,
@@ -110,7 +117,7 @@ def export_all_responses_csv(classroom_id):
             r.left_page,
             r.timed_out,
             CASE WHEN s.part2_from IS NOT NULL AND s.external = 0 AND sq.question_index >= s.part2_from THEN 2 ELSE 1 END AS part,
-            r.answered_at, r.display_order, r.position, r.submitted
+            r.answered_at, r.display_order, r.position, r.submitted, r.changes, r.first_value
         FROM {answers} r
         JOIN survey s ON r.survey_id = s.id
         JOIN survey_arm sa ON r.arm_id = sa.id
@@ -129,21 +136,22 @@ def export_all_responses_csv(classroom_id):
         'arm_label', 'arm_question',
         'participant_name', 'participant_student_id', 'respondent_id',
         'answer_text', 'answer_index', 'other_text', 'seconds', 'left_page', 'timed_out', 'answered_at', 'part',
-        'order_shown', 'position', 'submitted'
+        'order_shown', 'position', 'submitted', 'changes', 'first_value'
     ])
     for row in rows:
         writer.writerow([
             row['group_number'], row['survey_title'],
             row['question_index'], row['question_type'], row['question_label'],
             row['arm_label'], row['arm_question'],
-            row['participant_name'], row['participant_student_id'], row['respondent_id'],
+            row['participant_name'], row['participant_student_id'], rid(row['survey_id'], row['anon_id'], row['participant_id']),
             row['answer_text'], row['answer_index'], row['other_text'] or '',
             _seconds(row['seconds']), _yes(row['left_page']), _yes(row['timed_out']), row['answered_at'], row['part'],
-            row['display_order'] or '', row['position'] or '', _submitted(row)
+            row['display_order'] or '', row['position'] or '', _submitted(row), _blank(row['changes']),
+            row['first_value'] or ''
         ])
     for s in _external_surveys(db, classroom_id):
         writer.writerow([s['group_number'], s['title'], '', OUTSIDE, '', '', s['external_note'] or '',
-                         '', '', '', OUTSIDE_ANSWERS, '', '', '', '', '', '', '', '', '', ''])
+                         '', '', '', OUTSIDE_ANSWERS, '', '', '', '', '', '', '', '', '', '', '', ''])
 
     return output.getvalue()
 
@@ -219,8 +227,7 @@ def export_surveys_config_csv(classroom_id):
 
 
 def export_participants_csv(classroom_id):
-    """Export the class roster with each student's anonymized respondent ID (the key
-    linking students' anonymized downloads back to names)."""
+    """Export the class roster. Respondent IDs are per survey: the participation files have them next to names."""
     db = get_db()
     rows = db.execute(
         'SELECT * FROM roster_student WHERE classroom_id=? ORDER BY full_name COLLATE NOCASE', (classroom_id,)
@@ -228,9 +235,9 @@ def export_participants_csv(classroom_id):
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['name', 'student_id', 'respondent_id', 'signed_up_at', 'removed'])
+    writer.writerow(['name', 'student_id', 'signed_up_at', 'removed'])
     for row in rows:
-        writer.writerow([row['full_name'], row['sis_id'], row['anon_id'], row['registered_at'] or '',
+        writer.writerow([row['full_name'], row['sis_id'], row['registered_at'] or '',
                          'yes' if row['hidden'] else ''])
 
     return output.getvalue()
@@ -265,37 +272,82 @@ def export_survey_designers_csv(classroom_id):
     return output.getvalue()
 
 
-def export_survey_participation_csv(classroom_id):
-    """Export which students participated in each survey. One row per student per survey."""
-    db = get_db()
-    rows = db.execute('''
-        SELECT
-            s.group_number,
-            s.title AS survey_title,
-            p.name AS participant_name,
-            p.student_id AS participant_student_id,
-            sa.label AS arm_label, MIN(r.submitted) AS all_sent, MAX(r.submitted) AS any_sent
-        FROM {answers} r
-        JOIN survey s ON r.survey_id = s.id
-        JOIN participant p ON r.participant_id = p.id
-        JOIN survey_arm sa ON r.arm_id = sa.id
-        WHERE s.classroom_id = ?
-        GROUP BY s.id, p.id, sa.id
-        ORDER BY s.group_number, p.name
-    '''.format(answers=ALL_ANSWERS), (classroom_id,)).fetchall()
+PARTICIPATION_HEADER = ['group_number', 'survey_title', 'participant_name', 'participant_student_id', 'respondent_id',
+                        'arm_label', 'status', 'submitted', 'declined', 'mode', 'device', 'first_shown_at', 'submitted_at',
+                        'minutes', 'times_opened', 'browser']
 
+
+def _participation_rows(db, classroom_id, survey_id=None):
+    """One row per survey and student: every roster student (not removed) and anyone who was shown it.
+    status: submitted | part 1 only | started, not submitted | declined | opened, no answers |
+    group member (designed it) | did not open (absent, or not in class when it ran)."""
+    only = ' AND s.id = ?' if survey_id else ''
+    args = (classroom_id, survey_id) if survey_id else (classroom_id,)
+    surveys = db.execute('SELECT s.* FROM survey s WHERE s.classroom_id = ? AND s.external = 0' + only +
+                         ' ORDER BY s.group_number', args).fetchall()
+    answered = {}
+    for r in db.execute('''
+        SELECT r.survey_id, r.participant_id, sa.label AS arm_label, MIN(r.submitted) AS all_sent, MAX(r.submitted) AS any_sent
+        FROM {answers} r JOIN survey s ON s.id = r.survey_id JOIN survey_arm sa ON sa.id = r.arm_id
+        WHERE s.classroom_id = ?{only} GROUP BY r.survey_id, r.participant_id'''.format(answers=ALL_ANSWERS, only=only), args):
+        answered[(r['survey_id'], r['participant_id'])] = r
+    seen = {}
+    for r in db.execute('''
+        SELECT v.*, sa.label AS arm_label FROM survey_visit v JOIN survey s ON s.id = v.survey_id
+        LEFT JOIN survey_arm sa ON sa.id = v.arm_id WHERE s.classroom_id = ?{only} ORDER BY v.part'''.format(only=only), args):
+        seen.setdefault((r['survey_id'], r['participant_id']), []).append(r)
+    people = {}  # participant id (or roster key) -> name, SIS ID, anon id
+    for r in db.execute('''
+        SELECT rs.full_name, rs.sis_id, rs.anon_id, rs.hidden, p.id AS pid FROM roster_student rs
+        LEFT JOIN participant p ON p.classroom_id = rs.classroom_id AND p.student_id = rs.sis_id
+        WHERE rs.classroom_id = ?''', (classroom_id,)):
+        people[r['pid'] or f'roster-{r["sis_id"]}'] = {'name': r['full_name'], 'sis': r['sis_id'], 'anon': r['anon_id'],
+                                                       'hidden': r['hidden'], 'pid': r['pid']}
+    for r in db.execute('SELECT id, name, student_id FROM participant WHERE classroom_id = ?', (classroom_id,)):
+        people.setdefault(r['id'], {'name': r['name'], 'sis': r['student_id'], 'anon': None, 'hidden': 0, 'pid': r['id']})
+    rid = respondent_namer(db)
+    members = {(m['survey_id'], m['sis_code']) for m in db.execute(
+        'SELECT gm.survey_id, gm.sis_code FROM group_member gm JOIN survey s ON s.id = gm.survey_id WHERE s.classroom_id = ?',
+        (classroom_id,))}
+    rows = []
+    for s in surveys:
+        for key, who in sorted(people.items(), key=lambda kv: (kv[1]['name'] or '').lower()):
+            pid = who['pid']
+            a = answered.get((s['id'], pid)) if pid else None
+            v = seen.get((s['id'], pid), []) if pid else []
+            if who['hidden'] and not a and not v:
+                continue  # removed from the class and never shown it
+            arm = (a['arm_label'] if a else '') or next((x['arm_label'] for x in v if x['arm_label']), '')
+            declined = any(x['declined_at'] for x in v)
+            if a:
+                sent = _status([a['all_sent'], a['any_sent']])
+                status = {'yes': 'submitted', 'no': 'started, not submitted'}.get(sent, sent)
+            elif declined:
+                sent, status = 'no', 'declined'
+            elif v:
+                sent, status = 'no', 'opened, no answers'
+            else:
+                sent, status = '', 'group member' if (s['id'], who['sis']) in members else 'did not open'
+            join = lambda name: '; '.join(str(x[name]) for x in v if x[name] not in (None, ''))
+            rows.append([s['group_number'], s['title'], who['name'], who['sis'],
+                         rid(s['id'], who['anon'], pid) if (a or v) else '', arm, status, sent,
+                         _yes(declined), join('mode'), join('device'), join('first_shown_at'), join('submitted_at'),
+                         '; '.join(str(visit_log.minutes(x['first_shown_at'], x['submitted_at'])) for x in v
+                                   if visit_log.minutes(x['first_shown_at'], x['submitted_at']) != ''),
+                         sum(x['loads'] or 0 for x in v) if v else '', join('user_agent')])
+    return rows
+
+
+def export_survey_participation_csv(classroom_id):
+    """Who was shown each survey and what happened (instructor only): one row per survey and student,
+    including those who never opened it. See _participation_rows."""
+    db = get_db()
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['group_number', 'survey_title', 'participant_name', 'participant_student_id', 'arm_label', 'submitted'])
-    for row in rows:
-        writer.writerow([
-            row['group_number'], row['survey_title'],
-            row['participant_name'], row['participant_student_id'],
-            row['arm_label'], _status([row['all_sent'], row['any_sent']])
-        ])
+    writer.writerow(PARTICIPATION_HEADER)
+    writer.writerows(_participation_rows(db, classroom_id))
     for s in _external_surveys(db, classroom_id):
-        writer.writerow([s['group_number'], s['title'], OUTSIDE_ANSWERS, '', '', ''])
-
+        writer.writerow([s['group_number'], s['title'], OUTSIDE_ANSWERS] + [''] * (len(PARTICIPATION_HEADER) - 3))
     return output.getvalue()
 
 
@@ -322,7 +374,7 @@ def export_survey_responses_csv(survey_id, classroom_id):
             r.left_page,
             r.timed_out,
             CASE WHEN s.part2_from IS NOT NULL AND s.external = 0 AND sq.question_index >= s.part2_from THEN 2 ELSE 1 END AS part,
-            r.answered_at, r.display_order, r.position, r.submitted
+            r.answered_at, r.display_order, r.position, r.submitted, r.changes, r.first_value
         FROM {answers} r
         JOIN survey s ON r.survey_id = s.id
         JOIN survey_arm sa ON r.arm_id = sa.id
@@ -340,7 +392,7 @@ def export_survey_responses_csv(survey_id, classroom_id):
         'arm_label', 'arm_question',
         'participant_name', 'participant_student_id',
         'answer_text', 'answer_index', 'other_text', 'seconds', 'left_page', 'timed_out', 'answered_at', 'part',
-        'order_shown', 'position', 'submitted'
+        'order_shown', 'position', 'submitted', 'changes', 'first_value'
     ])
     for row in rows:
         writer.writerow([
@@ -350,7 +402,8 @@ def export_survey_responses_csv(survey_id, classroom_id):
             row['participant_name'], row['participant_student_id'],
             row['answer_text'], row['answer_index'], row['other_text'] or '',
             _seconds(row['seconds']), _yes(row['left_page']), _yes(row['timed_out']), row['answered_at'], row['part'],
-            row['display_order'] or '', row['position'] or '', _submitted(row)
+            row['display_order'] or '', row['position'] or '', _submitted(row), _blank(row['changes']),
+            row['first_value'] or ''
         ])
 
     return output.getvalue()
@@ -370,7 +423,8 @@ def export_survey_responses_anon_csv(survey_id, classroom_id, long=False):
         'ORDER BY sq.question_index', (survey_id, classroom_id)).fetchall()
     rows = db.execute('''
         SELECT r.participant_id, r.question_id, r.answer_text, r.other_text, r.seconds, r.left_page, r.timed_out,
-               r.answered_at, r.display_order, r.position, r.submitted, sa.label AS arm_label, sa.arm_index, rs.anon_id
+               r.answered_at, r.display_order, r.position, r.submitted, r.changes, r.first_value,
+               sa.label AS arm_label, sa.arm_index, rs.anon_id
         FROM {answers} r
         JOIN survey s ON r.survey_id = s.id
         JOIN survey_arm sa ON r.arm_id = sa.id
@@ -379,20 +433,26 @@ def export_survey_responses_anon_csv(survey_id, classroom_id, long=False):
         WHERE r.survey_id = ? AND s.classroom_id = ?
     '''.format(answers=ALL_ANSWERS), (survey_id, classroom_id)).fetchall()
 
+    rid = respondent_namer(db)  # this survey's own respondent IDs
+    rows = [dict(r, anon_id=rid(survey_id, r['anon_id'], r['participant_id'])) for r in rows]
     survey = db.execute('SELECT * FROM survey WHERE id=?', (survey_id,)).fetchone()
     from models.survey import survey_options
     shuffled_order = bool(survey) and survey_options(dict(survey))['shuffle_questions']
     if long:
         return anon_responses_long_csv(questions, rows, part2_from=survey['part2_from'] if survey else None)
+    shown = visit_log.by_participant(db, survey_id) if survey else {}
+    for pid, by_part in shown.items():
+        for v in by_part.values():
+            v['anon_id'] = rid(survey_id, v['anon_id'], pid)
     actions = None
     if survey and (survey['reminder_plan'] or survey['part2_from'] is not None):
         from models.reminders import actions_by_participant
         actions = actions_by_participant(survey_id)
     return anon_responses_csv(questions, rows, part2_from=survey['part2_from'] if survey else None,
-                              reminder_actions=actions, positions=shuffled_order)
+                              reminder_actions=actions, positions=shuffled_order, visits=shown)
 
 
-def anon_responses_csv(questions, rows, part2_from=None, reminder_actions=None, positions=False):
+def anon_responses_csv(questions, rows, part2_from=None, reminder_actions=None, positions=False, visits=None):
     """Write the anonymized wide CSV. questions: dicts/rows with id, question_index, question_type,
     label. rows: one per answer with participant_id, question_id, answer_text, other_text, seconds,
     left_page, timed_out, arm_label, arm_index, anon_id. Also used for the dashboard preview's
@@ -404,7 +464,11 @@ def anon_responses_csv(questions, rows, part2_from=None, reminder_actions=None, 
     Newer question types add columns: one per ranked item / rated statement / budget item, or the A
     choices and switch row of a price list or lottery; shuffled questions add the order each respondent saw;
     attention checks add whether each was passed; positions=True (question order shuffled) adds where each
-    question came."""
+    question came.
+
+    visits ({participant_id: {part: visit}}, models/visits.by_participant) adds respondents who were shown the
+    survey but gave no answer (or declined at the consent screen), and per part how they answered (mode), the
+    device, when it was first shown and submitted (UTC), the minutes in between, and the time on the intro."""
     by_id = {q['id']: q for q in questions}
     settings = {q['id']: qtypes.settings_of(q) for q in questions}
     respondents = {}
@@ -413,7 +477,8 @@ def anon_responses_csv(questions, rows, part2_from=None, reminder_actions=None, 
         resp = respondents.setdefault(r['participant_id'], {
             'id': r['anon_id'] or f'P-{r["participant_id"]}',
             'arm': r['arm_label'], 'arm_index': r['arm_index'], 'answers': {}, 'seconds': {}, 'left': {}, 'timed_out': {},
-            'detail': {}, 'order': {}, 'position': {}, 'attention': {}, 'sent': []})
+            'detail': {}, 'order': {}, 'position': {}, 'attention': {}, 'sent': [], 'changes': {}, 'first': {},
+            'last_at': {}})
         resp['sent'].append(_submitted(r) == 'yes')
         qid = r['question_id']
         q = by_id.get(qid)
@@ -427,6 +492,11 @@ def anon_responses_csv(questions, rows, part2_from=None, reminder_actions=None, 
         else:
             resp['answers'][qid] = _with_other(r['answer_text'], r['other_text'])
         resp['seconds'][qid] = _seconds(r['seconds'])
+        resp['changes'][qid] = _blank(_col(r, 'changes'))
+        resp['first'][qid] = _col(r, 'first_value') or ''
+        if _col(r, 'answered_at') and q:
+            p = 2 if part2_from is not None and q['question_index'] >= part2_from else 1
+            resp['last_at'][p] = max(resp['last_at'].get(p, ''), r['answered_at'])
         resp['left'][qid] = _yes(r['left_page'])
         resp['timed_out'][qid] = _yes(r['timed_out'])
         order = _col(r, 'display_order')
@@ -434,12 +504,26 @@ def anon_responses_csv(questions, rows, part2_from=None, reminder_actions=None, 
         resp['position'][qid] = _col(r, 'position') or ''
         if q:
             resp['attention'][qid] = qtypes.attention_result(qtype, settings[qid], r['answer_text'])
+    visits = visits or {}
+    for pid, by_part in visits.items():  # shown the survey but no answer saved (or declined)
+        if pid not in respondents:
+            v = by_part.get(1) or next(iter(by_part.values()))
+            respondents[pid] = {'id': v.get('anon_id') or f'P-{pid}', 'arm': v.get('arm_label') or '',
+                                'arm_index': v.get('arm_index') or 0, 'answers': {}, 'seconds': {}, 'left': {},
+                                'timed_out': {}, 'detail': {}, 'order': {}, 'position': {}, 'attention': {}, 'sent': [],
+                                'changes': {}, 'first': {}, 'last_at': {}}
+    parts = [1, 2] if part2_from is not None else [1]
+    sliders = [q for q in questions if q['question_type'] == 'slider']
     shuffled = [q for q in questions if settings[q['id']]['shuffle'] and q['question_type'] in qtypes.SHUFFLE_TYPES]
     checks = [q for q in questions if settings[q['id']]['attention'] and q['question_type'] in qtypes.ATTENTION_TYPES]
 
     output = io.StringIO()
     writer = csv.writer(output)
-    headers = ['respondent_id', 'arm', 'submitted']
+    headers = ['respondent_id', 'arm', 'submitted', 'declined']
+    for p in parts:
+        pre = f'part {p} ' if len(parts) > 1 else ''
+        headers += [pre + 'mode', pre + 'device', pre + 'first shown', pre + 'submitted at', pre + 'minutes']
+    headers.append('intro seconds')
     for q in questions:
         name = f'Q{q["question_index"] + 1}'
         if q['label']:
@@ -452,7 +536,8 @@ def anon_responses_csv(questions, rows, part2_from=None, reminder_actions=None, 
         headers += [f'Q{q["question_index"] + 1} {name}' for name in details[q['id']]]
     for q in questions:
         n = q['question_index'] + 1
-        headers += [f'Q{n} seconds', f'Q{n} left page', f'Q{n} timed out']
+        headers += [f'Q{n} seconds', f'Q{n} left page', f'Q{n} timed out', f'Q{n} changes']
+    headers += [f'Q{q["question_index"] + 1} first value' for q in sliders]
     headers += [f'Q{q["question_index"] + 1} order shown' for q in shuffled]
     if positions:
         headers += [f'Q{q["question_index"] + 1} position' for q in questions]
@@ -466,11 +551,22 @@ def anon_responses_csv(questions, rows, part2_from=None, reminder_actions=None, 
                     'reminders notifications on', 'reminders notifications delivered', 'reminders notifications opened']
     writer.writerow(headers)
     for pid, resp in sorted(respondents.items(), key=lambda x: (x[1]['arm_index'], x[1]['id'])):
-        row = [resp['id'], resp['arm'], _status(resp['sent'])] + [resp['answers'].get(q['id'], '') for q in questions]
+        shown = visits.get(pid, {})
+        declined = any(v.get('declined_at') for v in shown.values())
+        row = [resp['id'], resp['arm'], _status(resp['sent']) if resp['sent'] else 'no', _yes(declined)]
+        for p in parts:
+            v = shown.get(p) or {}
+            submitted_at = v.get('submitted_at') or ('' if not resp['sent'] or not all(resp['sent']) else resp['last_at'].get(p, ''))
+            row += [v.get('mode') or '', v.get('device') or '', v.get('first_shown_at') or '', submitted_at,
+                    visit_log.minutes(v.get('first_shown_at'), submitted_at)]
+        row.append(_blank((shown.get(1) or {}).get('intro_seconds')))
+        row += [resp['answers'].get(q['id'], '') for q in questions]
         for q in questions:
             row += [resp['detail'].get((q['id'], name), '') for name in details[q['id']]]
         for q in questions:
-            row += [resp['seconds'].get(q['id'], ''), resp['left'].get(q['id'], ''), resp['timed_out'].get(q['id'], '')]
+            row += [resp['seconds'].get(q['id'], ''), resp['left'].get(q['id'], ''), resp['timed_out'].get(q['id'], ''),
+                    resp['changes'].get(q['id'], '')]
+        row += [resp['first'].get(q['id'], '') for q in sliders]
         row += [resp['order'].get(q['id'], '') for q in shuffled]
         if positions:
             row += [resp['position'].get(q['id'], '') for q in questions]
@@ -508,14 +604,15 @@ def anon_responses_long_csv(questions, rows, part2_from=None):
                          _seconds(r['seconds']), _yes(r['left_page']), _yes(r['timed_out']),
                          r['answered_at'] if 'answered_at' in keys and r['answered_at'] else '',
                          '; '.join(json.loads(shown)) if shown else '', _col(r, 'position') or '',
-                         {True: 'passed', False: 'failed'}.get(check, ''), _submitted(r),
+                         {True: 'passed', False: 'failed'}.get(check, ''), _submitted(r), _blank(_col(r, 'changes')),
+                         _col(r, 'first_value') or '',
                          (r['arm_index'], order[r['question_id']])])
     out_rows.sort(key=lambda x: (x[-1][0], x[0], x[-1][1]))
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(['respondent_id', 'arm', 'part', 'question', 'question_label', 'question_type', 'answer',
                      'seconds', 'left_page', 'timed_out', 'answered_at', 'order_shown', 'position', 'attention_check',
-                     'submitted'])
+                     'submitted', 'changes', 'first_value'])
     for row in out_rows:
         writer.writerow(row[:-1])
     return '\ufeff' + output.getvalue()
@@ -617,34 +714,11 @@ def export_single_survey_designers_csv(survey_id, classroom_id):
 
 
 def export_single_survey_participation_csv(survey_id, classroom_id):
-    """Export participation for a single survey. One row per student who answered."""
-    db = get_db()
-    rows = db.execute('''
-        SELECT
-            s.group_number,
-            s.title AS survey_title,
-            p.name AS participant_name,
-            p.student_id AS participant_student_id,
-            sa.label AS arm_label, MIN(r.submitted) AS all_sent, MAX(r.submitted) AS any_sent
-        FROM {answers} r
-        JOIN survey s ON r.survey_id = s.id
-        JOIN participant p ON r.participant_id = p.id
-        JOIN survey_arm sa ON r.arm_id = sa.id
-        WHERE r.survey_id = ? AND s.classroom_id = ?
-        GROUP BY p.id, sa.id
-        ORDER BY p.name
-    '''.format(answers=ALL_ANSWERS), (survey_id, classroom_id)).fetchall()
-
+    """Participation for a single survey: one row per student (see _participation_rows)."""
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['group_number', 'survey_title', 'participant_name', 'participant_student_id', 'arm_label', 'submitted'])
-    for row in rows:
-        writer.writerow([
-            row['group_number'], row['survey_title'],
-            row['participant_name'], row['participant_student_id'],
-            row['arm_label'], _status([row['all_sent'], row['any_sent']])
-        ])
-
+    writer.writerow(PARTICIPATION_HEADER)
+    writer.writerows(_participation_rows(get_db(), classroom_id, survey_id))
     return output.getvalue()
 
 
@@ -655,7 +729,7 @@ def export_reminder_actions_csv(classroom_id):
     db = get_db()
     rows = db.execute('''
         SELECT s.group_number, s.title AS survey_title, sa.label AS arm_label, p.name AS participant_name,
-               p.student_id AS participant_student_id, rs.anon_id AS respondent_id,
+               p.student_id AS participant_student_id, rs.anon_id, s.id AS survey_id, p.id AS participant_id,
                ra.method, ra.item, ra.device, ra.created_at
         FROM reminder_action ra
         JOIN survey s ON ra.survey_id = s.id
@@ -665,6 +739,7 @@ def export_reminder_actions_csv(classroom_id):
         WHERE s.classroom_id = ?
         ORDER BY s.group_number, ra.created_at, ra.id
     ''', (classroom_id,)).fetchall()
+    rid = respondent_namer(get_db())
     names = {'ics': 'downloaded calendar file', 'google': 'opened Google Calendar link', 'done': 'said added',
              'push': 'turned notifications on', 'push_off': 'turned notifications off'}
     output = io.StringIO()
@@ -675,7 +750,7 @@ def export_reminder_actions_csv(classroom_id):
         from models.reminders import item_label
         item = item_label(r['item']) if r['item'] else ''
         writer.writerow([r['group_number'], r['survey_title'], r['arm_label'] or '', r['participant_name'],
-                         r['participant_student_id'], r['respondent_id'] or '', names.get(r['method'], r['method']),
+                         r['participant_student_id'], rid(r['survey_id'], r['anon_id'], r['participant_id']), names.get(r['method'], r['method']),
                          item, r['device'] or '', r['created_at']])
     return output.getvalue()
 
@@ -684,7 +759,7 @@ def export_push_messages_csv(classroom_id):
     """Every reminder notification: when it was due, whether it was delivered, and if it was tapped."""
     rows = get_db().execute('''
         SELECT s.group_number, s.title AS survey_title, sa.label AS arm_label, p.name AS participant_name,
-               p.student_id AS participant_student_id, rs.anon_id AS respondent_id,
+               p.student_id AS participant_student_id, rs.anon_id, s.id AS survey_id, p.id AS participant_id,
                pm.item, pm.title, pm.send_at, pm.status, pm.sent_at, pm.clicked_at, ps.tz
         FROM push_message pm
         JOIN push_subscription ps ON pm.subscription_id = ps.id
@@ -695,6 +770,7 @@ def export_push_messages_csv(classroom_id):
         WHERE s.classroom_id = ?
         ORDER BY s.group_number, pm.send_at, pm.id
     ''', (classroom_id,)).fetchall()
+    rid = respondent_namer(get_db())
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(['group_number', 'survey_title', 'arm_label', 'participant_name', 'participant_student_id',
@@ -703,7 +779,7 @@ def export_push_messages_csv(classroom_id):
         from models.reminders import item_label
         item = item_label(r['item'])
         writer.writerow([r['group_number'], r['survey_title'], r['arm_label'] or '', r['participant_name'],
-                         r['participant_student_id'], r['respondent_id'] or '', item, r['title'], r['send_at'],
+                         r['participant_student_id'], rid(r['survey_id'], r['anon_id'], r['participant_id']), item, r['title'], r['send_at'],
                          r['status'], r['sent_at'] or '', r['clicked_at'] or '', r['tz'] or ''])
     return output.getvalue()
 

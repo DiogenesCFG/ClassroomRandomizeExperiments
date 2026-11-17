@@ -15,7 +15,7 @@ Drafts are used to:
 from models.db import get_db
 
 COLUMNS = ('participant_id, survey_id, arm_id, question_id, answer_text, answer_index, other_text, seconds, '
-           'left_page, timed_out, display_order, position, answered_at')
+           'left_page, timed_out, display_order, position, answered_at, changes, first_value')
 
 # Submitted answers and drafts together, for the exports (a subquery: FROM {ALL_ANSWERS} r)
 ALL_ANSWERS = (f'(SELECT {COLUMNS}, 1 AS submitted FROM response '
@@ -31,19 +31,29 @@ def save(db, participant_id, survey_id, arm_id, question_ids, entries):
         given.add(e['question_id'])
         db.execute(
             'INSERT INTO response_draft (participant_id, survey_id, arm_id, question_id, answer_text, answer_index, '
-            'other_text, seconds, left_page, timed_out, display_order, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
+            'other_text, seconds, left_page, timed_out, display_order, position, changes, first_value) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
             'ON CONFLICT(participant_id, question_id) DO UPDATE SET '
             "answered_at = CASE WHEN response_draft.answer_text IS excluded.answer_text "
             "AND response_draft.other_text IS excluded.other_text THEN response_draft.answered_at ELSE datetime('now') END, "
             'arm_id = excluded.arm_id, answer_text = excluded.answer_text, answer_index = excluded.answer_index, '
             'other_text = excluded.other_text, seconds = excluded.seconds, left_page = excluded.left_page, '
-            'timed_out = excluded.timed_out, display_order = excluded.display_order, position = excluded.position',
+            'timed_out = excluded.timed_out, display_order = excluded.display_order, position = excluded.position, '
+            'changes = excluded.changes, first_value = excluded.first_value',
             (participant_id, survey_id, arm_id, e['question_id'], e['answer_text'], e['answer_index'], e['other_text'],
-             e['seconds'], e['left_page'], e['timed_out'], e['display_order'], e['position']))
+             e['seconds'], e['left_page'], e['timed_out'], e['display_order'], e['position'], e.get('changes'),
+             e.get('first_value')))
     gone = [q for q in question_ids if q not in given]
     if gone:
         db.execute(f'DELETE FROM response_draft WHERE participant_id=? AND survey_id=? '
                    f'AND question_id IN ({",".join("?" * len(gone))})', (participant_id, survey_id, *gone))
+
+
+def answered_times(db, participant_id, survey_id):
+    """{question_id: (answer_text, answered_at)} of the drafts, so submitting keeps when each answer was given."""
+    return {r['question_id']: (r['answer_text'], r['answered_at']) for r in db.execute(
+        'SELECT question_id, answer_text, answered_at FROM response_draft WHERE participant_id=? AND survey_id=?',
+        (participant_id, survey_id))}
 
 
 def clear(db, participant_id, survey_id, question_ids=None):
@@ -61,13 +71,14 @@ def load(participant_id, survey_id, question_ids):
     if not participant_id or not question_ids:
         return []
     rows = get_db().execute(
-        f'SELECT question_id, arm_id, answer_text, answer_index, other_text, seconds, left_page, timed_out '
+        f'SELECT question_id, arm_id, answer_text, answer_index, other_text, seconds, left_page, timed_out, changes, first_value '
         f'FROM response_draft WHERE participant_id=? AND survey_id=? '
         f'AND question_id IN ({",".join("?" * len(question_ids))})',
         (participant_id, survey_id, *question_ids)).fetchall()
     return [{'question_id': r['question_id'], 'arm_id': r['arm_id'], 'answer_text': r['answer_text'],
              'answer_index': r['answer_index'], 'other_text': r['other_text'], 'seconds': r['seconds'],
-             'left_page': bool(r['left_page']), 'timed_out': bool(r['timed_out'])} for r in rows]
+             'left_page': bool(r['left_page']), 'timed_out': bool(r['timed_out']), 'changes': r['changes'],
+             'first_value': r['first_value']} for r in rows]
 
 
 def attach(payload, participant_id):

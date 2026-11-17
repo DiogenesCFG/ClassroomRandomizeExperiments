@@ -152,9 +152,11 @@
     const CLASSROOM_ID = {{ classroom.id }};
     // Answers are saved as they go (not in previews)
     const DRAFT_URL = {% if preview %}null{% else %}"{{ url_for('student.save_draft', code=classroom.code) }}"{% endif %};
+    // Who was shown the survey, on what device, and whether they declined (not in previews)
+    const VISIT_URL = {% if preview %}null{% else %}"{{ url_for('student.record_visit', code=classroom.code) }}"{% endif %};
     {% if preview or open_survey %}
-    const STUDENT_STATE_URL = "{{ state_url }}";
-    const STUDENT_SUBMIT_URL = "{{ submit_url }}";
+    const STUDENT_STATE_URL = {{ state_url|tojson }};  {# tojson: "{{ }}" would turn & into &amp; and lose ?part=2 #}
+    const STUDENT_SUBMIT_URL = {{ submit_url|tojson }};
     const POLL_ONCE = true;  // a single survey, not a live session to watch
     {% else %}
     const STUDENT_STATE_URL = "{{ url_for('student.session_state', code=classroom.code) }}";
@@ -162,7 +164,7 @@
     const POLL_ONCE = false;
     {% endif %}
 </script>
-<script src="{{ url_for('static', filename='js/student.js') }}?v=20261103"></script>
+<script src="{{ url_for('static', filename='js/student.js') }}?v=20261110"></script>
 {% if remote_part != 2 and not (preview and preview_part == 2) %}
 <script src="{{ url_for('static', filename='js/reminders.js') }}?v=20261015"></script>
 <script>

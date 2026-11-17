@@ -215,6 +215,8 @@ def open_survey_state(code, survey_id):
     s, arms, questions = _get_survey_with_arms_and_questions(db, survey_id)
     from models import drafts
     payload = drafts.attach(_build_assignment_payload(s, arms, questions, session['student_id']), session['participant_id'])
+    from models import visits
+    visits.shown(db, payload, session['participant_id'], 1, 'early')
     return jsonify({'ok': True, 'state': 'assignment', 'assignment': payload})
 
 

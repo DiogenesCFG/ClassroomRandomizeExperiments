@@ -31,6 +31,36 @@
     background-color: #1a3d2a;
     border-color: #28a745;
 }
+[data-bs-theme="dark"] .survey-list-item.completed-survey {
+    background-color: #1c3350;
+}
+
+/* Dark mode: Bootstrap's "dark" buttons, badges and borders are the color of the dark page, so they vanish.
+   Turn them light instead (the navbar's own buttons are btn-light / btn-outline-light and already show). */
+[data-bs-theme="dark"] .btn-dark {
+    --bs-btn-color: #212529; --bs-btn-bg: #dee2e6; --bs-btn-border-color: #dee2e6;
+    --bs-btn-hover-color: #212529; --bs-btn-hover-bg: #f8f9fa; --bs-btn-hover-border-color: #f8f9fa;
+    --bs-btn-active-color: #212529; --bs-btn-active-bg: #f8f9fa; --bs-btn-active-border-color: #f8f9fa;
+    --bs-btn-disabled-color: #212529; --bs-btn-disabled-bg: #adb5bd; --bs-btn-disabled-border-color: #adb5bd;
+}
+[data-bs-theme="dark"] .btn-outline-dark {
+    --bs-btn-color: #dee2e6; --bs-btn-border-color: #adb5bd;
+    --bs-btn-hover-color: #212529; --bs-btn-hover-bg: #dee2e6; --bs-btn-hover-border-color: #dee2e6;
+    --bs-btn-active-color: #212529; --bs-btn-active-bg: #dee2e6; --bs-btn-active-border-color: #dee2e6;
+    --bs-btn-disabled-color: #adb5bd; --bs-btn-disabled-border-color: #6c757d;
+}
+[data-bs-theme="dark"] .text-bg-dark { color: #212529 !important; background-color: #ced4da !important; }
+[data-bs-theme="dark"] .border-dark { border-color: #adb5bd !important; }
+[data-bs-theme="dark"] #site-nav { border-bottom: 1px solid var(--bs-border-color); }
+/* Gray and red outline buttons are too faint on dark cards: lighter text and borders */
+[data-bs-theme="dark"] .btn-outline-secondary { --bs-btn-color: #ced4da; --bs-btn-border-color: #8c959f; }
+[data-bs-theme="dark"] .btn-outline-danger { --bs-btn-color: #ea868f; --bs-btn-border-color: #e35d6a; }
+
+/* Light mode: yellow outline buttons are unreadable on the warm background; inputs and checkboxes get a firmer edge */
+[data-bs-theme="light"] .btn-outline-warning { --bs-btn-color: #8a6300; --bs-btn-border-color: #c99a06; }
+/* :where() keeps this weaker than Bootstrap's focus / invalid / checked borders */
+:where([data-bs-theme="light"]) .form-control, :where([data-bs-theme="light"]) .form-select,
+:where([data-bs-theme="light"]) .form-check-input { border-color: #bfb39d; }
 
 /* Waiting screen pulse animation */
 .pulse {

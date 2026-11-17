@@ -258,6 +258,10 @@ def init_db():
         ('survey_arm', 'intro_text', 'TEXT DEFAULT NULL'),
         ('response', 'display_order', 'TEXT DEFAULT NULL'),
         ('response', 'position', 'INTEGER DEFAULT NULL'),
+        ('response', 'changes', 'INTEGER DEFAULT NULL'),
+        ('response', 'first_value', 'TEXT DEFAULT NULL'),
+        ('response_draft', 'changes', 'INTEGER DEFAULT NULL'),
+        ('response_draft', 'first_value', 'TEXT DEFAULT NULL'),
         ('classroom', 'groups_frozen', 'INTEGER NOT NULL DEFAULT 0'),  # students can't change groups; the host places them
         ('classroom', 'show_order', 'INTEGER NOT NULL DEFAULT 1'),  # students see the presentation order in their lobby
         ('classroom', 'fb_sketch_instructions', 'TEXT DEFAULT NULL'),  # the instructor's instructions for each comment round
@@ -306,8 +310,9 @@ def init_db():
     db.execute('CREATE INDEX IF NOT EXISTS idx_group_member_roster ON group_member(roster_student_id)')
     db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_roster_student_anon ON roster_student(anon_id)')
     db.commit()
-    from models.roster import backfill_anon_ids
+    from models.roster import backfill_anon_ids, ensure_respondent_secret
     backfill_anon_ids(db)
+    ensure_respondent_secret(db)
 
     # Migration: remove CHECK constraint on question_type to allow new types
     # (short_answer, multiple_answer). SQLite can't ALTER constraints, so we

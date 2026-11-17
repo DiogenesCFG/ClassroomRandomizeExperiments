@@ -4,7 +4,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var currentState = 'waiting';
     var answers = {}; // keyed by question_id: {answer_text, answer_index}
     var submittedSurveyIds = {}; // track surveys we've already submitted
-    var declinedSurveyIds = {};  // surveys whose consent screen they declined (nothing is recorded)
+    var declinedSurveyIds = {};  // surveys whose consent screen they declined (no answers are recorded)
     var isSubmitting = false;
     var statePollTimer = null;
     var currentQuestionIndex = 0;
@@ -26,6 +26,12 @@ document.addEventListener('DOMContentLoaded', function() {
     // after a reload. seen = questions shown; passed = questions they moved on from (or that were restored).
     var seen = {}, passed = {};
     var draftTimer = null, lastDraftKey = null;
+
+    // How many times each answer was replaced (models/visits.py): one-answer questions count every switch,
+    // questions with several parts a change made after leaving them finished. Sliders: the first value.
+    var changes = {}, lastGiven = {}, firstValue = {}, restoring = false;
+    var ONE_ANSWER = { multiple_choice: 1, picture_choice: 1, rating: 1, numeric: 1, slider: 1, short_answer: 1 };
+    var introShownAt = null;  // when the intro / consent screen appeared (time on it is recorded)
 
     function currentQid() {
         var q = questionsData[currentQuestionIndex];
@@ -502,6 +508,50 @@ document.addEventListener('DOMContentLoaded', function() {
             if (stateOf(q) === 'complete') answers[q.question_id] = buildAnswer(q);
             else delete answers[q.question_id];
         }
+        noteAnswer(q);  // leaving the question (Next, Previous, Submit)
+    }
+
+    // The finished answer as a comparable string, or null (the typed "Other" text doesn't count)
+    function answerKey(q) {
+        if (!sectionOf(q.question_id) || stateOf(q) !== 'complete' || problemWith(q)) return null;
+        var built = buildAnswer(q);
+        return built ? String(built.answer_text) : null;
+    }
+    function noteAnswer(q) {
+        if (restoring || !q || timedOut[q.question_id]) return;
+        var key = answerKey(q), qid = q.question_id;
+        if (key === null) return;
+        if (lastGiven[qid] !== undefined && lastGiven[qid] !== key) changes[qid] = (changes[qid] || 0) + 1;
+        lastGiven[qid] = key;
+    }
+    // The extra columns sent with an answer (draft or submit)
+    function addExtras(entry, q) {
+        entry.changes = changes[q.question_id] || 0;
+        if (q.question_type === 'slider' && firstValue[q.question_id] != null) entry.first_value = firstValue[q.question_id];
+        return entry;
+    }
+
+    // Phone, tablet or computer (iPads report themselves as Macs; a touch screen gives them away)
+    function deviceType() {
+        var ua = navigator.userAgent || '';
+        if (/iPad/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+            || (/Android/.test(ua) && !/Mobile/.test(ua))) return 'tablet';
+        if (/iPhone|iPod|Android|Mobile/.test(ua)) return 'phone';
+        return 'computer';
+    }
+    // Tell the server what happened with the survey showing: open, start (left the intro) or decline
+    function sendVisit(name, extra) {
+        if (typeof VISIT_URL === 'undefined' || !VISIT_URL || !currentSurveyId) return;
+        var body = { survey_id: currentSurveyId, arm_id: currentArmId, event: name, device: deviceType(),
+                     question_ids: questionsData.map(function(q) { return q.question_id; }) };
+        Object.keys(extra || {}).forEach(function(k) { body[k] = extra[k]; });
+        fetch(VISIT_URL, {
+            method: 'POST', credentials: 'same-origin', keepalive: true,
+            headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        }).catch(function() { /* not recorded; nothing the respondent needs to do */ });
+    }
+    function introSeconds() {
+        return introShownAt === null ? null : Math.round((Date.now() - introShownAt) / 100) / 10;
     }
 
     // The options in the order this respondent sees them (shuffled questions carry `order`)
@@ -694,6 +744,10 @@ document.addEventListener('DOMContentLoaded', function() {
         sliderMoved = {};
         seen = {};
         passed = {};
+        changes = {};
+        lastGiven = {};
+        firstValue = {};
+        introShownAt = null;
         lastDraftKey = null;
         if (draftTimer) { clearTimeout(draftTimer); draftTimer = null; }
     }
@@ -728,7 +782,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 var labels = q.question_type === 'picture_choice' ? q.pictures.map(function(p) { return p.label; }) : q.options;
                 entry.display_order = q.order.map(function(k) { return labels[k]; });
             }
-            out.push(entry);
+            out.push(addExtras(entry, q));
         });
         return out;
     }
@@ -785,12 +839,19 @@ document.addEventListener('DOMContentLoaded', function() {
                         msg.style.display = '';
                     }
                 } else if (d.answer_text !== '') {
+                    restoring = true;
                     applyAnswer(q, section, d);
+                    restoring = false;
+                    var key = answerKey(q);
+                    if (key !== null) lastGiven[qid] = key;
                 }
             } catch (e) {
+                restoring = false;
                 console.warn('[student] could not restore an answer', qid, e);
                 return;
             }
+            if (d.changes) changes[qid] = d.changes;
+            if (d.first_value != null) firstValue[qid] = d.first_value;
             if (d.seconds != null) timeSpent[qid] = d.seconds;
             if (d.left_page) leftPage[qid] = true;
             seen[qid] = true;
@@ -921,8 +982,11 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('[student] restored ' + restored + ' saved answers');
         }
 
+        sendVisit('open');
+        if (data.declined && data.intro && data.intro.consent) declinedSurveyIds[data.survey_id] = true;
         introActive = !!data.intro && !restored;
         if (introActive) {
+            introShownAt = Date.now();
             container.insertAdjacentHTML('afterbegin', introHtml(data.intro));
             container.querySelectorAll('.question-section').forEach(function(s) { s.style.display = 'none'; });
             if (declinedSurveyIds[data.survey_id]) showDeclined();
@@ -936,18 +1000,22 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function showDeclined() {
         var intro = document.querySelector('.intro-section');
-        if (intro) intro.innerHTML = '<h5>Thank you.</h5><p class="text-muted mb-0">You chose not to take part in this survey, so nothing was recorded. '
-            + (POLL_ONCE ? 'You can go back to your lobby.' : 'Please wait for the next one.') + '</p>';
+        if (intro) intro.innerHTML = '<h5>Thank you.</h5><p class="text-muted">You chose not to take part in this survey, so none of your answers are recorded '
+            + '(only that you chose not to). ' + (POLL_ONCE ? 'You can go back to your lobby.' : 'Please wait for the next one.') + '</p>'
+            + '<button type="button" class="btn btn-link btn-sm p-0 intro-start">I changed my mind: take part</button>';
     }
 
     document.getElementById('questions-container').addEventListener('click', function(e) {
         if (e.target.closest('.intro-start')) {
             document.querySelector('.intro-section').remove();
             introActive = false;
+            delete declinedSurveyIds[currentSurveyId];
+            sendVisit('start', { intro_seconds: introSeconds() });
             showQuestion(Math.max(0, nextVisible(-1)));
         } else if (e.target.closest('.intro-decline')) {
-            if (!confirm('Skip this survey? Nothing will be recorded.')) return;
+            if (!confirm('Skip this survey? None of your answers will be recorded.')) return;
             declinedSurveyIds[currentSurveyId] = true;
+            sendVisit('decline', { intro_seconds: introSeconds() });
             showDeclined();
         }
     });
@@ -1186,6 +1254,25 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
+    // Answer changes: a tap (buttons) or a finished edit (inputs: on leaving the box or releasing the slider)
+    function questionOf(el) {
+        var section = el.closest('.question-section');
+        return section ? questionById(parseInt(section.dataset.questionId)) : null;
+    }
+    questionsBox.addEventListener('click', function(e) {
+        if (!e.target.closest('button')) return;
+        var q = questionOf(e.target);
+        if (q && ONE_ANSWER[q.question_type]) noteAnswer(q);
+    });
+    questionsBox.addEventListener('change', function(e) {
+        var q = questionOf(e.target);
+        if (!q || restoring) return;
+        if (e.target.classList.contains('slider-answer-input') && firstValue[q.question_id] == null && !timedOut[q.question_id]) {
+            firstValue[q.question_id] = e.target.value;
+        }
+        if (ONE_ANSWER[q.question_type]) noteAnswer(q);
+    });
+
     // Next question button
     document.getElementById('next-question').addEventListener('click', function() {
         var q = questionsData[currentQuestionIndex];
@@ -1245,7 +1332,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 var labels = q.question_type === 'picture_choice' ? q.pictures.map(function(p) { return p.label; }) : q.options;
                 entry.display_order = q.order.map(function(k) { return labels[k]; });
             }
-            answersArray.push(entry);
+            answersArray.push(addExtras(entry, q));
         });
 
         if (firstProblem) {

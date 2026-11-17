@@ -442,7 +442,7 @@ def run_again(code, survey_id):
     survey = db.execute('SELECT * FROM survey WHERE id=? AND classroom_id=?', (survey_id, classroom['id'])).fetchone()
     if not survey:
         abort(404)
-    for table in ('response', 'response_draft', 'arm_assignment', 'reminder_action', 'push_subscription'):
+    for table in ('response', 'response_draft', 'survey_visit', 'arm_assignment', 'reminder_action', 'push_subscription'):
         db.execute(f'DELETE FROM {table} WHERE survey_id=?', (survey_id,))
     db.execute('UPDATE survey SET is_active=0, active_part=NULL, part1_ran=NULL, part2_ran=NULL WHERE id=?',
                (survey_id,))

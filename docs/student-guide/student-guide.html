@@ -268,7 +268,8 @@ when you're done on a shared computer.</p>
         each respondent is assigned independently at random with those chances, so the arms can come out uneven. Either way, each respondent
         always sees the same arm.</li>
     <li><b>Intro screen</b>: a text respondents read before the first question, with a Start button (instructions or a scenario). It can differ
-        between arms. <b>Ask for consent</b> shows "I agree, start" and "I don't want to take part"; nothing is recorded for those who decline.</li>
+        between arms. <b>Ask for consent</b> shows "I agree, start" and "I don't want to take part"; for those who decline, no answers are recorded,
+        only that they declined and their arm (the <b>declined</b> column), so you can compare dropouts across arms.</li>
     <li><b>Apply to every question</b>: shortcuts to make every question required or optional, or to shuffle every question's options.
         They change each question's own setting, so you can still change one question afterwards.</li>
 </ul>
@@ -410,14 +411,31 @@ bottom of the survey page. Downloads keep working after surveys are locked.</p>
 <figure><img src="img/19_my_group_download.png" alt="My group row with the responses download"></figure>
 <p>The file is a CSV that opens in Excel, Google Sheets, R or Stata. <b>Wide</b> (the default) has one row per respondent and one column per question,
 plus time on each question, whether they left the page, and timeouts:</p>
-<pre>respondent_id,arm,submitted,Q1 Willingness to pay (numeric),...
-R-7KQ2PX,Control,yes,8,...
-R-M4TW9A,High anchor,no,20,...</pre>
-<p><b>submitted</b>: respondents' answers are saved as they go, so the file also has people who started but never tapped Submit
-(<b>no</b>; for a two-part survey, <b>part 1 only</b> if they didn't submit part 2). Keep only <b>yes</b> for the main analysis; the others are
-useful for checking who dropped out, and where. The long file has the same column on every row.</p>
-<p><b>Long</b> has one row per respondent and question (respondent, arm, part, question, answer, seconds...), handy for regressions with question or part
-effects. Two-part surveys mark part-2 questions, and surveys with notifications add whether each respondent added them (calendar file,
+<pre>respondent_id,arm,submitted,declined,mode,device,...,Q1 Willingness to pay,...
+R-7KQ2PX,Control,yes,,live,phone,...,8,...
+R-M4TW9A,High anchor,no,,live,phone,...,20,...
+R-Q2HD8N,Control,no,,live,computer,...,,...</pre>
+<p><b>respondent_id</b> is a random ID for each respondent in your survey. Each survey has its own IDs (a classmate has a different ID in
+another group's survey), so answers stay anonymous even when files are shared.</p>
+<p>The wide file has <b>everyone the survey was shown to</b>, including those who never answered, so you can check that dropouts are similar
+across arms (an important check in any experiment):</p>
+<ul>
+    <li><b>submitted</b>: <b>yes</b>; <b>no</b> = shown the survey but never tapped Submit (with whatever they answered: answers are saved as they
+        go); <b>part 1 only</b> for a two-part survey whose part 2 wasn't submitted. Keep only <b>yes</b> for the main analysis.</li>
+    <li><b>declined</b>: <b>yes</b> if they chose "I don't want to take part" on your consent screen (they have no answers).</li>
+    <li><b>mode</b>: how they answered: <b>live</b> (in the live session), <b>class</b> (a part launched separately in class), <b>early</b>
+        (opened early from the lobby) or <b>remote</b> (a remote part from the lobby). <b>device</b>: phone, tablet or computer.</li>
+    <li><b>first shown</b> / <b>submitted at</b> (UTC) and <b>minutes</b> in between; <b>intro seconds</b>: time on your intro screen.
+        Two-part surveys have these for each part ("part 1 mode", "part 2 mode"...).</li>
+    <li>Per question, after the time and left-page columns: <b>Qn changes</b>, how many times they changed their answer before submitting
+        (for one-answer questions, every switch; for questions with several parts, such as rankings or grids, a change made after leaving the
+        question and coming back), and for sliders <b>Qn first value</b>, the first value they moved it to (useful for anchoring).</li>
+</ul>
+<p>The <b>Download example answers</b> file on the dashboard preview has all these columns with made-up values, so you can write your
+analysis before class.</p>
+<p><b>Long</b> has one row per respondent and question (respondent, arm, part, question, answer, seconds, <b>submitted</b>, <b>changes</b>,
+<b>first_value</b>...), handy for regressions with question or part effects; respondents with no answers are only in the wide file.
+Two-part surveys mark part-2 questions, and surveys with notifications add whether each respondent added them to the wide file (calendar file,
 Google Calendar links, notifications turned on, delivered and tapped).</p>
 <p>The newer types add columns to the wide file, ready for analysis: <b>ranking</b>, one "rank of <i>item</i>" column per item;
 <b>rating grid</b>, one column per statement; <b>budget split</b>, one column per item; <b>price list</b> and <b>lottery</b>, the number of A

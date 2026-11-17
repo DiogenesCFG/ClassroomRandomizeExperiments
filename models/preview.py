@@ -1,6 +1,7 @@
 """Random sample responses for the builder's "Preview dashboard" (never written to the database)."""
 import json
 import random
+from datetime import datetime, timedelta
 
 from models import qtypes, rules
 
@@ -39,6 +40,7 @@ def fake_responses(arms, questions, n, seed=None, split=None, balanced=False):
     Returns response dicts shaped like rows from the `response` table.
     """
     rng = random.Random(seed)
+    extra = random.Random(None if seed is None else f'{seed}-extra')  # changes / first values; keeps rng's draws as before
     rows = []
     if not arms or not questions:
         return rows
@@ -128,7 +130,10 @@ def fake_responses(arms, questions, n, seed=None, split=None, balanced=False):
             rows.append({'arm_id': arm['id'], 'question_id': q['id'], 'answer_text': answer_text,
                          'answer_index': answer_index, 'other_text': other_text, 'timed_out': timed_out,
                          'respondent': respondent, 'arm_label': arm['label'], 'arm_index': arm['arm_index'],
-                         'seconds': seconds, 'left_page': 1 if rng.random() < 0.04 else 0})
+                         'seconds': seconds, 'left_page': 1 if rng.random() < 0.04 else 0,
+                         'changes': 0 if timed_out or answer_text == '' else extra.choices([0, 1, 2], [85, 12, 3])[0],
+                         'first_value': (str(_snap(extra.uniform(lo, hi), lo, hi, step))
+                                         if qtype == 'slider' and not timed_out and answer_text != '' else None)})
     return rows
 
 
@@ -192,3 +197,37 @@ def split_args(survey, n_arms):
     from models.survey import survey_options
     options = survey_options(survey)
     return {'split': split_of(options, n_arms), 'balanced': options['balance']}
+
+
+def example_visits(rows, arms, n, seed=None, intro=False, consent=False, two_part=False):
+    """Made-up visits (models/visits.py) for the example download: mode, device and times for the sample
+    respondents, plus a few who opened the survey without answering (with a consent screen, some declined).
+    Returns {respondent: {part: visit}}, like visits.by_participant."""
+    rng = random.Random(None if seed is None else f'{seed}-visits')
+    fmt = lambda t: t.strftime('%Y-%m-%d %H:%M:%S')
+    start = datetime(2026, 1, 15, 18, 0, 0)
+    device = lambda: rng.choices(['phone', 'tablet', 'computer'], [80, 5, 15])[0]
+    seconds = {}
+    for r in rows:
+        seconds[r['respondent']] = seconds.get(r['respondent'], 0) + (r['seconds'] or 0)
+    out = {}
+    for pid in sorted(seconds):
+        first = start + timedelta(seconds=rng.uniform(0, 90))
+        intro_s = round(rng.uniform(3, 25), 1) if intro else None
+        done = first + timedelta(seconds=seconds[pid] + (intro_s or 0) + rng.uniform(5, 40))
+        out[pid] = {1: {'mode': 'live', 'device': device(), 'first_shown_at': fmt(first), 'submitted_at': fmt(done),
+                        'intro_seconds': intro_s, 'declined_at': None}}
+        if two_part:
+            first2 = start + timedelta(days=2, hours=rng.uniform(0, 30))
+            out[pid][2] = {'mode': 'remote', 'device': device(), 'first_shown_at': fmt(first2),
+                           'submitted_at': fmt(first2 + timedelta(seconds=rng.uniform(30, 200))), 'declined_at': None}
+    for k in range(max(1, n // 15) if arms else 0):
+        pid = n + k + 1
+        arm = arms[rng.randrange(len(arms))]
+        first = start + timedelta(seconds=rng.uniform(0, 300))
+        declined = consent and rng.random() < 0.6
+        out[pid] = {1: {'arm_label': arm['label'], 'arm_index': arm['arm_index'], 'anon_id': f'EXAMPLE-{pid:03d}',
+                        'mode': 'live', 'device': device(), 'first_shown_at': fmt(first), 'submitted_at': None,
+                        'intro_seconds': round(rng.uniform(3, 25), 1) if intro and declined else None,
+                        'declined_at': fmt(first + timedelta(seconds=20)) if declined else None}}
+    return out

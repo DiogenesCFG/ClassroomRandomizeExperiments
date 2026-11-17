@@ -165,7 +165,9 @@ CREATE TABLE IF NOT EXISTS response (
     other_text      TEXT DEFAULT NULL,      -- what they typed after choosing "Other"
     timed_out       INTEGER DEFAULT NULL,   -- 1 if the question's timer ran out (the default was recorded)
     display_order   TEXT DEFAULT NULL,      -- shuffled options: the order they were shown (JSON list of texts)
-    position        INTEGER DEFAULT NULL    -- where the question came in this respondent's survey (1 = first shown)
+    position        INTEGER DEFAULT NULL,   -- where the question came in this respondent's survey (1 = first shown)
+    changes         INTEGER DEFAULT NULL,   -- times they replaced an answer they had given (see models/visits.py)
+    first_value     TEXT DEFAULT NULL       -- sliders: the first value they moved it to
 );
 CREATE INDEX IF NOT EXISTS idx_response_survey ON response(survey_id);
 CREATE INDEX IF NOT EXISTS idx_response_survey_arm_question ON response(survey_id, arm_id, question_id);
@@ -186,10 +188,33 @@ CREATE TABLE IF NOT EXISTS response_draft (
     other_text      TEXT DEFAULT NULL,
     timed_out       INTEGER DEFAULT NULL,
     display_order   TEXT DEFAULT NULL,
-    position        INTEGER DEFAULT NULL
+    position        INTEGER DEFAULT NULL,
+    changes         INTEGER DEFAULT NULL,
+    first_value     TEXT DEFAULT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_response_draft_unique ON response_draft(participant_id, question_id);
 CREATE INDEX IF NOT EXISTS idx_response_draft_survey ON response_draft(survey_id);
+
+-- Each time a survey (part) was shown to a respondent, whether or not they answered: when it was first
+-- shown, in which arm and how (live / class / early / remote), the device, whether they declined at the
+-- consent screen, and when they submitted. See models/visits.py.
+CREATE TABLE IF NOT EXISTS survey_visit (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    participant_id  INTEGER NOT NULL REFERENCES participant(id) ON DELETE CASCADE,
+    survey_id       INTEGER NOT NULL REFERENCES survey(id) ON DELETE CASCADE,
+    part            INTEGER NOT NULL DEFAULT 1,
+    arm_id          INTEGER REFERENCES survey_arm(id) ON DELETE CASCADE,
+    mode            TEXT DEFAULT NULL,      -- live | class | early | remote
+    first_shown_at  TEXT DEFAULT NULL,      -- UTC
+    loads           INTEGER NOT NULL DEFAULT 0,  -- times the survey page was opened with it showing
+    device          TEXT DEFAULT NULL,      -- phone | tablet | computer (as last opened)
+    user_agent      TEXT DEFAULT NULL,      -- instructor only
+    intro_seconds   REAL DEFAULT NULL,      -- time on the intro / consent screen
+    declined_at     TEXT DEFAULT NULL,      -- chose "I don't want to take part"
+    submitted_at    TEXT DEFAULT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_survey_visit_unique ON survey_visit(participant_id, survey_id, part);
+CREATE INDEX IF NOT EXISTS idx_survey_visit_survey ON survey_visit(survey_id);
 CREATE INDEX IF NOT EXISTS idx_survey_active_classroom ON survey(classroom_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_participant_classroom ON participant(classroom_id);
 

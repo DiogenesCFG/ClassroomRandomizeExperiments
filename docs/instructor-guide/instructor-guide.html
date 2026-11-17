@@ -250,18 +250,26 @@ and <b>Feedback summary</b> (per round) are in the Data card and the peer commen
 <p><b>Download everything (.zip)</b> on the home page has every file plus the uploaded images:</p>
 <table>
     <tr><th style="width: 32%">File</th><th>Contents</th></tr>
-    <tr><td>all_responses.csv</td><td>Every answer, with names, IDs, the respondent ID, arm, time on the question, left-page and timeout flags, and part.
-        A <b>submitted</b> column says whether it was submitted (<b>no</b> = started but never submitted; answers are saved as respondents go). The same
-        column is in the participation files and the groups' downloads.</td></tr>
+    <tr><td>all_responses.csv</td><td>Every answer, with names, IDs, the respondent ID (that survey's), arm, time on the question, left-page and timeout flags, and part.
+        A <b>submitted</b> column says whether it was submitted (<b>no</b> = started but never submitted; answers are saved as respondents go), plus
+        <b>changes</b> (times the answer was changed before submitting) and <b>first_value</b> (sliders: the first value moved to).</td></tr>
     <tr><td>surveys_config.csv</td><td>What each arm showed: question texts and options.</td></tr>
-    <tr><td>participants.csv</td><td>The roster key: names, IDs and the random respondent IDs students see.</td></tr>
-    <tr><td>survey_designers.csv / survey_participation.csv</td><td>Who designed each survey; who answered each one.</td></tr>
+    <tr><td>participants.csv</td><td>The roster: names, IDs, when each signed up, and who was removed.</td></tr>
+    <tr><td>survey_designers.csv</td><td>Who designed each survey.</td></tr>
+    <tr><td>survey_participation.csv</td><td>One row per survey and student, including students who never opened it, with a <b>status</b>:
+        submitted, part 1 only, started (not submitted), declined (at the consent screen), opened (no answers), group member, or did not open
+        (absent or not on the page when it ran). Also the arm, how it was answered (live, class, early, remote), device, when it was first shown
+        and submitted (UTC), minutes, how many times the page was opened, and the browser string (useful when a student says their answers
+        disappeared). Only you get names, page loads and browser strings; groups get the arm, status, mode, device and times by respondent ID,
+        including those who were shown the survey but didn't answer, so they can check dropouts by arm.</td></tr>
     <tr><td>feedback.csv / feedback_summary.csv</td><td>Comments and required-comment counts, for grading.</td></tr>
     <tr><td>reminder_plans.csv</td><td>Each group's notifications per arm, how its parts run, and approval.</td></tr>
     <tr><td>reminder_actions.csv / reminder_notifications.csv</td><td>Who downloaded the calendar file, opened Google Calendar links, turned notifications on;
         each notification sent, delivered and tapped.</td></tr>
 </table>
-<p>Groups download their own survey's responses, anonymized (random respondent IDs only), in wide (one row per respondent) or long (one row per answer) format.</p>
+<p>Groups download their own survey's responses, anonymized (random respondent IDs only), in wide (one row per respondent) or long (one row per answer) format.
+Each survey has its own respondent IDs: a student has a different ID in every survey, so groups can't combine files to follow a classmate across
+surveys. The participation files list each survey's IDs next to names if you need to link them.</p>
 
 <h2>11. Deploying and backups</h2>
 <ul>

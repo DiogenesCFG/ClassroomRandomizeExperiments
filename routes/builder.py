@@ -892,7 +892,15 @@ def preview_example_csv(code, survey_id):
     from models.download import anon_responses_long_csv
     long = request.args.get('format') == 'long'
     writer = anon_responses_long_csv if long else anon_responses_csv
-    csv_text = writer(questions, rows, part2_from=reminders.part2_start(survey))
+    if long:
+        csv_text = writer(questions, rows, part2_from=reminders.part2_start(survey))
+    else:
+        from models.preview import example_visits
+        from models.survey import survey_options
+        options = survey_options(survey)
+        shown = example_visits(rows, arms, n, seed=seed, intro=options['intro'], consent=options['intro'] and options['consent'],
+                               two_part=reminders.part2_start(survey) is not None)
+        csv_text = writer(questions, rows, part2_from=reminders.part2_start(survey), visits=shown)
     name = 'EXAMPLE_responses_long' if long else 'EXAMPLE_responses'
     return Response(csv_text, mimetype='text/csv',
                     headers={'Content-Disposition': f'attachment; filename={_group_filename(survey_id, name)}'})

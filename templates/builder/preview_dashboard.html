@@ -100,10 +100,10 @@
 {% block scripts %}
 <script>
     const CLASSROOM_ID = {{ classroom.id }};
-    const HOST_STATE_URL = "{{ state_url }}";
+    const HOST_STATE_URL = {{ state_url|tojson }};
     const HOST_ACTIVATE_URL = "";
     const HOST_NEXT_URL = "";
     const HOST_RESET_URL = "";
 </script>
-<script src="{{ url_for('static', filename='js/host.js') }}?v=20261103"></script>
+<script src="{{ url_for('static', filename='js/host.js') }}?v=20261117"></script>
 {% endblock %}
