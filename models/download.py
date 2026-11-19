@@ -912,136 +912,37 @@ def export_groups_csv(classroom_id):
     return '﻿' + output.getvalue()
 
 
-GRADING_HEADER = [
-    'name', 'student_id', 'signed_up', 'group_number', 'survey_title', 'group_size', 'group_members', 'runs',
-    'finished', 'still_to_do', 'platform_note', 'ran_in_class', 'ran_at', 'group_respondents',
-    'class_surveys', 'class_surveys_submitted', 'class_surveys_missed', 'opened_a_class_survey',
-    'first_opened', 'last_submitted', 'declined', 'times_in']
-
-
-def export_grading_csv(classroom_id, tz_name=None):
-    """One row per student (per group; one row with the group blank if they have none) for grading:
-    the student, their group repeated on each member's row (where it runs, finished, whether and when it ran in
-    class, how many answered it), and their own participation in the surveys run in class (live or launched in
-    class), not counting their own group's: how many there were, how many they submitted, which they missed,
-    when they first opened one and last submitted one (in tz_name, the instructor's browser zone; UTC otherwise)."""
-    from zoneinfo import ZoneInfo
-    from datetime import datetime as _dt, timezone as _tz
+def export_student_groups_csv(classroom_id):
+    """One row per student (not removed) with their group and its survey's status, sorted by group; a student
+    with no group gets one row with the group blank (one row per group if they're in several). Kept to a few
+    general columns so each instructor can add their own grading columns."""
     from models import reminders
     from models.survey import get_survey, survey_incomplete
     db = get_db()
-    try:
-        zone = ZoneInfo(tz_name) if tz_name else None
-    except Exception:
-        zone = None
-
-    def local(ts):
-        if not ts:
-            return ''
-        try:
-            t = _dt.fromisoformat(str(ts).replace('Z', '')[:19]).replace(tzinfo=_tz.utc)
-        except ValueError:
-            return str(ts)
-        return (t.astimezone(zone) if zone else t).strftime('%Y-%m-%d %H:%M:%S')
-
-    surveys = [dict(s) for s in db.execute('SELECT * FROM survey WHERE classroom_id=? ORDER BY group_number',
-                                           (classroom_id,))]
-    by_id = {s['id']: s for s in surveys}
-    members = {}
-    for m in db.execute('SELECT gm.survey_id, gm.name, gm.sis_code FROM group_member gm JOIN survey s ON s.id = gm.survey_id '
-                        'WHERE s.classroom_id=? ORDER BY gm.name COLLATE NOCASE', (classroom_id,)):
-        members.setdefault(m['survey_id'], []).append(m)
-    respondents = dict(db.execute('SELECT r.survey_id, COUNT(DISTINCT r.participant_id) FROM response r JOIN survey s '
-                                  'ON s.id = r.survey_id WHERE s.classroom_id=? GROUP BY r.survey_id', (classroom_id,)).fetchall())
-    # The parts run in class: live in the sequence or launched in class, and already run
-    class_parts = []  # (survey, part)
-    for s in surveys:
-        if s['external']:
-            continue
-        for p in ((1, 2) if reminders.is_two_part(s) else (1,)):
-            if reminders.part_when(s, p) in ('live', 'class') and reminders.part_ran(s, p):
-                class_parts.append((s, p))
-    in_class = {(s['id'], p) for s, p in class_parts}
-    # What each participant submitted, by (survey, part): visits record it; answers cover anything without a visit
-    submitted, first_open, last_sent, declined, first_answer, last_answer = {}, {}, {}, {}, {}, {}
-    for v in db.execute('SELECT v.* FROM survey_visit v JOIN survey s ON s.id = v.survey_id WHERE s.classroom_id=?',
-                        (classroom_id,)):
-        key = (v['survey_id'], v['part'])
-        if key not in in_class:
-            continue
-        pid = v['participant_id']
-        if v['first_shown_at'] and (pid not in first_open or v['first_shown_at'] < first_open[pid]):
-            first_open[pid] = v['first_shown_at']
-        if v['submitted_at']:
-            submitted.setdefault(pid, set()).add(key)
-            if v['submitted_at'] > last_sent.get(pid, ''):
-                last_sent[pid] = v['submitted_at']
-        if v['declined_at']:
-            declined.setdefault(pid, set()).add(key)
-    for r in db.execute('SELECT r.participant_id, r.survey_id, sq.question_index, MIN(r.answered_at) AS first_at, '
-                        'MAX(r.answered_at) AS last_at FROM response r JOIN survey s ON s.id = r.survey_id '
-                        'JOIN survey_question sq ON sq.id = r.question_id WHERE s.classroom_id=? '
-                        'GROUP BY r.participant_id, r.survey_id, sq.question_index', (classroom_id,)):
-        s = by_id.get(r['survey_id'])
-        key = (r['survey_id'], reminders.question_part(s, r) if s else 1)
-        if key not in in_class:
-            continue
-        pid = r['participant_id']
-        submitted.setdefault(pid, set()).add(key)
-        if r['first_at'] and (pid not in first_answer or r['first_at'] < first_answer[pid]):
-            first_answer[pid] = r['first_at']
-        if r['last_at'] and r['last_at'] > last_answer.get(pid, ''):
-            last_answer[pid] = r['last_at']
-    for pid, t in first_answer.items():  # answers from before visits were recorded
-        first_open.setdefault(pid, t)
-    for pid, t in last_answer.items():
-        last_sent.setdefault(pid, t)
-
-    def label(key):
-        s = by_id[key[0]]
-        return str(s['group_number']) + (f' (part {key[1]})' if reminders.is_two_part(s) else '')
-
+    surveys = {s['id']: dict(s) for s in db.execute('SELECT * FROM survey WHERE classroom_id=?', (classroom_id,))}
     groups_of = {}
-    for sid, ms in members.items():
-        for m in ms:
-            groups_of.setdefault(m['sis_code'], []).append(sid)
-    todo_cache = {}
+    for m in db.execute('SELECT gm.survey_id, gm.sis_code FROM group_member gm JOIN survey s ON s.id = gm.survey_id '
+                        'WHERE s.classroom_id=?', (classroom_id,)):
+        groups_of.setdefault(m['sis_code'], []).append(m['survey_id'])
+    status = {}
+    for sid, s in surveys.items():
+        if s['external']:
+            status[sid] = ('another platform', 'other platform', '', 'other platform')
+            continue
+        todo = survey_incomplete(get_survey(sid))
+        ran = any(reminders.part_ran(s, p) for p in ((1, 2) if reminders.is_two_part(s) else (1,)))
+        status[sid] = ('this site', 'no' if todo else 'yes', ' '.join(todo), 'yes' if ran else 'no')
+    rows = []
+    for st in db.execute('SELECT full_name, sis_id FROM roster_student WHERE classroom_id=? AND hidden=0', (classroom_id,)):
+        for sid in groups_of.get(st['sis_id']) or [None]:
+            s = surveys.get(sid)
+            rows.append(((0, s['group_number']) if s else (1, 0), (st['full_name'] or '').lower(),
+                         [st['full_name'], st['sis_id'], s['group_number'] if s else '', s['title'] if s else '',
+                          *(status[sid] if s else ('', '', '', ''))]))
+    rows.sort(key=lambda r: (r[0], r[1]))
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(GRADING_HEADER)
-    rows = []
-    for st in db.execute('''SELECT rs.full_name, rs.sis_id, rs.registered_at, p.id AS pid FROM roster_student rs
-                            LEFT JOIN participant p ON p.classroom_id = rs.classroom_id AND p.student_id = rs.sis_id
-                            WHERE rs.classroom_id=? AND rs.hidden=0''', (classroom_id,)):
-        pid = st['pid']
-        mine = groups_of.get(st['sis_id'], [])
-        expected = [k for k in sorted(in_class, key=lambda k: (by_id[k[0]]['group_number'], k[1])) if k[0] not in mine]
-        sent = submitted.get(pid, set()) if pid else set()
-        missed = [label(k) for k in expected if k not in sent]
-        mine_declined = [label(k) for k in expected if k in declined.get(pid, set())] if pid else []
-        person = [st['full_name'], st['sis_id'], 'yes' if st['registered_at'] else 'no']
-        participation = [len(expected), sum(1 for k in expected if k in sent), '; '.join(missed),
-                         'yes' if pid and (pid in first_open or sent) else 'no',
-                         local(first_open.get(pid)) if pid else '', local(last_sent.get(pid)) if pid else '',
-                         '; '.join(mine_declined), tz_name if zone else 'UTC']
-        for sid in mine or [None]:
-            s = by_id.get(sid)
-            if not s:
-                rows.append(('', st['full_name'].lower(), person + [''] * 11 + participation))
-                continue
-            if sid not in todo_cache:
-                todo_cache[sid] = [] if s['external'] else survey_incomplete(get_survey(sid))
-            todo = todo_cache[sid]
-            ms = members.get(sid, [])
-            ran = [(p, s.get(f'part{p}_ran')) for p in (1, 2) if s.get(f'part{p}_ran') and (s['id'], p) in in_class]
-            group = [s['group_number'], s['title'], len(ms), '; '.join(m['name'] for m in ms),
-                     'another platform' if s['external'] else 'this site',
-                     'other platform' if s['external'] else ('no' if todo else 'yes'), ' '.join(todo),
-                     (s['external_note'] or '') if s['external'] else '',
-                     'other platform' if s['external'] else ('yes' if ran else 'no'),
-                     '; '.join(local(t) for _, t in ran), respondents.get(sid, 0)]
-            rows.append((s['group_number'], st['full_name'].lower(), person + group + participation))
-    rows.sort(key=lambda r: (r[0] == '', r[0] if r[0] != '' else 0, r[1]))
+    writer.writerow(['name', 'student_id', 'group_number', 'survey_title', 'runs', 'finished', 'still_to_do', 'ran'])
     for _, _, row in rows:
         writer.writerow(row)
     return '﻿' + output.getvalue()
