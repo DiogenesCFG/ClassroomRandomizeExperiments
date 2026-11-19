@@ -105,6 +105,10 @@ def dashboard(code):
             abort(404)
     for s in surveys:
         s['two_part'] = reminders.is_two_part(s)
+        if s['external']:
+            s['run_part'] = 1
+            s['ran'] = bool(s.get('part1_ran')) and not mock  # placeholder already shown
+            continue
         if single:
             part = request.args.get('part', type=int)
             s['run_part'] = part if s['two_part'] and part in (1, 2) else (reminders.sequence_part(s) or 1)
@@ -157,7 +161,27 @@ def mock_state(code):
         state['refresh'] += 1
         session['live_mock'] = state
     total, results = _mock_results(classroom, state)
-    return jsonify({'ok': True, 'participant_count': total, 'active_survey_id': state['current'], 'results': results})
+    ext = None
+    if not state['current'] and state.get('external'):
+        row = get_db().execute('SELECT * FROM survey WHERE id=? AND classroom_id=? AND external=1',
+                               (state['external'], classroom['id'])).fetchone()
+        ext = _external_card(row) if row else None
+    return jsonify({'ok': True, 'participant_count': total, 'active_survey_id': state['current'], 'results': results,
+                    'external': ext})
+
+
+@bp.route('/mock/show-external', methods=['POST'])
+def mock_show_external(code):
+    classroom, state = _mock_classroom(code)
+    row = get_db().execute('SELECT * FROM survey WHERE id=? AND classroom_id=? AND external=1',
+                           ((request.get_json(silent=True) or {}).get('survey_id'), classroom['id'])).fetchone()
+    if not row:
+        return jsonify({'ok': False, 'error': 'survey_not_found'}), 404
+    state.update(current=None, part=None, external=row['id'])
+    if row['id'] not in state['ran']:
+        state['ran'].append(row['id'])
+    session['live_mock'] = state
+    return jsonify({'ok': True, 'external': _external_card(row)})
 
 
 @bp.route('/mock/activate', methods=['POST'])
@@ -170,7 +194,7 @@ def mock_activate(code):
         return jsonify({'ok': False, 'error': 'survey_not_found'}), 404
     from models import reminders
     part = data.get('part') if reminders.is_two_part(dict(row)) and data.get('part') in (1, 2) else (reminders.sequence_part(dict(row)) or 1)
-    state.update(current=row['id'], part=part, refresh=0)
+    state.update(current=row['id'], part=part, refresh=0, external=None)
     if row['id'] not in state['ran']:
         state['ran'].append(row['id'])
     session['live_mock'] = state
@@ -182,14 +206,19 @@ def mock_next(code):
     classroom, state = _mock_classroom(code)
     from models import reminders
     from models.live import live_sequence, next_in_sequence
-    rows = [dict(r) for r in get_db().execute('SELECT * FROM survey WHERE classroom_id=? AND external=0', (classroom['id'],))]
-    nxt = next_in_sequence(live_sequence(classroom, rows), state['current'],
+    rows = [dict(r) for r in get_db().execute('SELECT * FROM survey WHERE classroom_id=?', (classroom['id'],))]
+    nxt = next_in_sequence(live_sequence(classroom, rows), state['current'] or state.get('external'),
                            lambda s: bool(reminders.sequence_part(s)) and s['id'] not in state['ran'])
     if not nxt:
-        state.update(current=None, part=None)
+        state.update(current=None, part=None, external=None)
         session['live_mock'] = state
         return jsonify({'ok': True, 'done': True, 'results': None})
-    state.update(current=nxt['id'], part=reminders.sequence_part(nxt) or 1, refresh=0)
+    if nxt['external']:
+        state.update(current=None, part=None, external=nxt['id'])
+        state['ran'].append(nxt['id'])
+        session['live_mock'] = state
+        return jsonify({'ok': True, 'done': False, 'results': None, 'external': _external_card(nxt)})
+    state.update(current=nxt['id'], part=reminders.sequence_part(nxt) or 1, refresh=0, external=None)
     state['ran'].append(nxt['id'])
     session['live_mock'] = state
     return jsonify({'ok': True, 'done': False, 'results': _mock_results(classroom, state)[1]})
@@ -246,11 +275,15 @@ def state(code):
     ).fetchone()
 
     if not active:
+        ext = _showing_external(classroom)
+        row = ext and db.execute('SELECT * FROM survey WHERE id=? AND classroom_id=? AND external=1',
+                                 (ext, classroom_id)).fetchone()
         return jsonify({
             'ok': True,
             'participant_count': participant_count,
             'active_survey_id': None,
             'results': None,
+            'external': _external_card(row) if row else None,
         })
 
     results = _get_aggregated_results(db, active['id'])
@@ -318,22 +351,30 @@ def next_http(code):
     ).fetchone()
 
     # The next survey in the live order (group number, or the instructor's custom order) whose live-session
-    # part hasn't run yet: parts run separately, remote parts, and surveys launched on their own earlier are skipped
+    # part hasn't run yet: parts run separately, remote parts, and surveys launched on their own earlier are skipped.
+    # Other-platform groups are stops too: their placeholder (the group's note) is shown once (part1_ran).
     from models import reminders
     from models.live import live_sequence, next_in_sequence
-    rows = [dict(r) for r in db.execute('SELECT * FROM survey WHERE classroom_id=? AND external=0', (classroom['id'],))]
+    rows = [dict(r) for r in db.execute('SELECT * FROM survey WHERE classroom_id=?', (classroom['id'],))]
 
     def due(s):
         part = reminders.sequence_part(s)
         return bool(part) and not reminders.part_ran(s, part)
-    next_row = next_in_sequence(live_sequence(classroom, rows), current['id'] if current else None, due)
+    current_id = current['id'] if current else _showing_external(classroom)
+    next_row = next_in_sequence(live_sequence(classroom, rows), current_id, due)
     if current:
         db.execute('UPDATE survey SET is_active=0 WHERE id=?', (current['id'],))
 
     if not next_row:
         db.commit()
+        _set_showing_external(classroom, None)
         socketio.emit('survey_deactivated', {}, room=f'students_{classroom["id"]}')
         return jsonify({'ok': True, 'done': True, 'results': None})
+
+    if next_row['external']:
+        db.commit()
+        socketio.emit('survey_deactivated', {}, room=f'students_{classroom["id"]}')
+        return jsonify({'ok': True, 'done': False, 'results': None, 'external': _show_external(db, classroom, next_row)})
 
     _launch(db, classroom, dict(next_row), None)
 
@@ -349,11 +390,55 @@ def next_http(code):
     return jsonify({'ok': True, 'done': False, 'results': results})
 
 
+def _showing_external(classroom):
+    """The other-platform group whose placeholder the live screen shows (kept in the instructor's session), or None."""
+    return session.get(f'live_external_{classroom["id"]}')
+
+
+def _set_showing_external(classroom, survey_id):
+    if survey_id:
+        session[f'live_external_{classroom["id"]}'] = survey_id
+    else:
+        session.pop(f'live_external_{classroom["id"]}', None)
+
+
+def _external_card(row):
+    """What the live screen shows for an other-platform group: its title and the note the group wrote."""
+    return {'survey_id': row['id'], 'group_number': row['group_number'], 'title': row['title'] or '',
+            'note': row['external_note'] or ''}
+
+
+def _show_external(db, classroom, row):
+    """Show an other-platform group's placeholder: nothing is open on phones; marked as shown so Next moves on."""
+    db.execute('UPDATE survey SET is_active=0 WHERE is_active=1 AND classroom_id=?', (classroom['id'],))
+    db.execute("UPDATE survey SET part1_ran=COALESCE(part1_ran, datetime('now')) WHERE id=?", (row['id'],))
+    db.commit()
+    _set_showing_external(classroom, row['id'])
+    return _external_card(row)
+
+
+@bp.route('/show-external', methods=['POST'])
+def show_external(code):
+    """Clicking an other-platform group in the live session's list: show its placeholder."""
+    classroom = _get_classroom_or_404(code)
+    if not session.get(f'host_authenticated_{classroom["id"]}'):
+        return jsonify({'ok': False, 'error': 'not_authenticated'}), 401
+    db = get_db()
+    row = db.execute('SELECT * FROM survey WHERE id=? AND classroom_id=? AND external=1',
+                     ((request.get_json(silent=True) or {}).get('survey_id'), classroom['id'])).fetchone()
+    if not row:
+        return jsonify({'ok': False, 'error': 'survey_not_found'}), 404
+    from app import socketio
+    socketio.emit('survey_deactivated', {}, room=f'students_{classroom["id"]}')
+    return jsonify({'ok': True, 'external': _show_external(db, classroom, row)})
+
+
 def _launch(db, classroom, survey, part):
     """Make this survey (one part of a two-part survey) the one students answer now."""
     from models import reminders
     if not reminders.is_two_part(survey) or part not in (1, 2):
         part = reminders.sequence_part(survey) or 1
+    _set_showing_external(classroom, None)
     db.execute('UPDATE survey SET is_active=0 WHERE is_active=1 AND classroom_id=?', (classroom['id'],))
     db.execute(f"UPDATE survey SET is_active=1, went_live=1, active_part=?, "
                f"part{part}_ran=COALESCE(part{part}_ran, datetime('now')) WHERE id=?", (part, survey['id']))
@@ -465,6 +550,7 @@ def reset_http(code):
     db = get_db()
     db.execute('UPDATE survey SET is_active=0 WHERE is_active=1 AND classroom_id=?', (classroom['id'],))
     db.commit()
+    _set_showing_external(classroom, None)
 
     # Notify students that session is reset
     socketio.emit('survey_deactivated', {}, room=f'students_{classroom["id"]}')

@@ -172,6 +172,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateParticipantBadge(data.participant_count);
                 if (data.results) {
                     handleResultsUpdate(data.results);
+                } else if (data.external) {
+                    showExternal(data.external);
                 } else if (!data.active_survey_id) {
                     showNoActiveSurvey();
                 }
@@ -187,7 +189,59 @@ document.addEventListener('DOMContentLoaded', function() {
             });
     }
 
+    function hideExternal() {
+        var panel = document.getElementById('external-panel');
+        if (panel) panel.style.display = 'none';
+    }
+
+    // An other-platform group: their note on the screen (links clickable, a QR code for the first one), no results
+    function showExternal(card) {
+        var panel = document.getElementById('external-panel');
+        if (!panel || !card) return;
+        ['results-panel', 'no-survey-msg', 'all-done-msg'].forEach(function(id) {
+            document.getElementById(id).style.display = 'none';
+        });
+        activeSurveyId = null;  // the next survey shown gets a full rebuild
+        document.getElementById('external-title').textContent = card.title || ('Group ' + card.group_number);
+        document.getElementById('external-group').textContent = card.group_number;
+        var urlRe = /https?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]]/g;
+        var note = card.note || '';
+        var html = '', last = 0, m, first = null;
+        while ((m = urlRe.exec(note)) !== null) {
+            html += escapeHtml(note.slice(last, m.index));
+            html += '<a href="' + escapeHtml(m[0]) + '" target="_blank" rel="noopener">' + escapeHtml(m[0]) + '</a>';
+            if (!first) first = m[0];
+            last = m.index + m[0].length;
+        }
+        html += escapeHtml(note.slice(last));
+        document.getElementById('external-note').innerHTML = html ||
+            '<span class="text-muted">The group hasn\'t added a note or link yet.</span>';
+        var qrWrap = document.getElementById('external-qr-wrap'), qr = document.getElementById('external-qr');
+        qr.innerHTML = '';
+        if (first && window.QRCode) {
+            new QRCode(qr, { text: first, width: 220, height: 220, colorDark: '#000000', colorLight: '#ffffff' });
+            qrWrap.style.display = '';
+        } else {
+            qrWrap.style.display = 'none';
+        }
+        document.querySelectorAll('.survey-list-item').forEach(function(item) {
+            var on = parseInt(item.dataset.surveyId) === card.survey_id;
+            item.classList.toggle('active-survey', on);
+            if (on) {
+                item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                if (!item.querySelector('.shown-badge')) {
+                    var b = document.createElement('span');
+                    b.className = 'badge text-bg-secondary shown-badge ms-1';
+                    b.innerHTML = '&#10003; shown';
+                    item.querySelector('strong').parentNode.insertBefore(b, item.querySelector('br'));
+                }
+            }
+        });
+        panel.style.display = '';
+    }
+
     function showNoActiveSurvey() {
+        hideExternal();
         document.getElementById('results-panel').style.display = 'none';
         document.getElementById('all-done-msg').style.display = 'none';
         document.getElementById('no-survey-msg').style.display = '';
@@ -198,6 +252,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function showAllDone() {
+        hideExternal();
         document.getElementById('results-panel').style.display = 'none';
         document.getElementById('no-survey-msg').style.display = 'none';
         document.getElementById('all-done-msg').style.display = '';
@@ -224,6 +279,12 @@ document.addEventListener('DOMContentLoaded', function() {
         item.addEventListener('click', function() {
             var surveyId = parseInt(this.dataset.surveyId);
             var part = parseInt(this.dataset.part) || null;
+            if (this.dataset.external) {
+                postJson(HOST_EXTERNAL_URL, { survey_id: surveyId })
+                    .then(function(data) { if (data && data.external) showExternal(data.external); })
+                    .catch(function(err) { console.warn('[host] show-external request failed:', err.message); });
+                return;
+            }
             console.log('[host] activating survey', surveyId, 'part', part);
             postJson(HOST_ACTIVATE_URL, { survey_id: surveyId, part: part })
                 .then(function(data) {
@@ -242,6 +303,7 @@ document.addEventListener('DOMContentLoaded', function() {
         postJson(HOST_NEXT_URL)
             .then(function(data) {
                 if (data && data.results) handleResultsUpdate(data.results);
+                if (data && data.external) showExternal(data.external);
                 if (data && data.done) showAllDone();
             })
             .catch(function(err) {
@@ -274,6 +336,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             }
         });
+        hideExternal();
         document.getElementById('no-survey-msg').style.display = 'none';
         document.getElementById('all-done-msg').style.display = 'none';
         document.getElementById('results-panel').style.display = '';

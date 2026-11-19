@@ -894,14 +894,20 @@ def export_groups_csv(classroom_id):
             reviewers.setdefault(r['survey_id'], []).append(st['full_name'])
     output = io.StringIO()
     writer = csv.writer(output)
+    from models.survey import get_survey, survey_incomplete
     writer.writerow(['group_number', 'survey_title', 'member_count', 'members', 'member_student_ids', 'runs',
-                     'commenter_count', 'must_comment_on_it'])
+                     'finished', 'still_to_do', 'platform_note', 'commenter_count', 'must_comment_on_it'])
     for s in db.execute('SELECT * FROM survey WHERE classroom_id=? ORDER BY group_number', (classroom_id,)).fetchall():
         members = db.execute('SELECT name, sis_code FROM group_member WHERE survey_id=? ORDER BY name COLLATE NOCASE',
                              (s['id'],)).fetchall()
         who = reviewers.get(s['id'], [])
+        # finished: built on this site with nothing left on its to-do list ("Not finished" on Manage Surveys);
+        # other-platform surveys can't be checked from here, their note usually has the link
+        todo = [] if s['external'] else survey_incomplete(get_survey(s['id']))
+        finished = 'other platform' if s['external'] else ('no' if todo else 'yes')
         writer.writerow([s['group_number'], s['title'], len(members), '; '.join(m['name'] for m in members),
                          '; '.join(m['sis_code'] for m in members), 'another platform' if s['external'] else 'this site',
+                         finished, ' '.join(todo), (s['external_note'] or '') if s['external'] else '',
                          len(who), '; '.join(who)])
     return '﻿' + output.getvalue()
 

@@ -45,10 +45,13 @@
                 {% endif %}
                 {% for s in surveys %}
                 {% if s.external %}
-                <div class="list-group-item text-muted" title="This group runs its survey on another platform: they present, but there are no live results.">
+                <button class="list-group-item list-group-item-action survey-list-item" data-external="1"
+                        data-survey-id="{{ s.id }}" data-group-number="{{ s.group_number }}"
+                        title="This group runs its survey on another platform: click (or Next Survey) to show their note and link on the screen. Nothing opens on phones.">
                     <strong>#{{ s.group_number }}</strong> {{ s.title }}
-                    <br><small>Other platform &middot; presents without live results</small>
-                </div>
+                    {% if s.ran %}<span class="badge text-bg-secondary shown-badge" title="Already shown: Next Survey skips it. Click to show it again.">&#10003; shown</span>{% endif %}
+                    <br><small class="text-muted">Other platform &middot; shows the group's note</small>
+                </button>
                 {% elif not s.run_part %}
                 <div class="list-group-item text-muted" title="Both parts run outside the live session: launch them from Manage Surveys.">
                     <strong>#{{ s.group_number }}</strong> {{ s.title }}
@@ -134,6 +137,21 @@
             </div>
         </div>
 
+        <!-- Other-platform group: their note (and a QR code for its first link) instead of results -->
+        <div id="external-panel" style="display:none">
+            <h3 id="external-title"></h3>
+            <span class="text-muted">Group #<span id="external-group"></span> &middot; this survey runs on another platform</span>
+            <div class="row mt-4 g-4 align-items-start">
+                <div class="col-lg">
+                    <div class="card"><div class="card-body fs-5" id="external-note" style="white-space: pre-line; overflow-wrap: anywhere;"></div></div>
+                </div>
+                <div class="col-lg-auto text-center" id="external-qr-wrap" style="display:none">
+                    <div id="external-qr" class="p-3 d-inline-block rounded" style="background:#ffffff;"></div>
+                    <div class="small text-muted mt-1">Scan to open the survey</div>
+                </div>
+            </div>
+        </div>
+
         <!-- All done message -->
         <div id="all-done-msg" style="display:none" class="text-center mt-5">
             <h3 class="text-success">All surveys completed!</h3>
@@ -152,7 +170,8 @@
     const HOST_ACTIVATE_URL = "{{ url_for('host.mock_activate' if mock else 'host.activate_http', code=classroom.code) }}";
     const HOST_NEXT_URL = "{{ url_for('host.mock_next' if mock else 'host.next_http', code=classroom.code) }}";
     const HOST_RESET_URL = "{{ url_for('host.mock_reset' if mock else 'host.reset_http', code=classroom.code) }}";
-    const HOST_TOGGLE_BLOCK_URL = "{{ url_for('host.toggle_block_designers', code=classroom.code) }}";
+    const HOST_EXTERNAL_URL = "{{ url_for('host.mock_show_external' if mock else 'host.show_external', code=classroom.code) }}";
+    const HOST_TOGGLE_BLOCK_URL ="{{ url_for('host.toggle_block_designers', code=classroom.code) }}";
 
     // Host password prompt for destructive actions
     function promptHostPassword(form, message) {
@@ -183,5 +202,5 @@
         colorLight: '#ffffff',
     });
 </script>
-<script src="{{ url_for('static', filename='js/host.js') }}?v=20261117"></script>
+<script src="{{ url_for('static', filename='js/host.js') }}?v=20261119"></script>
 {% endblock %}
