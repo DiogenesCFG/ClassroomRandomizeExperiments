@@ -274,13 +274,14 @@
             <div class="card-body">
                 <p class="mb-1"><strong>{{ response_count }}</strong> survey answer{{ 's' if response_count != 1 }} collected
                     <span class="text-muted small" title="Each student who answers a survey counts once. Surveys collect answers only once they run (live in class, launched on their own, opened early, or a remote part), so this stays at 0 until then, however many surveys groups have built.">&#9432;</span></p>
-                <a href="{{ url_for('download.download_everything', code=classroom.code) }}" class="btn btn-primary btn-sm mb-2">Download everything (.zip)</a>
+                <a href="{{ url_for('download.download_everything', code=classroom.code) }}" class="btn btn-primary btn-sm mb-2 tz-link">Download everything (.zip)</a>
                 <div class="dropdown">
                     <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">Individual CSVs</button>
                     <ul class="dropdown-menu">
                         <li><a class="dropdown-item" href="{{ url_for('download.download_all', code=classroom.code) }}">All Responses</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('download.download_surveys_config', code=classroom.code) }}">Survey Configs</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('download.download_roster', code=classroom.code) }}">Roster (as on the roster page)</a></li>
+                        <li><a class="dropdown-item tz-link" href="{{ url_for('download.download_grading', code=classroom.code) }}">Grading (one row per student, with their group)</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('download.download_groups', code=classroom.code) }}">Groups (one row per group)</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('download.download_designers', code=classroom.code) }}">Survey Designers</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('download.download_assignments', code=classroom.code) }}">Comment assignments</a></li>
@@ -315,6 +316,13 @@
 
 {% block scripts %}
 <script>
+    // Downloads with times (grading file, the zip) show them in this computer's time zone
+    document.querySelectorAll('a.tz-link').forEach(function(a) {
+        try {
+            var tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            if (tz) a.href += (a.href.indexOf('?') < 0 ? '?' : '&') + 'tz=' + encodeURIComponent(tz);
+        } catch (e) {}
+    });
     // Round schedules: the date-time boxes are in this computer's time zone; they're sent as UTC
     document.querySelectorAll('.round-schedule').forEach(function(form) {
         function pad(n) { return (n < 10 ? '0' : '') + n; }
