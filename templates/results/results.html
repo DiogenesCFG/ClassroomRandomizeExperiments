@@ -18,24 +18,16 @@
             <small class="text-muted">Read-only. Looking at a survey here doesn't open it on phones.</small></div>
         <div class="list-group list-group-flush" style="max-height: 70vh; overflow-y: auto;">
             {% for s in surveys %}
-            {% if s.external %}
-            <div class="list-group-item small">
-                <strong>#{{ s.group_number }}</strong> {{ s.title }}<br>
-                <span class="text-muted">Ran on another platform</span>
-                {% if s.external_note %}<div class="text-muted mt-1" style="white-space: pre-line; overflow-wrap: anywhere;">{{ s.external_note }}</div>{% endif %}
-            </div>
-            {% else %}
             <a class="list-group-item list-group-item-action {% if survey and s.id == survey.id %}active{% endif %}" href="{{ link_for(s.id) }}">
                 <strong>#{{ s.group_number }}</strong> {{ s.title }}<br>
-                <small>{{ s.respondents }} respondent{{ '' if s.respondents == 1 else 's' }}</small>
+                <small>{% if s.external %}Ran on another platform{% else %}{{ s.respondents }} respondent{{ '' if s.respondents == 1 else 's' }}{% endif %}</small>
             </a>
-            {% endif %}
             {% endfor %}
         </div>
     </div>
     {% if not shared %}
     <div class="d-grid gap-2 mt-3">
-        {% if survey %}<a href="{{ url_for('feedback.view_survey', code=classroom.code, survey_id=survey.id) }}" class="btn btn-outline-primary btn-sm">All arms side by side</a>{% endif %}
+        {% if survey and not external %}<a href="{{ url_for('feedback.view_survey', code=classroom.code, survey_id=survey.id) }}" class="btn btn-outline-primary btn-sm">All arms side by side</a>{% endif %}
         <a href="{{ url_for('host.home', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">&larr; Instructor home</a>
     </div>
     {% endif %}
@@ -43,6 +35,10 @@
 <div class="col-md-9">
     {% if not survey %}
     <p class="text-muted mt-5 text-center">There are no surveys to show yet.</p>
+    {% elif external %}
+    <h3>{{ survey.title }}</h3>
+    <span class="text-muted">Group #{{ survey.group_number }} &middot; this survey ran on another platform, so its answers aren't collected here</span>
+    <div class="card mt-4"><div class="card-body fs-5" style="white-space: pre-line; overflow-wrap: anywhere;">{% if survey.external_note %}{{ note_html }}{% else %}<span class="text-muted">The group didn't add a note or link.</span>{% endif %}</div></div>
     {% else %}
     <div id="no-survey-msg" class="text-center text-muted mt-5">
         <div class="spinner-border text-primary" role="status"></div>
@@ -79,7 +75,7 @@
 {% endblock %}
 
 {% block scripts %}
-{% if survey %}
+{% if survey and not external %}
 <script>
     const CLASSROOM_ID = {{ classroom.id }};
     const HOST_STATE_URL = {{ state_url|tojson }};

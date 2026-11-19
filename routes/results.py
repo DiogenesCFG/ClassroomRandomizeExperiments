@@ -6,9 +6,11 @@ Two ways in, same page (templates/results/results.html + host.js, the live dashb
   replaces or turns it off on the instructor home). No password, no names, nothing can be changed or opened on phones.
 """
 import hmac
+import re
 import secrets
 
 from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, session, url_for
+from markupsafe import Markup, escape
 
 from models.db import get_db
 
@@ -53,13 +55,33 @@ def _surveys(classroom):
     return surveys
 
 
+_URL = re.compile(r"""https?://[^\s<>"']+[^\s<>"'.,;:!?)\]]""")
+
+
+def _linked(text):
+    """An other-platform group's note as HTML: escaped (line breaks kept by CSS), links clickable."""
+    text = text or ''
+    out, last = [], 0
+    for m in _URL.finditer(text):
+        out.append(str(escape(text[last:m.start()])))
+        url = str(escape(m.group(0)))
+        out.append(f'<a href="{url}" target="_blank" rel="noopener noreferrer">{url}</a>')
+        last = m.end()
+    out.append(str(escape(text[last:])))
+    return Markup(''.join(out))
+
+
 def _page(classroom, surveys, link_for, state_url_for, shared):
     runnable = [s for s in surveys if not s['external']]
     chosen = request.args.get('survey', type=int)
-    survey = next((s for s in runnable if s['id'] == chosen), None) \
-        or next((s for s in runnable if s['respondents']), None) or (runnable[0] if runnable else None)
+    survey = next((s for s in surveys if s['id'] == chosen), None) \
+        or next((s for s in runnable if s['respondents']), None) or (runnable[0] if runnable else None) \
+        or (surveys[0] if surveys else None)
+    external = survey is not None and bool(survey['external'])
     return render_template('results/results.html', classroom=classroom, surveys=surveys, survey=survey,
-                           link_for=link_for, state_url=state_url_for(survey['id']) if survey else None, shared=shared)
+                           external=external, note_html=_linked(survey['external_note']) if external else None,
+                           link_for=link_for,
+                           state_url=state_url_for(survey['id']) if survey and not external else None, shared=shared)
 
 
 def _state(classroom, survey_id):
