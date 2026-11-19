@@ -274,6 +274,8 @@
             <div class="card-body">
                 <p class="mb-1"><strong>{{ response_count }}</strong> survey answer{{ 's' if response_count != 1 }} collected
                     <span class="text-muted small" title="Each student who answers a survey counts once. Surveys collect answers only once they run (live in class, launched on their own, opened early, or a remote part), so this stays at 0 until then, however many surveys groups have built.">&#9432;</span></p>
+                <a href="{{ url_for('results.host_results', code=classroom.code) }}" class="btn btn-success btn-sm mb-2"
+                   title="Every survey's questions and response charts, read-only: nothing opens on phones">See results</a>
                 <a href="{{ url_for('download.download_everything', code=classroom.code) }}" class="btn btn-primary btn-sm mb-2">Download everything (.zip)</a>
                 <div class="dropdown">
                     <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">Individual CSVs</button>
@@ -292,6 +294,30 @@
                         <li><a class="dropdown-item" href="{{ url_for('feedback.download_feedback_summary', code=classroom.code) }}">Feedback summary</a></li>
                         <li><a class="dropdown-item" href="{{ url_for('download.download_reminders', code=classroom.code) }}">Reminder downloads</a></li>
                     </ul>
+                </div>
+                <!-- Private read-only results link: no password needed, no names, changes nothing -->
+                <div class="border-top mt-3 pt-2" id="results-link">
+                    <div class="small fw-semibold mb-1">Results link to share
+                        <span class="text-muted" title="Anyone with this link sees the results page (questions and charts, no names) without signing in. They can't change anything or open surveys on phones. Make a new link to stop the old one working, or turn it off.">&#9432;</span></div>
+                    {% if classroom.results_token %}
+                    {% set results_url = url_for('results.shared_results', token=classroom.results_token, _external=True) %}
+                    <div class="input-group input-group-sm mb-1">
+                        <input type="text" class="form-control" id="results-url" value="{{ results_url }}" readonly onclick="this.select()">
+                        <button class="btn btn-outline-primary" type="button"
+                                onclick="var i=document.getElementById('results-url');i.select();(navigator.clipboard?navigator.clipboard.writeText(i.value):Promise.reject()).then(function(){this.textContent='Copied'}.bind(this),function(){document.execCommand('copy')});">Copy</button>
+                    </div>
+                    <form method="POST" action="{{ url_for('results.results_link', code=classroom.code) }}" class="d-inline"
+                          onsubmit="return confirm('Make a new link? The current one will stop working.')">
+                        <button class="btn btn-link btn-sm p-0" name="action" value="new">New link</button></form>
+                    &middot;
+                    <form method="POST" action="{{ url_for('results.results_link', code=classroom.code) }}" class="d-inline"
+                          onsubmit="return confirm('Turn the link off? It will stop working.')">
+                        <button class="btn btn-link btn-sm p-0 text-danger" name="action" value="off">Turn off</button></form>
+                    {% else %}
+                    <form method="POST" action="{{ url_for('results.results_link', code=classroom.code) }}">
+                        <button class="btn btn-outline-primary btn-sm" name="action" value="new">Make a link</button>
+                    </form>
+                    {% endif %}
                 </div>
             </div>
         </div>

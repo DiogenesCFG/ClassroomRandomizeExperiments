@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}Results - {{ classroom.name }}{% endblock %}
+
+{% block head %}
+{% if shared %}
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+{% endif %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+<div class="col-md-3 mb-3">
+    <div class="card">
+        <div class="card-header"><strong>{{ classroom.name }}: results</strong><br>
+            <small class="text-muted">Read-only. Looking at a survey here doesn't open it on phones.</small></div>
+        <div class="list-group list-group-flush" style="max-height: 70vh; overflow-y: auto;">
+            {% for s in surveys %}
+            {% if s.external %}
+            <div class="list-group-item small">
+                <strong>#{{ s.group_number }}</strong> {{ s.title }}<br>
+                <span class="text-muted">Ran on another platform</span>
+                {% if s.external_note %}<div class="text-muted mt-1" style="white-space: pre-line; overflow-wrap: anywhere;">{{ s.external_note }}</div>{% endif %}
+            </div>
+            {% else %}
+            <a class="list-group-item list-group-item-action {% if survey and s.id == survey.id %}active{% endif %}" href="{{ link_for(s.id) }}">
+                <strong>#{{ s.group_number }}</strong> {{ s.title }}<br>
+                <small>{{ s.respondents }} respondent{{ '' if s.respondents == 1 else 's' }}</small>
+            </a>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+    {% if not shared %}
+    <div class="d-grid gap-2 mt-3">
+        {% if survey %}<a href="{{ url_for('feedback.view_survey', code=classroom.code, survey_id=survey.id) }}" class="btn btn-outline-primary btn-sm">All arms side by side</a>{% endif %}
+        <a href="{{ url_for('host.home', code=classroom.code) }}" class="btn btn-outline-secondary btn-sm">&larr; Instructor home</a>
+    </div>
+    {% endif %}
+</div>
+<div class="col-md-9">
+    {% if not survey %}
+    <p class="text-muted mt-5 text-center">There are no surveys to show yet.</p>
+    {% else %}
+    <div id="no-survey-msg" class="text-center text-muted mt-5">
+        <div class="spinner-border text-primary" role="status"></div>
+    </div>
+
+    <!-- Same markup and script as the live dashboard's results area -->
+    <div id="results-panel" style="display:none">
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <div>
+                <h3 id="result-title"></h3>
+                <span class="text-muted">Group #<span id="result-group"></span></span>
+            </div>
+            <div class="text-end">
+                <button class="btn btn-outline-primary btn-sm me-2" id="btn-refresh" data-label="Refresh">Refresh</button>
+                <span class="badge bg-success fs-6" id="response-count">0 responses</span>
+            </div>
+        </div>
+
+        <ul class="nav nav-tabs mb-3" id="question-tabs" role="tablist"></ul>
+        <div class="tab-content" id="question-tab-content"></div>
+
+        <div class="mt-4">
+            <div class="d-flex align-items-center gap-2 mb-2">
+                <h5 class="mb-0">Questions by Arm</h5>
+                <button class="btn btn-sm btn-outline-secondary" id="toggle-arms" onclick="var d=document.getElementById('arms-detail');var b=this;if(d.style.display==='none'){d.style.display='';b.textContent='Hide'}else{d.style.display='none';b.textContent='Show'}">Hide</button>
+            </div>
+            <div id="arms-detail" class="row"></div>
+        </div>
+    </div>
+    <div id="all-done-msg" style="display:none"></div>
+    {% endif %}
+</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if survey %}
+<script>
+    const CLASSROOM_ID = {{ classroom.id }};
+    const HOST_STATE_URL = {{ state_url|tojson }};
+    const HOST_ACTIVATE_URL = "";
+    const HOST_NEXT_URL = "";
+    const HOST_RESET_URL = "";
+</script>
+<script src="{{ url_for('static', filename='js/host.js') }}?v=20261119"></script>
+{% endif %}
+{% endblock %}

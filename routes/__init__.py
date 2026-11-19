@@ -9,6 +9,7 @@ def register_blueprints(app):
     from routes.account import bp as account_bp
     from routes.feedback import bp as feedback_bp
     from routes.reminders import bp as reminders_bp
+    from routes.results import bp as results_bp
     from routes import view_as
 
     app.register_blueprint(main_bp)
@@ -21,6 +22,7 @@ def register_blueprints(app):
     app.register_blueprint(account_bp)
     app.register_blueprint(feedback_bp)
     app.register_blueprint(reminders_bp)
+    app.register_blueprint(results_bp)
     app.register_blueprint(view_as.bp)
     app.before_request(view_as.guard)
     import sqlite3

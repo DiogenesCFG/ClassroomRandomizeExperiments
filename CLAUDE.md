@@ -55,6 +55,9 @@ The app originally used Flask-SocketIO for real-time updates but this was remove
 ### Host Pages
 After logging in, the host lands on the **instructor home** (`/c/<code>/host/home`, `host/home.html`): class phase switches, peer-feedback progress, roster/surveys/data cards, and a collapsed danger zone. Its **Start live session** button opens the live-session page (`/c/<code>/host/dashboard`, `host/dashboard.html`), which only has what class needs: survey list, Next/Reset, results, QR code, classroom code/password, block-designers toggle.
 
+### Results Without Going Live
+`routes/results.py`, `templates/results/results.html` (the live dashboard's results area and `host.js`, with a list of every survey and its respondent count; nothing is activated, so phones see nothing). The instructor opens it from the instructor home's Data card (**See results**, `/c/<code>/host/results?survey=ID`, state at `.../host/results/state`). A private **results link** (`/results/<token>`, `classroom.results_token`, `secrets.token_urlsafe(24)`, compared with `hmac.compare_digest`) shows the same page without signing in, for someone who only needs to look (e.g. the professor grading): no names, no instructor links, GET only, `noindex` and `no-referrer`. Made, replaced (old link stops working) or turned off on the instructor home (`POST /c/<code>/host/results-link`, action `new` / `off`).
+
 ### Live Session
 1. Host opens `/c/<code>/host/dashboard` (Start live session)
 2. On page load, `host.js` calls `GET /c/<code>/host/state` to get current results
