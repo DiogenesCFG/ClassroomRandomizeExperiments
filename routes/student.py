@@ -165,6 +165,12 @@ def session_state(code):
     ).fetchone()
 
     if not active:
+        # The live session is showing an other-platform group: phones show its note and link too
+        ext = db.execute('SELECT s.* FROM classroom c JOIN survey s ON s.id = c.live_external AND s.external = 1 '
+                         'WHERE c.id=?', (classroom['id'],)).fetchone()
+        if ext:
+            return jsonify({'ok': True, 'state': 'external', 'survey_id': ext['id'], 'group_number': ext['group_number'],
+                            'title': ext['title'] or '', 'note': ext['external_note'] or ''})
         return jsonify({'ok': True, 'state': 'waiting'})
 
     # Check if student is a designer of this survey and should be blocked

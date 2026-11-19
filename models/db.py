@@ -267,7 +267,8 @@ def init_db():
         ('classroom', 'fb_sketch_instructions', 'TEXT DEFAULT NULL'),  # the instructor's instructions for each comment round
         ('classroom', 'fb_survey_instructions', 'TEXT DEFAULT NULL'),
         ('feedback', 'entered_by_host', 'INTEGER NOT NULL DEFAULT 0'),  # a comment the instructor entered for the student
-        ('classroom', 'live_order', 'TEXT DEFAULT NULL'),  # custom live-session order (JSON survey ids; NULL = by group number)
+        ('classroom', 'live_order', 'TEXT DEFAULT NULL'),
+        ('classroom', 'live_external', 'INTEGER DEFAULT NULL'),  # other-platform group whose note the live session shows (phones too)  # custom live-session order (JSON survey ids; NULL = by group number)
         ('classroom', 'sandbox_of', 'INTEGER DEFAULT NULL'),  # a student mock-up: the real class's id (models/sandbox.py)
     ):
         try:

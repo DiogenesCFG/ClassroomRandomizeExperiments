@@ -391,15 +391,15 @@ def next_http(code):
 
 
 def _showing_external(classroom):
-    """The other-platform group whose placeholder the live screen shows (kept in the instructor's session), or None."""
-    return session.get(f'live_external_{classroom["id"]}')
+    """The other-platform group whose note the live session shows (classroom.live_external, so phones see it too)."""
+    row = get_db().execute('SELECT live_external FROM classroom WHERE id=?', (classroom['id'],)).fetchone()
+    return row['live_external'] if row else None
 
 
 def _set_showing_external(classroom, survey_id):
-    if survey_id:
-        session[f'live_external_{classroom["id"]}'] = survey_id
-    else:
-        session.pop(f'live_external_{classroom["id"]}', None)
+    db = get_db()
+    db.execute('UPDATE classroom SET live_external=? WHERE id=?', (survey_id or None, classroom['id']))
+    db.commit()
 
 
 def _external_card(row):

@@ -1044,11 +1044,35 @@ document.addEventListener('DOMContentLoaded', function() {
                     showState('closed');
                 } else if (data.state === 'assignment' && data.assignment) {
                     renderAssignment(data.assignment);
+                } else if (data.state === 'external') {
+                    showExternal(data);
                 }
             })
             .catch(function(err) {
                 console.warn('[student] state poll failed:', err.message);
             });
+    }
+
+    // The live session is showing a group whose survey runs elsewhere: their note, links clickable, a button for the first
+    function showExternal(data) {
+        var key = data.survey_id + '|' + data.note;
+        if (currentState === 'external' && showExternal.shown === key) return;
+        showExternal.shown = key;
+        var note = data.note || '', html = '', last = 0, m, first = null;
+        var urlRe = /https?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]]/g;
+        while ((m = urlRe.exec(note)) !== null) {
+            html += escapeHtml(note.slice(last, m.index)) + '<a href="' + escapeHtml(m[0]) + '" target="_blank" rel="noopener">'
+                + escapeHtml(m[0]) + '</a>';
+            if (!first) first = m[0];
+            last = m.index + m[0].length;
+        }
+        html += escapeHtml(note.slice(last));
+        document.getElementById('external-group').textContent = data.group_number;
+        document.getElementById('external-title').textContent = data.title || ('Group ' + data.group_number);
+        document.getElementById('external-note').innerHTML = html || 'Follow the instructions on the screen.';
+        var btn = document.getElementById('external-open');
+        if (first) { btn.href = first; btn.style.display = ''; } else { btn.style.display = 'none'; }
+        showState('external');
     }
 
     function startStatePolling() {

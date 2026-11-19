@@ -135,6 +135,18 @@
     </div>
 </div>
 
+<!-- State 6: the live session is showing a group whose survey runs on another platform -->
+<div id="state-external" class="state-panel">
+    <div class="card mt-4">
+        <div class="card-body">
+            <div class="text-muted small">Group <span id="external-group"></span> &middot; this survey runs on another platform</div>
+            <h3 class="mt-1" id="external-title"></h3>
+            <div class="fs-5 mt-3" id="external-note" style="white-space: pre-line; overflow-wrap: anywhere;"></div>
+            <a class="btn btn-primary btn-lg w-100 mt-3" id="external-open" target="_blank" rel="noopener" style="display:none">Open their survey</a>
+        </div>
+    </div>
+</div>
+
 <!-- State 5: Closed (an open survey past its deadline) -->
 <div id="state-closed" class="state-panel">
     <div class="text-center mt-5">
@@ -164,7 +176,7 @@
     const POLL_ONCE = false;
     {% endif %}
 </script>
-<script src="{{ url_for('static', filename='js/student.js') }}?v=20261110"></script>
+<script src="{{ url_for('static', filename='js/student.js') }}?v=20261119"></script>
 {% if remote_part != 2 and not (preview and preview_part == 2) %}
 <script src="{{ url_for('static', filename='js/reminders.js') }}?v=20261015"></script>
 <script>
