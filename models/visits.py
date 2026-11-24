@@ -23,7 +23,7 @@ from datetime import datetime
 
 from models.db import is_read_only
 
-MODES = ('live', 'class', 'early', 'remote')
+MODES = ('live', 'class', 'early', 'remote', 'makeup')
 DEVICES = ('phone', 'tablet', 'computer')
 EVENTS = ('open', 'start', 'decline')
 

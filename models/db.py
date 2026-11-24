@@ -248,6 +248,8 @@ def init_db():
         ('classroom', 'fb_survey_close_at', 'TEXT DEFAULT NULL'),
         ('roster_student', 'seeking_group', 'INTEGER NOT NULL DEFAULT 0'),
         ('roster_student', 'seeking_note', 'TEXT DEFAULT NULL'),
+        ('roster_student', 'makeup_until', 'TEXT DEFAULT NULL'),  # make-up access until (ISO UTC; models/makeup.py)
+        ('roster_student', 'makeup_label', 'TEXT DEFAULT NULL'),  # that date as the instructor chose it
         ('survey', 'seeking_members', 'INTEGER NOT NULL DEFAULT 0'),
         ('survey', 'seeking_note', 'TEXT DEFAULT NULL'),
         ('join_request', 'from_survey_id', 'INTEGER DEFAULT NULL REFERENCES survey(id) ON DELETE CASCADE'),

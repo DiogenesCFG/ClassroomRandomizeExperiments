@@ -5,7 +5,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, sessio
 
 from models import drafts, visits
 from models.classroom import get_classroom_by_code
-from models.db import get_db
+from models.db import get_db, is_read_only
 from models.survey import get_survey
 from routes.account import get_signed_in_student, ensure_participant_session
 
@@ -88,9 +88,15 @@ def _closed_for(db, survey, part):
     running_live = survey['is_active'] and (survey['active_part'] or 1) == part
     open_remote = part in reminders.remote_parts(survey) and reminders.part_window(get_survey(survey['id']), part) == 'open'
     open_early = part == 1 and not reminders.is_two_part(survey) and early_survey_is_open(survey)
-    if not (running_live or open_remote or open_early):
+    if not (running_live or open_remote or open_early or _makeup_ok(db, survey, part)):
         return 'survey_closed'
     return None
+
+
+def _makeup_ok(db, survey, part):
+    """The signed-in student has make-up access and this part ran in class (models/makeup.py)."""
+    from models import makeup
+    return bool(session.get('student_id')) and makeup.allows(db, survey['classroom_id'], session['student_id'], survey, part)
 
 
 def _mode_for(survey, part):
@@ -353,3 +359,71 @@ def record_visit(code):
                         device=device, user_agent=agent, intro_seconds=_clean_seconds(data.get('intro_seconds')))
     db.commit()
     return jsonify({'ok': True, 'recorded': done})
+
+
+# --- Make-up: a student with make-up access answers a survey part that ran in class (models/makeup.py) ---
+
+def _makeup_target(code, survey_id, part):
+    """(classroom, student, survey) when this signed-in student may make up this part, else (classroom, student, None)."""
+    from models import makeup
+    classroom = _get_classroom_or_404(code)
+    student = get_signed_in_student(classroom)
+    if not student:
+        return classroom, None, None
+    ensure_participant_session(classroom, student)
+    survey = get_db().execute('SELECT * FROM survey WHERE id=? AND classroom_id=?', (survey_id, classroom['id'])).fetchone()
+    db = get_db()
+    row = db.execute('SELECT * FROM roster_student WHERE id=?', (student['id'],)).fetchone()
+    if not survey or not makeup.is_active(row) or not makeup.eligible(db, dict(survey), part, student['id']):
+        return classroom, student, None
+    return classroom, student, dict(survey)
+
+
+@bp.route('/makeup/<int:survey_id>/<int:part>')
+def makeup_page(code, survey_id, part):
+    classroom, student, survey = _makeup_target(code, survey_id, part)
+    if not student:
+        return redirect(url_for('account.signin', code=code))
+    if not survey:
+        flash('That survey is not open for you to make up.', 'warning')
+        return redirect(url_for('classroom.lobby', code=code))
+    return render_template('student/session.html', classroom=classroom, open_survey=survey, makeup_part=part,
+                           makeup_label=student.get('makeup_label') if hasattr(student, 'get') else None,
+                           remote_part=2 if part == 2 else None,  # no notifications offer after part 2
+                           participant_id=session['participant_id'], student_id=session['student_id'],
+                           student_name=session['student_name'],
+                           state_url=url_for('student.makeup_state', code=code, survey_id=survey_id, part=part),
+                           submit_url=url_for('student.submit_answer_http', code=code))
+
+
+@bp.route('/makeup/<int:survey_id>/<int:part>/state')
+def makeup_state(code, survey_id, part):
+    from sockets.events import _build_assignment_payload, _get_survey_with_arms_and_questions, _is_fully_answered
+    from models import reminders
+    classroom, student, survey = _makeup_target(code, survey_id, part)
+    if not student:
+        return jsonify({'ok': False, 'error': 'not_logged_in'}), 401
+    if not survey:
+        return jsonify({'ok': True, 'state': 'closed', 'title': 'Not open for you',
+                        'message': 'Your make-up access has ended, or this survey is not one you can make up.'})
+    db = get_db()
+    pid = session['participant_id']
+    if _is_fully_answered(db, pid, survey_id, part):
+        return jsonify({'ok': True, 'state': 'submitted', 'survey_id': survey_id})
+    if part == 2 and not reminders.answered_part(db, pid, survey, 1):
+        return jsonify({'ok': True, 'state': 'closed', 'title': 'Answer part 1 first',
+                        'message': 'Part 2 opens once you have answered part 1 of this survey.'})
+    s, arms, questions = _get_survey_with_arms_and_questions(db, survey_id)
+    arm = reminders.respondent_arm(db, survey_id, pid) if part == 2 else None
+    payload = _build_assignment_payload(s, arms, questions, session['student_id'], part=part,
+                                        arm_position=next((i for i, a in enumerate(arms) if a['arm_index'] == arm), None))
+    if reminders.is_two_part(s):
+        payload['title'] += f' (part {part})'
+    drafts.attach(payload, pid)
+    visits.shown(db, payload, pid, part, 'makeup')
+    if not is_read_only():
+        # Opened in class but not submitted then: this answer is a make-up
+        db.execute("UPDATE survey_visit SET mode='makeup' WHERE participant_id=? AND survey_id=? AND part=? "
+                   "AND submitted_at IS NULL", (pid, survey_id, part))
+        db.commit()
+    return jsonify({'ok': True, 'state': 'assignment', 'assignment': payload})

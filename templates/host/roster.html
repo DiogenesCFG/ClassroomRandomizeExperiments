@@ -156,6 +156,57 @@
     </div>
 </div>
 
+{# Make-up access: a student who missed class answers the surveys that ran in class, from their lobby #}
+<div class="card mb-4" id="makeup-card">
+    <div class="card-header"><strong>Make-up access</strong>
+        <span class="small text-muted">for a student who missed the surveys in class (sick, an emergency)</span></div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('roster.makeup_give', code=classroom.code) }}" class="row g-2 align-items-end mb-2" id="makeup-form">
+            <div class="col-md-6">
+                <label class="form-label small mb-0" for="makeup-student">Student</label>
+                <select class="form-select form-select-sm" name="student_id" id="makeup-student" required>
+                    <option value="">Choose a student...</option>
+                    {% for s in active %}<option value="{{ s.id }}">{{ s.full_name }} ({{ s.sis_id }})</option>{% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small mb-0" for="makeup-date">Until (end of the day)</label>
+                <input type="date" class="form-control form-control-sm" id="makeup-date" required>
+            </div>
+            <input type="hidden" name="until_utc"><input type="hidden" name="label">
+            <div class="col-md-3"><button type="submit" class="btn btn-primary btn-sm w-100">Give make-up access</button></div>
+        </form>
+        <p class="small text-muted mb-2">Until that date, the student's lobby lists every survey that already ran in class and they
+            haven't submitted (not their own group's, not other-platform ones), and they answer each on their own. Nothing is reopened
+            for the class. Their answers are marked <b>makeup</b> in the <i>mode</i> column of the downloads, so groups can tell them
+            apart; groups who already downloaded their data need to download it again.</p>
+        {% if makeups %}
+        <ul class="list-group list-group-sm">
+            {% for m in makeups %}
+            <li class="list-group-item d-flex justify-content-between align-items-center py-1 small">
+                <span>{{ m.full_name }} ({{ m.sis_id }}) &middot; until {{ m.makeup_label }}
+                    {% if m.active %}<span class="badge text-bg-success">active</span>{% else %}<span class="badge text-bg-secondary">ended</span>{% endif %}</span>
+                <form method="POST" action="{{ url_for('roster.makeup_remove', code=classroom.code, student_id=m.id) }}" class="m-0"
+                      onsubmit="return confirm('Remove make-up access for {{ m.full_name|e }}? Answers they already submitted are kept.')">
+                    <button class="btn btn-link btn-sm p-0 text-danger">Remove</button></form>
+            </li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+</div>
+<script>
+    document.getElementById('makeup-form').addEventListener('submit', function(e) {
+        var value = document.getElementById('makeup-date').value;  // yyyy-mm-dd
+        if (!value) { e.preventDefault(); return; }
+        var p = value.split('-').map(Number);
+        var end = new Date(p[0], p[1] - 1, p[2], 23, 59, 59);  // end of that day here
+        if (end < new Date()) { e.preventDefault(); alert('Choose a date in the future.'); return; }
+        this.until_utc.value = end.toISOString();
+        this.label.value = end.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    });
+</script>
+
 {# Filters (all in the browser): name/ID, signed up, in a group, size of their group #}
 <div class="card mb-2">
     <div class="card-body py-2 d-flex flex-wrap align-items-center gap-2" id="roster-filters">

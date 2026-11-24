@@ -90,6 +90,13 @@ def join():
     return render_template('classroom/join.html', prefill_code=prefill_code, prefill_password=prefill_password)
 
 
+
+def _makeups(classroom, student):
+    """Surveys this student can make up (they have make-up access), for the lobby."""
+    from models import makeup
+    return makeup.to_make_up(classroom, student, session.get('participant_id'))
+
+
 @bp.route('/<code>/lobby')
 def lobby(code):
     classroom = get_classroom_by_code(code)
@@ -158,6 +165,7 @@ def lobby(code):
                            my_request=roster_model.my_join_request(student['id']) if not groups else None,
                            join_requests=roster_model.join_requests_for_survey(open_group['id']) if open_group else [],
                            followups=followups_for_student(classroom, student, session.get('participant_id')),
+                           makeups=_makeups(classroom, student),
                            groups=groups, at_limit=at_limit,
                            invites=roster_model.pending_invites_for_student(student['id']),
                            live=any(s['is_active'] for s in surveys),

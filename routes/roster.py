@@ -146,7 +146,8 @@ def index(code):
         last_import = None
     ready, invited, absent = roster_model.students_without_group(classroom['id'])
     from models.survey import list_surveys
-    return render_template('host/roster.html', classroom=classroom, students=students, last_import=last_import,
+    from models import makeup
+    return render_template('host/roster.html', classroom=classroom, makeups=makeup.granted(classroom['id']), students=students, last_import=last_import,
                            all_groups=list_surveys(classroom['id']), solo_ready=ready, solo_invited=invited,
                            solo_absent=absent, comments_on=roster_model.required_targets(classroom),
                            **roster_model.teams_overview(classroom['id']))
@@ -181,6 +182,35 @@ def place(code):
             _after_group_change(classroom)
             flash(msg, 'success')
     return redirect(url_for('roster.index', code=code) + '#place-card')
+
+
+@bp.route('/makeup', methods=['POST'])
+def makeup_give(code):
+    """Make-up access until a date (end of that day in the instructor's browser, sent as UTC by the card's script)."""
+    from models import makeup
+    from models.feedback import parse_utc
+    from datetime import datetime, timezone
+    classroom = _get_host_classroom(code)
+    student = roster_model.get_student(classroom['id'], request.form.get('student_id', type=int))
+    until = parse_utc(request.form.get('until_utc', ''))
+    label = (request.form.get('label') or '').strip()[:40]
+    if not student or student['hidden']:
+        flash('Choose a student.', 'danger')
+    elif not until or not label or until < datetime.now(timezone.utc):
+        flash('Choose a date in the future.', 'danger')
+    else:
+        makeup.give(classroom['id'], student['id'], until.astimezone(timezone.utc).isoformat(), label)
+        flash(f'{student["full_name"]} can make up the surveys that ran in class until {label}, from their lobby.', 'success')
+    return redirect(url_for('roster.index', code=code) + '#makeup-card')
+
+
+@bp.route('/makeup/<int:student_id>/remove', methods=['POST'])
+def makeup_remove(code, student_id):
+    from models import makeup
+    classroom = _get_host_classroom(code)
+    makeup.remove(classroom['id'], student_id)
+    flash('Make-up access removed. Answers they already submitted are kept.', 'success')
+    return redirect(url_for('roster.index', code=code) + '#makeup-card')
 
 
 @bp.route('/solo-groups', methods=['POST'])

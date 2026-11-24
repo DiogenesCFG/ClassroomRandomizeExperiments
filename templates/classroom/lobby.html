@@ -77,6 +77,24 @@
     </div>
     {% endif %}
 
+    <!-- Make-up access: the surveys that ran in class, for a student who missed it -->
+    {% if makeups %}
+    <div class="card mb-4 border-warning" id="makeup-card">
+        <div class="card-header"><strong>Surveys to make up</strong>
+            <span class="text-muted small">you missed these in class{% if student.makeup_label %}; answer them by {{ student.makeup_label }}{% endif %}</span></div>
+        <ul class="list-group list-group-flush">
+            {% for m in makeups %}
+            <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div><strong>Group {{ m.group_number }}:</strong> {{ m.title }}{% if m.two_part %} <span class="text-muted small">(part {{ m.part }})</span>{% endif %}</div>
+                {% if m.done %}<span class="badge text-bg-success">&#10003; Answered</span>
+                {% elif m.needs_part1 %}<span class="badge text-bg-secondary">After part 1</span>
+                {% else %}<a href="{{ url_for('student.makeup_page', code=classroom.code, survey_id=m.id, part=m.part) }}" class="btn btn-warning btn-sm">Answer now</a>{% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
     <!-- Surveys opened early: answerable any time before their deadline -->
     {% if open_surveys %}
     <div class="card mb-4 border-success" id="open-surveys-card">

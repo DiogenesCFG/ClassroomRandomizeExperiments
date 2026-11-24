@@ -31,7 +31,9 @@
     <p class="text-muted">Signed in as <strong>{{ student_name }}</strong>
         &middot; <a href="{{ url_for('classroom.lobby', code=classroom.code) }}" class="text-muted">Back to lobby</a>
     </p>
-    {% if remote_part %}
+    {% if makeup_part %}
+    <p class="small text-muted mb-0">Make-up: {% if open_survey.part2_from is not none %}part {{ makeup_part }} of {% endif %}Group {{ open_survey.group_number }}'s survey{% if makeup_label %}, open for you until {{ makeup_label }}{% endif %}.</p>
+    {% elif remote_part %}
     <p class="small text-muted mb-0">Part {{ remote_part }} of Group {{ open_survey.group_number }}'s survey, open until {{ remote_close }}.</p>
     {% elif open_survey %}
     <p class="small text-muted mb-0">Open survey from Group {{ open_survey.group_number }}, answer by {{ open_survey.early_deadline_label }}.</p>
